@@ -1,0 +1,3 @@
+node_modules/
+# Spike reports contain account details (e.g. the email from `claude auth status`)
+spikes/*/reports/

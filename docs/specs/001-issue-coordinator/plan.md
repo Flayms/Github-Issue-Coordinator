@@ -58,12 +58,12 @@ export default {
 
 ## Tasks
 
-- [ ] T0 Spike on the server, scripted with no manual `claude` commands beyond the one-time `/login`. Record results in `known-pitfalls.md`. (REQ-001-17–22) Verify:
-  - (a) `claude --remote-control <name> "<prompt>"` started in a detached tmux window shows up on the phone with no confirmation prompt.
-  - (b) `--resume <id> --remote-control` with a new prompt works.
-  - (c) `--settings` hooks fire, and a `Stop` hook can block with a reason.
-  - (d) `--model` and the effort flag work.
-  - (e) The shape of the usage-limit signal.
+- [x] T0 Spike on the server (`spikes/t0/`, 2026-11-10, Claude Code 2.1.322). Results are in the spec's Assumptions and `known-pitfalls.md`. (REQ-001-17–22)
+  - (a) pass: a detached tmux session shows up on the phone, once the folder trust dialog is answered.
+  - (b) pass: resuming keeps the session id, the memory of earlier turns and the same phone conversation.
+  - (c) pass: hooks fire, including for messages sent from the phone, and a `Stop` hook can block with a reason.
+  - (d) pass: `--model sonnet` ran `claude-sonnet-5-5`, and `--effort` exists. A value for `--effort` wasn't tested.
+  - (e) open: the usage-limit signal can't be triggered on demand. The runner must log unknown `Stop`/`Notification` payloads so the shape can be captured when it happens.
 - [ ] T1 Project tooling: `bun init`, Biome, `tsc --noEmit`, `bun test`; update AGENTS.md commands.
 - [ ] T2 Config loading and validation. (REQ-001-01, REQ-001-08, REQ-001-22)
 - [ ] T3 GitHub App auth and client with ETag polling, timeline actor lookup, label helpers and PR review posting. (REQ-001-01, REQ-001-04, REQ-001-10, REQ-001-15)

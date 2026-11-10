@@ -172,7 +172,9 @@ The Owner (the single human user) wants GitHub issues across their public and pr
 
 - Agents run on the Owner's Claude Pro subscription. The `agent` user is logged in once during setup (`/login`). This quota is shared with the Owner's own use, and the plan determines which models are available.
 - Sessions run as interactive `claude --remote-control <name> "<prompt>"` processes inside detached tmux windows that the Coordinator owns. The Owner never needs to use tmux.
-- Turn boundaries and Owner activity are detected with Claude Code hooks (`Stop`, `UserPromptSubmit`) passed through `--settings`. The Result is a JSON file that the `Stop` hook validates. All of this is verified by plan task T0.
+- Turn boundaries and Owner activity are detected with Claude Code hooks (`SessionStart`, `UserPromptSubmit`, `Stop`, `SessionEnd`) passed through `--settings`. The hooks also fire for messages sent from the phone. The Result is a JSON file that the `Stop` hook validates. All of this was verified in T0 (Claude Code 2.1.322).
+- A resumed session keeps its session id and its Remote Control conversation, so the Owner keeps the same chat on the phone (verified in T0).
+- New directories trigger a folder trust dialog, which the runner answers (see `docs/known-pitfalls.md`).
 - The Coordinator's GitHub identity is a private GitHub App. Each target repository has a ruleset on its default branch that only the Owner can bypass.
 - The existing GitHub Actions review workflow is disabled in repositories the Coordinator manages.
 
