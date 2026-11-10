@@ -6,6 +6,7 @@ Domain terms used in code, specs and tests. Use these names consistently.
 
 | Term        | Definition                                                                                              | Not to be confused with                                 |
 | ----------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Owner       | The single human user. Only their issues, comments, labels and reviews count; only they can approve.    | The Coordinator's bot identity                          |
 | Coordinator | The Bun daemon in this repo. Polls GitHub, owns the state machine, starts agents, enforces concurrency. | An agent: the coordinator itself never calls the model. |
 | Planner     | Claude Code agent that triages open issues against all open issues/PRs and produces an Assessment.      | Implementer                                             |
 | Implementer | Claude Code agent that works on one approved issue (or Bundle) in its own Worktree and opens a PR.      | Planner                                                 |

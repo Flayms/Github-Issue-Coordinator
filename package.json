@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "start": "bun src/index.ts",
     "test": "bun test",
     "lint": "biome check . && tsc --noEmit",
     "lint:fix": "biome check --write .",
@@ -12,5 +13,8 @@
     "@biomejs/biome": "^2.6.6",
     "@types/bun": "^1.4.4",
     "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "zod": "^4.6.7"
   }
 }

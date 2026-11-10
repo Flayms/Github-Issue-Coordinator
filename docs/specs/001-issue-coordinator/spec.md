@@ -195,5 +195,9 @@ The Owner (the single human user) wants GitHub issues across their public and pr
 
 ## Verification
 
-| REQ | Test | Result |
-| --- | ---- | ------ |
+| REQ        | Test                                                                                                               | Result        |
+| ---------- | ------------------------------------------------------------------------------------------------------------------ | ------------- |
+| REQ-001-01 | `config > REQ-001-01 requires the Owner's login and numeric user id`, `… at least one repository …`                | pass (config) |
+| REQ-001-08 | `config > REQ-001-08 rejects limits that are not positive integers`, `… allows zero feedback rounds`               | pass (config) |
+| REQ-001-20 | `config > REQ-001-20 rejects maxRunning above maxLiveSessions …`                                                   | pass (config) |
+| REQ-001-22 | `config > REQ-001-22 requires a model for every Role …`, `… rejects unknown keys …`, `… resolves a Role's model …` | pass (config) |
