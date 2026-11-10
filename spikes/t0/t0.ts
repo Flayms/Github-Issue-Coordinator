@@ -46,6 +46,7 @@ type Ev = { t: string; event: string; blocked?: boolean; problem?: string | null
 
 const checks: { name: string; status: Status; detail: string }[] = [];
 const panes: { label: string; text: string }[] = [];
+let trustAnswered = false;
 
 function check(name: string, status: Status, detail = "") {
   checks.push({ name, status, detail });
@@ -122,6 +123,19 @@ async function waitFor<T>(label: string, pick: (evs: Ev[]) => T | undefined, ms 
       process.stdout.write(" ✗ (claude exited)\n");
       panes.push({ label: `claude exited while waiting for ${label}`, text: pane });
       return undefined;
+    }
+    if (!trustAnswered && /Yes, I trust this folder/.test(pane)) {
+      // Fallback the Coordinator could also use: answer the trust dialog via tmux keys.
+      trustAnswered = true;
+      panes.push({ label: "folder trust dialog", text: pane });
+      run(["tmux", "send-keys", "-t", TMUX_SESSION, "Down"]);
+      await Bun.sleep(300);
+      run(["tmux", "send-keys", "-t", TMUX_SESSION, "Enter"]);
+      check(
+        "folder trust dialog avoided",
+        "fail",
+        opts.pretrust ? "appeared despite --pretrust; answered via tmux send-keys" : "appeared (run with --pretrust); answered via tmux send-keys",
+      );
     }
     if (!dialogReported && Date.now() - start > 15_000 && DIALOG.test(pane)) {
       dialogReported = true;
@@ -219,12 +233,20 @@ if (opts.pretrust) {
   check("pre-trusted work dir in ~/.claude.json", "info", `backup at ${cfgPath}.t0-backup`);
 }
 
+process.on("SIGINT", () => {
+  console.log("\nInterrupted.");
+  panes.push({ label: "at interrupt", text: capture() });
+  check("run completed", "fail", "interrupted with Ctrl+C");
+  finish();
+});
+
 // ── Phase A: fresh session, blocking Stop hook, phone visibility ─────────────
 const word1 = randomWord();
 setExpected(word1);
 launch("a", claudeArgs(SESSION_NAME, "This is an automated connectivity test. Reply with one short sentence, then end your turn."));
 
 const sessionId = await waitFor("SessionStart", (evs) => evs.find((e) => e.event === "SessionStart")?.payload?.session_id as string | undefined);
+if (!trustAnswered) check("folder trust dialog avoided", "pass", opts.pretrust ? "via --pretrust" : "no dialog shown");
 check("(a) session starts unattended in detached tmux", sessionId ? "pass" : "fail", sessionId ? `session_id ${sessionId}` : "see pane capture");
 if (!sessionId) finish();
 
