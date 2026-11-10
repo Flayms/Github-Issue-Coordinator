@@ -22,12 +22,13 @@ The Owner (the single human user) wants GitHub issues across their public and pr
 - **Then** the Coordinator sets `agent:planning` on them and runs one Planner session over all of them, with all in-scope open issues and open PRs as context
 - **And** posts one Assessment comment per issue with a verdict (`proposed` / `needs-refinement` / `wontfix-proposed`), a proposed approach, and Coordination notes
 - **And** replaces `agent:planning` with the matching `agent:proposed` / `agent:needs-refinement` / `agent:wontfix-proposed` label
+- **And** closes the batch session once all its Assessments are posted
 
 ### REQ-001-03 Plan revision on Owner feedback
 
 - **Given** an issue labelled `agent:proposed`, `agent:needs-refinement` or `agent:wontfix-proposed`
 - **When** the Owner posts a comment that is not a command, or edits the issue body
-- **Then** the Planner session for that issue is resumed with the feedback
+- **Then** that issue's own Planner session is resumed with the feedback, or started fresh with the issue and its current Assessment as context if it has none yet
 - **And** the Assessment comment is edited in place (not duplicated) and the label updated
 
 ### REQ-001-04 Approval only by the Owner on GitHub
@@ -131,7 +132,7 @@ The Owner (the single human user) wants GitHub issues across their public and pr
 
 - **Given** the Coordinator starts or resumes any agent session
 - **When** the session is running or idle
-- **Then** it is registered with Remote Control under the name `<repo>#<issue> <role>`, with no manual step
+- **Then** it is registered with Remote Control under the name `<repo>#<issue> <role>` (a batch Planner session: `<repo> planner`), with no manual step
 - **And** the Owner can follow it live and send messages to it from the Claude app
 
 ### REQ-001-19 Owner chat is synced and never interrupted
@@ -143,10 +144,24 @@ The Owner (the single human user) wants GitHub issues across their public and pr
 
 ### REQ-001-20 Idle sessions are closed
 
-- **Given** a session that has been idle longer than `idleTimeoutMin`, or more idle sessions than `maxLiveSessions`
-- **When** the Coordinator reconciles
-- **Then** it closes the least recently used idle sessions
+- **Given** a session that has been idle longer than `idleTimeoutMin`, or more live sessions (running and idle together) than `maxLiveSessions`
+- **When** the Coordinator reconciles, or needs room to start or resume a session
+- **Then** it closes idle sessions until the limit holds, never a running one, and starts nothing new while the limit is reached and no idle session can be closed
+- **And** it closes them in this order: first sessions waiting on the Owner on GitHub (Planner sessions awaiting a decision), then other idle sessions, and last Implementer sessions whose PR is in a Feedback round and sessions the Owner messaged within the last `idleTimeoutMin`; least recently used first within each group
 - **And** a closed session is resumed (and registered with Remote Control again) when it next has work
+
+### REQ-001-23 Reviewer sessions are short-lived
+
+- **Given** a Reviewer session whose Result is valid
+- **When** its Review has been posted
+- **Then** the session is closed right away
+
+### REQ-001-24 Owner wakes a closed session
+
+- **Given** a closed Planner or Implementer session of an issue or agent PR
+- **When** the Owner comments `/wake` on that issue or PR
+- **Then** the session is resumed (and registered with Remote Control again) with a prompt saying the Owner wants to chat, without changing labels or counting toward `maxFeedbackRounds`
+- **And** it counts toward the limits like any other session
 
 ### REQ-001-21 Valid Result required
 
