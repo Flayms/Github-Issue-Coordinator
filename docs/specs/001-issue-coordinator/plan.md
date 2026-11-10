@@ -72,7 +72,7 @@ export default {
   - (e) open: the usage-limit signal can't be triggered on demand. The runner must log unknown `Stop`/`Notification` payloads so the shape can be captured when it happens.
 - [x] T1 Project tooling: `package.json`, Biome (code and Markdown; `spikes/` excluded), `tsc --noEmit` (TypeScript 7), `bun test`; AGENTS.md commands updated.
 - [x] T2 Config loading and validation (`src/config.ts`, zod; `config.example.ts`; `roleSettings` resolves model/effort with repo overrides, prompts follow in T7). (REQ-001-01, REQ-001-08, REQ-001-22)
-- [ ] T3 GitHub App auth and client with ETag polling, timeline actor lookup, label helpers and PR review posting. (REQ-001-01, REQ-001-04, REQ-001-10, REQ-001-15)
+- [x] T3 GitHub App auth and client with ETag polling, timeline actor lookup, label helpers and PR review posting (`src/github/`; installation looked up per repo owner, so the config only holds the App id and key path; `git push` with the token follows in T10/T11). (REQ-001-01, REQ-001-04, REQ-001-10, REQ-001-15)
 - [ ] T4 Store and the state derivation from labels and store as a pure function, with tests. (REQ-001-07, REQ-001-16)
 - [ ] T5 Scheduler: Slots per Role plus a total limit, priority order, usage-limit pause, idle-session eviction. (REQ-001-08, REQ-001-17, REQ-001-20, REQ-001-23)
 - [ ] T6 Session runner: tmux + Remote Control start/resume/close, hook script, Result validation, Owner-busy guard. (REQ-001-18, REQ-001-19, REQ-001-21)

@@ -3,6 +3,7 @@ import { ConfigError, loadConfig, parseConfig, roleSettings } from "../src/confi
 
 const valid = () => ({
   owner: { login: "octo", id: 42 },
+  github: { appId: 7, privateKeyPath: "/etc/coordinator/app.pem" },
   repos: [{ name: "octo/app" }],
   roles: {
     planner: { model: "opus", effort: "high" },
@@ -49,6 +50,11 @@ describe("config", () => {
     expect(issuesOf({ ...valid(), repos: [{ name: "octo/app" }, { name: "Octo/App" }] })).toEqual([
       expect.stringContaining("duplicate repository octo/app"),
     ]);
+  });
+
+  test("REQ-001-15 requires the GitHub App's id and private key path", () => {
+    expect(issuesOf({ ...valid(), github: { appId: 7 } })).toEqual([expect.stringContaining("github.privateKeyPath")]);
+    expect(issuesOf({ ...valid(), github: undefined })).toEqual([expect.stringContaining("github")]);
   });
 
   test("REQ-001-08 rejects limits that are not positive integers", () => {

@@ -5,6 +5,8 @@ export default defineConfig({
   // The Owner: the only human whose issues, comments, labels and reviews count (REQ-001-01).
   // Numeric id: `gh api users/<login> --jq .id`
   owner: { login: "your-login", id: 0 },
+  // The Coordinator's GitHub App (REQ-001-15). Keep the private key outside this repo.
+  github: { appId: 0, privateKeyPath: "/home/agent/.config/coordinator/app.pem" },
   pollIntervalSec: 60,
   // All optional; these are the defaults. maxLiveSessions counts running and idle sessions.
   limits: {

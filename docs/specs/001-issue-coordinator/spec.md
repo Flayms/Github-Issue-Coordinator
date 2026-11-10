@@ -195,9 +195,14 @@ The Owner (the single human user) wants GitHub issues across their public and pr
 
 ## Verification
 
-| REQ        | Test                                                                                                               | Result        |
-| ---------- | ------------------------------------------------------------------------------------------------------------------ | ------------- |
-| REQ-001-01 | `config > REQ-001-01 requires the Owner's login and numeric user id`, `… at least one repository …`                | pass (config) |
-| REQ-001-08 | `config > REQ-001-08 rejects limits that are not positive integers`, `… allows zero feedback rounds`               | pass (config) |
-| REQ-001-20 | `config > REQ-001-20 rejects maxRunning above maxLiveSessions …`                                                   | pass (config) |
-| REQ-001-22 | `config > REQ-001-22 requires a model for every Role …`, `… rejects unknown keys …`, `… resolves a Role's model …` | pass (config) |
+Partial rows: the REQ is only covered for the parts built so far (noted in brackets); its behaviour end to end is tested once the scheduler and runners exist.
+
+| REQ        | Test                                                                                                                                                                                                             | Result                                |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| REQ-001-01 | `config > REQ-001-01 requires the Owner's login …`, `… at least one repository …`; `GitHub client > REQ-001-01 lists open issues and PRs with their author's numeric id …`, `… lists comments with author ids …` | partial (config, GitHub client): pass |
+| REQ-001-04 | `GitHub client > REQ-001-04 finds who added a label most recently from the issue timeline`                                                                                                                       | partial (GitHub client): pass         |
+| REQ-001-08 | `config > REQ-001-08 rejects limits that are not positive integers`, `… allows zero feedback rounds`                                                                                                             | partial (config): pass                |
+| REQ-001-10 | `GitHub client > REQ-001-10 posts a Review pinned to the head commit, always with event COMMENT`, `… summarises check runs …`                                                                                    | partial (GitHub client): pass         |
+| REQ-001-15 | `config > REQ-001-15 requires the GitHub App's id …`; `GitHub App auth > REQ-001-15 signs an RS256 app JWT …`, `… mints an installation token per repository …`                                                  | partial (config, GitHub auth): pass   |
+| REQ-001-20 | `config > REQ-001-20 rejects maxRunning above maxLiveSessions …`                                                                                                                                                 | partial (config): pass                |
+| REQ-001-22 | `config > REQ-001-22 requires a model for every Role …`, `… rejects unknown keys …`, `… resolves a Role's model …`                                                                                               | partial (config): pass                |

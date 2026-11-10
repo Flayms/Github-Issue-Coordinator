@@ -51,6 +51,8 @@ const limitsSchema = z
 const configSchema = z
   .strictObject({
     owner: z.strictObject({ login: z.string().min(1), id: positiveInt }),
+    /** The Coordinator's GitHub identity: a private GitHub App (REQ-001-15). Keep the key outside the repo. */
+    github: z.strictObject({ appId: positiveInt, privateKeyPath: z.string().min(1) }),
     pollIntervalSec: positiveInt.default(60),
     limits: limitsSchema.prefault({}),
     roles: z.strictObject({ planner: roleSchema, implementer: roleSchema, reviewer: roleSchema }),
