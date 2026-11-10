@@ -58,6 +58,10 @@ CREATE TABLE IF NOT EXISTS issues (
   worktree_path TEXT,
   PRIMARY KEY (repo, number)
 );
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 `;
 
 interface SessionRow {
@@ -185,6 +189,16 @@ export class Store {
     this.db
       .query(`UPDATE issues SET ${sets} WHERE repo = ? AND number = ?`)
       .run(...(entries.map(([, v]) => v) as (string | number | null)[]), repo, number);
+  }
+
+  /** End of the usage-limit pause (REQ-001-17), if one is in force or was recorded. */
+  pausedUntil(): string | undefined {
+    return this.db.query<{ value: string }, [string]>("SELECT value FROM meta WHERE key = ?").get("pausedUntil")?.value;
+  }
+
+  setPausedUntil(iso: string | undefined): void {
+    if (iso === undefined) this.db.query("DELETE FROM meta WHERE key = ?").run("pausedUntil");
+    else this.db.query("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run("pausedUntil", iso);
   }
 
   private stamp(): string {

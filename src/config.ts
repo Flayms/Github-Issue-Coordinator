@@ -70,6 +70,7 @@ const configSchema = z
 
 export type Config = z.output<typeof configSchema>;
 export type ConfigInput = z.input<typeof configSchema>;
+export type Limits = Config["limits"];
 export type RoleSettings = z.output<typeof roleSchema>;
 
 export class ConfigError extends Error {

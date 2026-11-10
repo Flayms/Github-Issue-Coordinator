@@ -65,6 +65,23 @@ describe("store", () => {
     expect(s.latestSession("octo/app", 7, "planner")).toBeUndefined();
   });
 
+  test("REQ-001-17 keeps the usage-limit pause across a restart", () => {
+    const dir = mkdtempSync(join(tmpdir(), "store-"));
+    try {
+      const a = new Store(join(dir, "state.db"));
+      expect(a.pausedUntil()).toBeUndefined();
+      a.setPausedUntil("2026-11-10T15:00:00.000Z");
+      a.close();
+      const b = new Store(join(dir, "state.db"));
+      expect(b.pausedUntil()).toBe("2026-11-10T15:00:00.000Z");
+      b.setPausedUntil(undefined);
+      expect(b.pausedUntil()).toBeUndefined();
+      b.close();
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
   test("keeps per-issue bookkeeping, merging partial updates", () => {
     const s = new Store(":memory:");
     expect(s.issue("octo/app", 5)).toEqual({
