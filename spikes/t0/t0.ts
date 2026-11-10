@@ -162,6 +162,26 @@ function modelsFromTranscript(path: string | undefined): string[] {
   return [...models];
 }
 
+function transcriptHas(path: string | undefined, type: "user" | "assistant", pattern: RegExp): boolean {
+  if (!path || !existsSync(path)) return false;
+  return readFileSync(path, "utf8")
+    .split("\n")
+    .some((line) => {
+      try {
+        const entry = JSON.parse(line);
+        return entry?.type === type && pattern.test(JSON.stringify(entry.message ?? ""));
+      } catch {
+        return false;
+      }
+    });
+}
+
+let firstReplySeen = 0;
+function replySeenAt(s: { transcriptReply: boolean }): number {
+  if (s.transcriptReply && !firstReplySeen) firstReplySeen = Date.now();
+  return firstReplySeen || Date.now();
+}
+
 function finish(): never {
   if (!opts.keep) run(["tmux", "kill-session", "-t", TMUX_SESSION]);
   const counts = readEvents().reduce<Record<string, number>>((acc, e) => {
@@ -265,14 +285,29 @@ check("(a) session visible in Claude app via Remote Control", seenA === null ? "
 if (phone && /^y/i.test(seenA ?? "")) {
   const go = ask(`In that session in the app, send: "reply with PONG". Press Enter once sent, or type "skip".`);
   if (go !== "skip") {
-    const before = readEvents().length;
-    const ups = await waitFor("UserPromptSubmit from phone", (evs) => evs.slice(before).find((e) => e.event === "UserPromptSubmit"), 120_000);
-    const stop = ups && (await waitFor("Stop after phone message", (evs) => evs.slice(before).find((e) => e.event === "Stop"), 120_000));
-    check(
-      "Owner message from phone fires UserPromptSubmit and Stop hooks",
-      ups && stop ? "pass" : "fail",
-      ups ? `prompt: ${JSON.stringify(ups.payload?.prompt ?? "").slice(0, 80)}` : "no UserPromptSubmit",
+    // Messages may have been sent before Enter was pressed, so look at everything since phase A ended.
+    const endOfA = readEvents().findIndex((e) => e.event === "Stop" && e.t === validA?.t);
+    const before = endOfA >= 0 ? endOfA + 1 : readEvents().length;
+    const transcriptA = readEvents().find((e) => e.payload?.transcript_path)?.payload.transcript_path as string | undefined;
+    const signals = await waitFor(
+      "phone message (hooks or transcript)",
+      (evs) => {
+        const later = evs.slice(before);
+        const s = {
+          userPromptSubmit: later.some((e) => e.event === "UserPromptSubmit"),
+          stop: later.some((e) => e.event === "Stop"),
+          transcriptUser: transcriptHas(transcriptA, "user", /pong/i),
+          transcriptReply: transcriptHas(transcriptA, "assistant", /pong/i),
+        };
+        // Done once the reply is in the transcript and the Stop hook had a few seconds to fire.
+        return s.transcriptReply && (s.stop || Date.now() - replySeenAt(s) > 10_000) ? s : undefined;
+      },
+      180_000,
     );
+    const s = signals ?? { userPromptSubmit: false, stop: false, transcriptUser: false, transcriptReply: false };
+    check("Owner message from phone: appears in transcript", s.transcriptUser && s.transcriptReply ? "pass" : "fail", `user msg: ${s.transcriptUser}, reply: ${s.transcriptReply}`);
+    check("Owner message from phone: fires UserPromptSubmit hook", s.userPromptSubmit ? "pass" : "fail", "");
+    check("Owner message from phone: fires Stop hook when reply ends", s.stop ? "pass" : "fail", "");
   }
 }
 
