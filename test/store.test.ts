@@ -1,0 +1,88 @@
+import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Store } from "../src/store.ts";
+
+const at = (iso: string) => () => new Date(iso);
+
+describe("store", () => {
+  test("REQ-001-16 keeps sessions across a restart", () => {
+    const dir = mkdtempSync(join(tmpdir(), "store-"));
+    try {
+      const path = join(dir, "state.db");
+      const a = new Store(path, at("2026-11-10T10:00:00Z"));
+      const id = a.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [5, 6] });
+      a.setClaudeSessionId(id, "sess-xyz");
+      a.close();
+
+      const b = new Store(path);
+      expect(b.sessions("octo/app")).toEqual([
+        {
+          id,
+          repo: "octo/app",
+          role: "planner",
+          kind: "batch",
+          issues: [5, 6],
+          claudeSessionId: "sess-xyz",
+          state: "running",
+          resumeAttempts: 0,
+          lastActivityAt: "2026-11-10T10:00:00.000Z",
+        },
+      ]);
+      b.close();
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  test("tracks session state, activity and resume attempts; closed sessions drop out of the open list", () => {
+    let now = "2026-11-10T10:00:00Z";
+    const s = new Store(":memory:", () => new Date(now));
+    const id = s.createSession({ repo: "octo/app", role: "implementer", kind: "issue", issues: [5] });
+    now = "2026-11-10T10:05:00Z";
+    s.setState(id, "idle");
+    s.recordResume(id);
+    expect(s.session(id)).toMatchObject({
+      state: "idle",
+      resumeAttempts: 1,
+      lastActivityAt: "2026-11-10T10:05:00.000Z",
+    });
+    s.setState(id, "closed");
+    expect(s.sessions("octo/app")).toEqual([]);
+    expect(s.session(id)?.state).toBe("closed");
+    expect(s.sessions("octo/other")).toEqual([]);
+  });
+
+  test("finds an issue's latest session of a Role, including closed ones, for resuming", () => {
+    const s = new Store(":memory:");
+    const batch = s.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [5, 6] });
+    s.setState(batch, "closed");
+    expect(s.latestSession("octo/app", 6, "planner")?.id).toBe(batch);
+    const own = s.createSession({ repo: "octo/app", role: "planner", kind: "issue", issues: [6] });
+    expect(s.latestSession("octo/app", 6, "planner")?.id).toBe(own);
+    expect(s.latestSession("octo/app", 6, "reviewer")).toBeUndefined();
+    expect(s.latestSession("octo/app", 7, "planner")).toBeUndefined();
+  });
+
+  test("keeps per-issue bookkeeping, merging partial updates", () => {
+    const s = new Store(":memory:");
+    expect(s.issue("octo/app", 5)).toEqual({
+      repo: "octo/app",
+      number: 5,
+      lastHandledCommentId: 0,
+      assessmentCommentId: null,
+      feedbackRounds: 0,
+      reviewedHeadSha: null,
+      prNumber: null,
+      worktreePath: null,
+    });
+    s.updateIssue("octo/app", 5, { assessmentCommentId: 77, lastHandledCommentId: 12 });
+    s.updateIssue("octo/app", 5, { feedbackRounds: 1 });
+    expect(s.issue("octo/app", 5)).toMatchObject({
+      assessmentCommentId: 77,
+      lastHandledCommentId: 12,
+      feedbackRounds: 1,
+    });
+  });
+});
