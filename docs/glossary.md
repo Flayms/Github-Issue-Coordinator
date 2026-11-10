@@ -1,0 +1,26 @@
+# Glossary
+
+Domain terms used in code, specs and tests. Use these names consistently.
+
+## Agents
+
+| Term        | Definition                                                                                              | Not to be confused with                                 |
+| ----------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Coordinator | The Bun daemon in this repo. Polls GitHub, owns the state machine, starts agents, enforces concurrency. | An agent: the coordinator itself never calls the model. |
+| Planner     | Claude Code agent that triages open issues against all open issues/PRs and produces an Assessment.      | Implementer                                             |
+| Implementer | Claude Code agent that works on one approved issue (or Bundle) in its own Worktree and opens a PR.      | Planner                                                 |
+| Reviewer    | Claude Code agent that reviews an agent PR's head commit in a fresh context and reports findings.       | The old GitHub Actions review workflow                  |
+| Role        | One of Planner, Implementer, Reviewer. Each has its own prompt, model and Slot limit.                   |                                                         |
+| Result      | JSON file a session must write before its turn may end; validated against the Role's schema.            | The session transcript                                  |
+
+## Workflow
+
+| Term              | Definition                                                                                                      | Not to be confused with                             |
+| ----------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| Assessment        | Planner's comment on an issue: verdict (proposed / won't fix / needs refinement), approach, Coordination notes. | Plan approval                                       |
+| Coordination note | Cross-issue relation recorded by the Planner: "do together with #N" (Bundle) or "blocked by #N".                | GitHub sub-issues                                   |
+| Bundle            | Set of issues implemented together in one Worktree and one PR.                                                  | Duplicate issues                                    |
+| Approval          | Owner's explicit go-ahead on an Assessment; the only trigger for an Implementer run.                            | A PR review approval                                |
+| Feedback round    | Resuming an Implementer session on its existing Worktree to address review findings or owner comments.          | A fresh Implementer run                             |
+| Slot              | One unit of the configured parallelism limit; a running agent occupies a Slot.                                  | Worktree (may exist on disk without holding a Slot) |
+| Worktree          | `git worktree` checkout dedicated to one issue/Bundle, kept until its PR is merged or closed.                   | The main clone                                      |
