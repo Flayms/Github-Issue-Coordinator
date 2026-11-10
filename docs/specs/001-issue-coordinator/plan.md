@@ -18,15 +18,15 @@ A single Bun process (`systemd` service, dedicated `agent` Linux user) runs a **
   - `UserPromptSubmit` marks the session busy and tags the turn as Owner-initiated.
   - `Stop` validates the Result file against the Role's schema. It blocks the stop with the reason when the file is invalid (REQ-001-21). Otherwise it marks the session idle and queues a sync.
 - **Result files** live outside the repo, at `state/<repo>/<issue>/<role>.result.json`, so they never end up in a commit.
-- **Closing a session** means killing its tmux window, which happens only while the session is idle. A usage-limit message is detected from the transcript or the hook payload (format to be pinned down in T0).
+- **Closing a session** means killing its tmux window, which happens only while the session is idle. `maxLiveSessions` (2 on the 4 GB server) counts every live `claude` process, running or idle. A usage-limit message is detected from the transcript or the hook payload (format to be pinned down in T0).
 
 ### Roles
 
-| Role | Where it runs | Writes | Result schema |
-| ---- | ------------- | ------ | ------------- |
-| Planner | Main clone, read-only tools | — | `[{issue, verdict, approach, bundleWith[], blockedBy[], questions[]}]` |
-| Implementer | Own Worktree (one bare clone per repo) | Commits locally | `{prTitle, prBody, summary}` |
-| Reviewer | Temporary detached checkout of the PR head, read-only tools | — | `{summary, findings[{path, line, severity, blocking, body}]}` |
+| Role        | Where it runs                                               | Writes          | Result schema                                                          |
+| ----------- | ----------------------------------------------------------- | --------------- | ---------------------------------------------------------------------- |
+| Planner     | Main clone, read-only tools                                 | —               | `[{issue, verdict, approach, bundleWith[], blockedBy[], questions[]}]` |
+| Implementer | Own Worktree (one bare clone per repo)                      | Commits locally | `{prTitle, prBody, summary}`                                           |
+| Reviewer    | Temporary detached checkout of the PR head, read-only tools | —               | `{summary, findings[{path, line, severity, blocking, body}]}`          |
 
 ### Prompts and models
 
@@ -44,13 +44,19 @@ export default {
   owner: { login: "…", id: 0 },
   pollIntervalSec: 60,
   limits: {
-    maxRunning: 1, maxPlanners: 1, maxImplementers: 1, maxReviewers: 1,
-    maxLiveSessions: 3, idleTimeoutMin: 30, maxWorktrees: 5, maxFeedbackRounds: 2,
+    maxRunning: 1,
+    maxPlanners: 1,
+    maxImplementers: 1,
+    maxReviewers: 1,
+    maxLiveSessions: 2,
+    idleTimeoutMin: 30,
+    maxWorktrees: 5,
+    maxFeedbackRounds: 2,
   },
   roles: {
-    planner:     { model: "…", effort: "…" },
+    planner: { model: "…", effort: "…" },
     implementer: { model: "…" },
-    reviewer:    { model: "…" },
+    reviewer: { model: "…" },
   },
   repos: [{ name: "owner/repo", setup: "bun install", roles: { reviewer: { model: "…" } } }],
 };
@@ -64,11 +70,11 @@ export default {
   - (c) pass: hooks fire, including for messages sent from the phone, and a `Stop` hook can block with a reason.
   - (d) pass: `--model sonnet` ran `claude-sonnet-5-5`, and `--effort` exists. A value for `--effort` wasn't tested.
   - (e) open: the usage-limit signal can't be triggered on demand. The runner must log unknown `Stop`/`Notification` payloads so the shape can be captured when it happens.
-- [ ] T1 Project tooling: `bun init`, Biome, `tsc --noEmit`, `bun test`; update AGENTS.md commands.
+- [x] T1 Project tooling: `package.json`, Biome (code and Markdown; `spikes/` excluded), `tsc --noEmit` (TypeScript 7), `bun test`; AGENTS.md commands updated.
 - [ ] T2 Config loading and validation. (REQ-001-01, REQ-001-08, REQ-001-22)
 - [ ] T3 GitHub App auth and client with ETag polling, timeline actor lookup, label helpers and PR review posting. (REQ-001-01, REQ-001-04, REQ-001-10, REQ-001-15)
 - [ ] T4 Store and the state derivation from labels and store as a pure function, with tests. (REQ-001-07, REQ-001-16)
-- [ ] T5 Scheduler: Slots per Role plus a total limit, priority order, usage-limit pause, idle-session eviction. (REQ-001-08, REQ-001-17, REQ-001-20)
+- [ ] T5 Scheduler: Slots per Role plus a total limit, priority order, usage-limit pause, idle-session eviction. (REQ-001-08, REQ-001-17, REQ-001-20, REQ-001-23)
 - [ ] T6 Session runner: tmux + Remote Control start/resume/close, hook script, Result validation, Owner-busy guard. (REQ-001-18, REQ-001-19, REQ-001-21)
 - [ ] T7 Prompts and per-Role model resolution, with per-repo overrides. (REQ-001-22)
 - [ ] T8 Planner pass and Assessment rendering/editing, plus the sync after any turn. (REQ-001-02, REQ-001-03, REQ-001-19)
@@ -76,5 +82,5 @@ export default {
 - [ ] T10 Worktree manager: bare clone, create, setup command, review checkouts, cleanup, `maxWorktrees`. (REQ-001-06, REQ-001-14)
 - [ ] T11 Implementer run, push and PR creation, plus the sync after any turn. (REQ-001-06, REQ-001-09, REQ-001-19)
 - [ ] T12 Reviewer run and PR review posting. (REQ-001-10)
-- [ ] T13 Feedback rounds: blocking findings, Owner `/agent` and changes-requested, failing checks. (REQ-001-11, REQ-001-12, REQ-001-13)
+- [ ] T13 Feedback rounds: blocking findings, Owner `/agent` and changes-requested, failing checks. (REQ-001-11, REQ-001-12, REQ-001-13, REQ-001-24)
 - [ ] T14 Deployment: systemd unit, `agent` user, a setup guide for the GitHub App, the ruleset, the one-time `/login`, and disabling the GitHub Actions reviewer. (REQ-001-15)

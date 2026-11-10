@@ -6,7 +6,7 @@
 
 ## Tech Stack
 
-| Concern   | Technology              | Purpose                                             |
-| --------- | ---------------------- | --------------------------------------------------- |
+| Concern | Technology | Purpose |
+| ------- | ---------- | ------- |
 
 ...Whatever else is needed
