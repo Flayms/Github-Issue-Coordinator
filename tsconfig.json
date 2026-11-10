@@ -15,6 +15,6 @@
     "noImplicitOverride": true,
     "types": ["bun"]
   },
-  "include": ["src", "test", "config.example.ts"],
+  "include": ["src", "test", "scripts", "config.example.ts"],
   "exclude": ["node_modules", "spikes"]
 }

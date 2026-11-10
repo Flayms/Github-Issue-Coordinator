@@ -20,6 +20,16 @@ export interface SessionRecord {
   state: SessionState;
   resumeAttempts: number;
   lastActivityAt: string;
+  /** Last time the Owner sent the session a message (REQ-001-19, REQ-001-20). */
+  ownerMessagedAt: string | null;
+  /** The next prompt is the Coordinator's own, not the Owner's. */
+  coordinatorPromptPending: boolean;
+  /** Blocked stops in a row because the Result was missing or invalid (REQ-001-21). */
+  resultFailures: number;
+  /** A turn ended and its Result still has to be synced to GitHub (REQ-001-19). */
+  needsSync: boolean;
+  /** The turn ended on the subscription usage limit (REQ-001-17). */
+  usageLimited: boolean;
 }
 
 export interface IssueRecord {
@@ -45,7 +55,12 @@ CREATE TABLE IF NOT EXISTS sessions (
   claude_session_id TEXT,
   state TEXT NOT NULL,
   resume_attempts INTEGER NOT NULL DEFAULT 0,
-  last_activity_at TEXT NOT NULL
+  last_activity_at TEXT NOT NULL,
+  owner_messaged_at TEXT,
+  coordinator_prompt_pending INTEGER NOT NULL DEFAULT 0,
+  result_failures INTEGER NOT NULL DEFAULT 0,
+  needs_sync INTEGER NOT NULL DEFAULT 0,
+  usage_limited INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS issues (
   repo TEXT NOT NULL,
@@ -74,6 +89,11 @@ interface SessionRow {
   state: SessionState;
   resume_attempts: number;
   last_activity_at: string;
+  owner_messaged_at: string | null;
+  coordinator_prompt_pending: number;
+  result_failures: number;
+  needs_sync: number;
+  usage_limited: number;
 }
 
 const toSession = (r: SessionRow): SessionRecord => ({
@@ -86,6 +106,11 @@ const toSession = (r: SessionRow): SessionRecord => ({
   state: r.state,
   resumeAttempts: r.resume_attempts,
   lastActivityAt: r.last_activity_at,
+  ownerMessagedAt: r.owner_messaged_at,
+  coordinatorPromptPending: r.coordinator_prompt_pending === 1,
+  resultFailures: r.result_failures,
+  needsSync: r.needs_sync === 1,
+  usageLimited: r.usage_limited === 1,
 });
 
 const ISSUE_COLUMNS = {
@@ -105,8 +130,13 @@ export class Store {
     private readonly now: () => Date = () => new Date(),
   ) {
     this.db = new Database(path, { create: true, strict: true });
-    this.db.exec("PRAGMA journal_mode = WAL;");
+    // Hook processes write concurrently with the Coordinator.
+    this.db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
     this.db.exec(SCHEMA);
+  }
+
+  clock(): Date {
+    return this.now();
   }
 
   close(): void {
@@ -154,6 +184,30 @@ export class Store {
 
   setState(id: number, state: SessionState): void {
     this.db.query("UPDATE sessions SET state = ?, last_activity_at = ? WHERE id = ?").run(state, this.stamp(), id);
+  }
+
+  /** Applies hook-side changes in one statement; `touch` also updates the last activity. */
+  patchSession(
+    id: number,
+    patch: Partial<
+      Pick<
+        SessionRecord,
+        "state" | "ownerMessagedAt" | "coordinatorPromptPending" | "resultFailures" | "needsSync" | "usageLimited"
+      >
+    >,
+  ): void {
+    const cols: Record<string, string> = {
+      state: "state",
+      ownerMessagedAt: "owner_messaged_at",
+      coordinatorPromptPending: "coordinator_prompt_pending",
+      resultFailures: "result_failures",
+      needsSync: "needs_sync",
+      usageLimited: "usage_limited",
+    };
+    const entries = Object.entries(patch).filter(([, v]) => v !== undefined);
+    const sets = [...entries.map(([k]) => `${cols[k]} = ?`), "last_activity_at = ?"].join(", ");
+    const values = entries.map(([, v]) => (typeof v === "boolean" ? Number(v) : v)) as (string | number | null)[];
+    this.db.query(`UPDATE sessions SET ${sets} WHERE id = ?`).run(...values, this.stamp(), id);
   }
 
   recordResume(id: number): void {

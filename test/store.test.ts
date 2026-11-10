@@ -28,6 +28,11 @@ describe("store", () => {
           state: "running",
           resumeAttempts: 0,
           lastActivityAt: "2026-11-10T10:00:00.000Z",
+          ownerMessagedAt: null,
+          coordinatorPromptPending: false,
+          resultFailures: 0,
+          needsSync: false,
+          usageLimited: false,
         },
       ]);
       b.close();

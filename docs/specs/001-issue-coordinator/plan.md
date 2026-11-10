@@ -12,12 +12,12 @@ A single Bun process (`systemd` service, dedicated `agent` Linux user) runs a **
 ### Session runner (interactive + Remote Control)
 
 - **Start:** `tmux new-window -d -c <dir> -n <name> "claude --remote-control '<repo>#<n> <role>' --model <m> --settings <hooks.json> --permission-mode <…> '<prompt>'"`.
-- **Resume:** the same command with `--resume <session_id>` and the new prompt.
+- **Resume:** kill the idle session's window and run the same command with `--resume <session_id>` and the new prompt (keeps the conversation and the phone chat; verified in the T6 smoke test).
 - **Hooks:** they call a small Bun hook script that writes events to the store.
   - `SessionStart` records the session id.
   - `UserPromptSubmit` marks the session busy and tags the turn as Owner-initiated.
   - `Stop` validates the Result file against the Role's schema. It blocks the stop with the reason when the file is invalid (REQ-001-21). Otherwise it marks the session idle and queues a sync.
-- **Result files** live outside the repo, at `state/<repo>/<issue>/<role>.result.json`, so they never end up in a commit.
+- **Result files** live outside the repo, at `state/sessions/<id>/result.json` (next to the session's settings and hook log), so they never end up in a commit. The runner deletes the file before every Coordinator prompt, so an old Result cannot pass for a new turn.
 - **Closing a session** means killing its tmux window, which happens only while the session is idle. `maxLiveSessions` (2 on the 4 GB server) counts every live `claude` process, running or idle. A usage-limit message is detected from the transcript or the hook payload (format to be pinned down in T0).
 
 ### Roles
@@ -75,7 +75,7 @@ export default {
 - [x] T3 GitHub App auth and client with ETag polling, timeline actor lookup, label helpers and PR review posting (`src/github/`; installation looked up per repo owner, so the config only holds the App id and key path; `git push` with the token follows in T10/T11). (REQ-001-01, REQ-001-04, REQ-001-10, REQ-001-15)
 - [x] T4 Store (`src/store.ts`: sessions, per-issue bookkeeping) and the state derivation as a pure function (`src/state.ts`: issue state from labels, Planner trigger, no double pickup, restart recovery; later tasks add their triggers there). (REQ-001-07, REQ-001-16)
 - [x] T5 Scheduler (`src/scheduler.ts`, pure): Slots per Role plus a total limit, priority order, usage-limit pause (persisted in the store), idle timeout and live-session limit with the eviction order. (REQ-001-08, REQ-001-17, REQ-001-20)
-- [ ] T6 Session runner: tmux + Remote Control start/resume/close, hook script, Result validation, Owner-busy guard. (REQ-001-18, REQ-001-19, REQ-001-21)
+- [x] T6 Session runner (`src/runner.ts`, `src/tmux.ts`), hook script (`src/hook.ts`), Result schemas (`src/results.ts`), Owner-busy guard; smoke-tested against real tmux + claude with `bun scripts/smoke-runner.ts`. (REQ-001-18, REQ-001-19, REQ-001-21)
 - [ ] T7 Prompts and per-Role model resolution, with per-repo overrides. (REQ-001-22)
 - [ ] T8 Planner pass and Assessment rendering/editing, plus the sync after any turn. (REQ-001-02, REQ-001-03, REQ-001-19)
 - [ ] T9 Approval handling and blocked/unblock logic. (REQ-001-04, REQ-001-05)

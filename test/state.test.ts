@@ -25,6 +25,11 @@ const session = (s: Partial<SessionRecord> & Pick<SessionRecord, "role" | "issue
   state: "running",
   resumeAttempts: 0,
   lastActivityAt: "2026-11-10T00:00:00Z",
+  ownerMessagedAt: null,
+  coordinatorPromptPending: false,
+  resultFailures: 0,
+  needsSync: false,
+  usageLimited: false,
   ...s,
 });
 

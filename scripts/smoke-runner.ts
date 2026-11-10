@@ -1,0 +1,87 @@
+#!/usr/bin/env bun
+/**
+ * Manual smoke test of the session runner against real tmux + claude (uses the subscription).
+ * Starts a session in a throwaway git repo, waits for a valid Result, resumes it with a second
+ * prompt, then closes it. Usage: bun scripts/smoke-runner.ts [--model haiku] [--keep]
+ */
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { parseArgs } from "node:util";
+import { SessionRunner } from "../src/runner.ts";
+import { Store } from "../src/store.ts";
+import { TmuxCli } from "../src/tmux.ts";
+
+const { values: opts } = parseArgs({
+  options: { model: { type: "string", default: "haiku" }, keep: { type: "boolean", default: false } },
+});
+const root = mkdtempSync(join(tmpdir(), "coordinator-smoke-"));
+const repo = join(root, "repo");
+Bun.spawnSync(["git", "init", "-q", repo]);
+const dbPath = join(root, "state.db");
+const store = new Store(dbPath);
+const tmux = new TmuxCli("coordinator-smoke");
+const runner = new SessionRunner({
+  store,
+  tmux,
+  stateDir: root,
+  dbPath,
+  hookCommand: [process.execPath, resolve(import.meta.dir, "../src/hook.ts")],
+});
+const model = { model: opts.model ?? "haiku" };
+
+async function waitIdle(id: number, label: string, ms = 240_000) {
+  const start = Date.now();
+  process.stdout.write(`… ${label}`);
+  while (Date.now() - start < ms) {
+    runner.answerDialogs();
+    const s = store.session(id);
+    if (s?.state === "idle" && (s.needsSync || s.usageLimited)) {
+      process.stdout.write(` ✓ (${Math.round((Date.now() - start) / 1000)}s)\n`);
+      return s;
+    }
+    if (!runner.liveSessionIds().has(id)) throw new Error(`window closed while waiting for ${label}`);
+    process.stdout.write(".");
+    await Bun.sleep(2000);
+  }
+  console.log(`\n${tmux.capture(`s${id}`)}`);
+  throw new Error(`timeout waiting for ${label}`);
+}
+
+const result = (id: number) => JSON.parse(readFileSync(join(runner.sessionDir(id), "result.json"), "utf8"));
+
+try {
+  const id = runner.start({
+    repo: "smoke/test",
+    role: "implementer",
+    kind: "issue",
+    issues: [1],
+    cwd: repo,
+    model,
+    prompt:
+      "Automated smoke test of the Coordinator's session runner. Do not change any files in the repository. " +
+      'Your Result: prTitle "smoke", prBody "smoke", summary: one short sentence of your choice.',
+  });
+  console.log(`Started session ${id} as "smoke/test#1 implementer" (state dir ${root}).`);
+  const first = await waitIdle(id, "first turn");
+  console.log(`  claude session ${first.claudeSessionId}, failures ${first.resultFailures}, result:`, result(id));
+
+  runner.resume(
+    id,
+    'Second turn: set the Result summary to "resumed: " followed by your first summary, verbatim.',
+    model,
+  );
+  const second = await waitIdle(id, "resumed turn");
+  console.log(
+    `  claude session ${second.claudeSessionId} (same: ${second.claudeSessionId === first.claudeSessionId}), result:`,
+    result(id),
+  );
+
+  if (!opts.keep) {
+    runner.close(id);
+    console.log(`Closed: state ${store.session(id)?.state}, window live: ${runner.liveSessionIds().has(id)}`);
+  } else console.log("Kept: tmux attach -t coordinator-smoke");
+} finally {
+  if (!opts.keep) Bun.spawnSync(["tmux", "kill-session", "-t", "coordinator-smoke"]);
+  store.close();
+}
