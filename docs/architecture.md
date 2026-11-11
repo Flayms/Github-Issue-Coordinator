@@ -38,12 +38,12 @@ flowchart LR
 
 ## Tech Stack
 
-| Concern | Technology                            | Purpose                                           |
-| ------- | ------------------------------------- | ------------------------------------------------- |
-| Runtime | Bun, TypeScript                       | Daemon, hook scripts, tests (`bun test`)          |
-| Lint    | Biome, `tsc --noEmit` (TypeScript 7)  | Formatting and linting (code and Markdown), types |
-| Config  | zod                                   | Validate `config.ts` (later also Result files)    |
-| GitHub  | REST API via a private GitHub App     | The Coordinator's own identity                    |
-| Agents  | Claude Code CLI, tmux, Remote Control | Interactive sessions the Owner can follow         |
-| State   | `bun:sqlite`                          | Session ids, Worktrees, rounds (T4)               |
-| Service | systemd on Ubuntu                     | Deployment (T14)                                  |
+| Concern | Technology                            | Purpose                                                    |
+| ------- | ------------------------------------- | ---------------------------------------------------------- |
+| Runtime | Bun, TypeScript                       | Daemon, hook scripts, tests (`bun test`)                   |
+| Lint    | Biome, `tsc --noEmit` (TypeScript 7)  | Formatting and linting (code and Markdown), types          |
+| Config  | zod                                   | Validate `config.ts` (later also Result files)             |
+| GitHub  | REST API via a private GitHub App     | The Coordinator's own identity                             |
+| Agents  | Claude Code CLI, tmux, Remote Control | Interactive sessions the Owner can follow                  |
+| State   | `bun:sqlite`                          | Session ids, Worktrees, rounds (T4)                        |
+| Service | systemd on Ubuntu                     | `deploy/github-issue-coordinator.service`, `docs/setup.md` |
