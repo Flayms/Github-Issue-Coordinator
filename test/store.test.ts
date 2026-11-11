@@ -100,6 +100,8 @@ describe("store", () => {
       worktreePath: null,
       assessment: null,
       bodyHash: null,
+      approvedAt: null,
+      approvalNotes: null,
     });
     s.updateIssue("octo/app", 5, { assessmentCommentId: 77, lastHandledCommentId: 12 });
     s.updateIssue("octo/app", 5, { feedbackRounds: 1 });

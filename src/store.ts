@@ -47,6 +47,10 @@ export interface IssueRecord {
   assessment: string | null;
   /** Hash of the issue body the Planner last saw, to notice edits (REQ-001-03). */
   bodyHash: string | null;
+  /** When the Owner approved the issue (REQ-001-04); also the Implementer queue order (REQ-001-08). */
+  approvedAt: string | null;
+  /** Notes from `/approve [notes]`, passed to the Implementer. */
+  approvalNotes: string | null;
 }
 
 const SCHEMA = `
@@ -77,6 +81,8 @@ CREATE TABLE IF NOT EXISTS issues (
   worktree_path TEXT,
   assessment TEXT,
   body_hash TEXT,
+  approved_at TEXT,
+  approval_notes TEXT,
   PRIMARY KEY (repo, number)
 );
 CREATE TABLE IF NOT EXISTS meta (
@@ -128,6 +134,8 @@ const ISSUE_COLUMNS = {
   worktreePath: "worktree_path",
   assessment: "assessment",
   bodyHash: "body_hash",
+  approvedAt: "approved_at",
+  approvalNotes: "approval_notes",
 } as const satisfies Record<Exclude<keyof IssueRecord, "repo" | "number">, string>;
 
 export class Store {
@@ -237,6 +245,8 @@ export class Store {
       worktreePath: null,
       assessment: null,
       bodyHash: null,
+      approvedAt: null,
+      approvalNotes: null,
     };
     if (row) {
       for (const [key, col] of Object.entries(ISSUE_COLUMNS))

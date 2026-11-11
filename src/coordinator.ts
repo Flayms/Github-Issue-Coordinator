@@ -5,12 +5,12 @@
  */
 import { type Config, type Role, roleSettings } from "./config.ts";
 import type { Clones } from "./git.ts";
-import type { GitHubClient, Item } from "./github/client.ts";
+import type { Actor, GitHubClient, Item } from "./github/client.ts";
 import { bodyHash, Planner } from "./planner.ts";
 import type { SessionRunner } from "./runner.ts";
 import { type LiveSession, schedule, type Work } from "./scheduler.ts";
 import { type Action, deriveActions, type IssueFeedback, issueState } from "./state.ts";
-import type { SessionRecord, Store } from "./store.ts";
+import type { IssueRecord, SessionRecord, Store } from "./store.ts";
 
 /** How long to wait after a usage limit before trying again; the reset time's format is still unknown. */
 export const USAGE_LIMIT_PAUSE_MIN = 30;
@@ -23,7 +23,7 @@ export interface CoordinatorDeps {
   store: Store;
   gh: Pick<
     GitHubClient,
-    "listOpenItems" | "listComments" | "addLabels" | "removeLabel" | "createComment" | "updateComment"
+    "listOpenItems" | "listComments" | "labelActor" | "addLabels" | "removeLabel" | "createComment" | "updateComment"
   >;
   runner: Pick<SessionRunner, "start" | "resume" | "close" | "sessionDir" | "liveSessionIds" | "answerDialogs">;
   clones: Pick<Clones, "mainClone">;
@@ -34,6 +34,7 @@ export interface CoordinatorDeps {
 interface RepoView {
   items: Item[];
   feedback: Map<number, IssueFeedback>;
+  labelActors: Map<number, Actor | undefined>;
 }
 
 export class Coordinator {
@@ -64,6 +65,9 @@ export class Coordinator {
             sessions: this.d.store.sessions(repo),
             liveSessionIds: live,
             feedback: view.feedback,
+            labelActors: view.labelActors,
+            records: this.records(repo, view.items),
+            now: this.now().toISOString(),
           });
           for (const a of actions) await this.handle(a, view, queue, jobs);
           this.queueUsageLimited(repo, queue, jobs);
@@ -105,17 +109,21 @@ export class Coordinator {
     const cached = this.views.get(repo);
     if (!changed && cached) return cached;
     const feedback = new Map<number, IssueFeedback>();
+    const labelActors = new Map<number, Actor | undefined>();
     for (const i of items) {
       if (i.isPullRequest || i.author.id !== this.d.config.owner.id) continue;
-      if (!PROPOSALS.includes(issueState(i.labels))) continue;
       const rec = this.d.store.issue(repo, i.number);
+      // REQ-001-04: who added agent:approved, for approvals not on record yet.
+      if (issueState(i.labels) === "approved" && !rec.approvedAt)
+        labelActors.set(i.number, await this.d.gh.labelActor(repo, i.number, "agent:approved"));
+      if (!PROPOSALS.includes(issueState(i.labels))) continue;
       const comments = (await this.d.gh.listComments(repo, i.number, { afterId: rec.lastHandledCommentId })).filter(
         (c) => c.author.id === this.d.config.owner.id,
       );
       const bodyChanged = rec.bodyHash !== null && rec.bodyHash !== bodyHash(i.body);
       if (comments.length || bodyChanged) feedback.set(i.number, { comments, bodyChanged });
     }
-    const view = { items, feedback };
+    const view = { items, feedback, labelActors };
     this.views.set(repo, view);
     return view;
   }
@@ -128,6 +136,33 @@ export class Coordinator {
         return;
       case "fail":
         await this.fail(a.repo, a.issues, a.reason, a.session);
+        return;
+      case "approve":
+        this.d.store.updateIssue(a.repo, a.issue, {
+          approvedAt: a.at,
+          approvalNotes: a.notes,
+          lastHandledCommentId: Math.max(a.upToCommentId, this.d.store.issue(a.repo, a.issue).lastHandledCommentId),
+        });
+        await this.d.gh.removeLabel(a.repo, a.issue, "agent:proposed");
+        await this.d.gh.addLabels(a.repo, a.issue, ["agent:approved"]);
+        view.feedback.delete(a.issue);
+        view.labelActors.delete(a.issue);
+        this.log(`${a.repo}#${a.issue}: approved by the Owner`);
+        return;
+      case "reject-approval":
+        await this.d.gh.removeLabel(a.repo, a.issue, "agent:approved");
+        view.labelActors.delete(a.issue);
+        this.log(`${a.repo}#${a.issue}: removed agent:approved, which was not added by the Owner`);
+        return;
+      case "block":
+        await this.d.gh.removeLabel(a.repo, a.issue, "agent:approved");
+        await this.d.gh.addLabels(a.repo, a.issue, ["agent:blocked"]);
+        this.log(`${a.repo}#${a.issue}: blocked by ${a.blockers.map((n) => `#${n}`).join(", ")}`);
+        return;
+      case "unblock":
+        await this.d.gh.removeLabel(a.repo, a.issue, "agent:blocked");
+        await this.d.gh.addLabels(a.repo, a.issue, ["agent:approved"]);
+        this.log(`${a.repo}#${a.issue}: unblocked`);
         return;
       case "resume-interrupted": {
         const s = a.session;
@@ -186,6 +221,17 @@ export class Coordinator {
         return;
       }
     }
+  }
+
+  private records(repo: string, items: Item[]): Map<number, Pick<IssueRecord, "approvedAt" | "assessment">> {
+    return new Map(
+      items
+        .filter((i) => !i.isPullRequest)
+        .map((i) => {
+          const r = this.d.store.issue(repo, i.number);
+          return [i.number, { approvedAt: r.approvedAt, assessment: r.assessment }];
+        }),
+    );
   }
 
   /** REQ-001-17: continue sessions cut off by the usage limit once the pause is over. */

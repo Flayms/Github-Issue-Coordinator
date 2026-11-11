@@ -30,6 +30,10 @@ const item = (number: number, labels: string[] = [], extra: Partial<Item> = {}):
 
 class FakeGitHub {
   items: Item[] = [];
+  labelActorOf = new Map<number, { login: string; id: number }>();
+  async labelActor(_r: string, issue: number) {
+    return this.labelActorOf.get(issue);
+  }
   comments = new Map<number, Comment[]>();
   changed = true;
   calls: unknown[][] = [];
@@ -189,6 +193,68 @@ describe("reconcile loop", () => {
     await coordinator.tick();
     expect(runner.started).toHaveLength(2);
     expect(runner.resumed).toEqual([]);
+  });
+
+  const proposed = async () => {
+    gh.items = [item(5)];
+    await coordinator.tick();
+    finishPlanner(1, [5]);
+    await coordinator.tick();
+    gh.calls = [];
+  };
+
+  test("REQ-001-04 the Owner's /approve approves a proposal and records the notes", async () => {
+    await proposed();
+    gh.comments.set(5, [
+      { id: 950, body: "/approve keep it small", author: OWNER, createdAt: "2026-11-11T09:00:00Z", updatedAt: "" },
+    ]);
+    gh.changed = true;
+    await coordinator.tick();
+    expect(gh.items[0]?.labels).toEqual(["agent:approved"]);
+    expect(store.issue("octo/app", 5)).toMatchObject({
+      approvedAt: "2026-11-11T09:00:00Z",
+      approvalNotes: "keep it small",
+      lastHandledCommentId: 950,
+    });
+  });
+
+  test("REQ-001-04 an agent:approved label from someone else is removed; from the Owner it approves", async () => {
+    await proposed();
+    gh.items[0]?.labels.push("agent:approved");
+    gh.labelActorOf.set(5, { login: "mallory", id: 666 });
+    gh.changed = true;
+    await coordinator.tick();
+    expect(gh.items[0]?.labels).toEqual(["agent:proposed"]);
+    expect(store.issue("octo/app", 5).approvedAt).toBeNull();
+
+    gh.items[0]?.labels.push("agent:approved");
+    gh.labelActorOf.set(5, OWNER);
+    gh.changed = true;
+    await coordinator.tick();
+    expect(gh.items[0]?.labels).toEqual(["agent:approved"]);
+    expect(store.issue("octo/app", 5).approvedAt).toBe(now.toISOString());
+  });
+
+  test("REQ-001-05 an approved issue waits as agent:blocked until its blocker is closed", async () => {
+    gh.items = [item(5), item(8, ["agent:proposed"])];
+    store.updateIssue("octo/app", 8, { assessment: "{}" });
+    await coordinator.tick();
+    writeFileSync(
+      join(runner.sessionDir(1), "result.json"),
+      JSON.stringify([{ issue: 5, verdict: "proposed", approach: "A", bundleWith: [], blockedBy: [8], questions: [] }]),
+    );
+    store.patchSession(1, { state: "idle", needsSync: true });
+    await coordinator.tick();
+    gh.comments.set(5, [{ id: 960, body: "/approve", author: OWNER, createdAt: "t", updatedAt: "" }]);
+    gh.changed = true;
+    await coordinator.tick();
+    await coordinator.tick();
+    expect(gh.items[0]?.labels).toEqual(["agent:blocked"]);
+
+    gh.items = gh.items.filter((i) => i.number !== 8);
+    gh.changed = true;
+    await coordinator.tick();
+    expect(gh.items[0]?.labels).toEqual(["agent:approved"]);
   });
 
   test("only fetches comments when the repository's issues changed", async () => {

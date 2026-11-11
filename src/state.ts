@@ -3,9 +3,9 @@
  * Pure, so every rule is unit-tested; the scheduler (T5) decides when actions run.
  */
 import type { Role } from "./config.ts";
-import type { Comment, Item } from "./github/client.ts";
+import type { Actor, Comment, Item } from "./github/client.ts";
 import { type AgentLabel, isAgentLabel } from "./labels.ts";
-import type { SessionRecord } from "./store.ts";
+import type { IssueRecord, SessionRecord } from "./store.ts";
 
 export type IssueState = "new" | (AgentLabel extends `agent:${infer S}` ? S : never);
 
@@ -37,6 +37,8 @@ const IN_FLIGHT: Partial<Record<IssueState, Role>> = {
 };
 
 export interface Snapshot {
+  /** Current time (ISO), for approvals by label. */
+  now?: string;
   repo: string;
   ownerId: number;
   items: Item[];
@@ -46,6 +48,10 @@ export interface Snapshot {
   liveSessionIds: ReadonlySet<number>;
   /** Per issue: comments newer than the last handled one, and whether the body changed since the Planner saw it. */
   feedback?: ReadonlyMap<number, IssueFeedback>;
+  /** Store records of the repository's issues (approval, Assessment). */
+  records?: ReadonlyMap<number, Pick<IssueRecord, "approvedAt" | "assessment">>;
+  /** Who added `agent:approved`, looked up for approved issues without an approval on record. */
+  labelActors?: ReadonlyMap<number, Actor | undefined>;
 }
 
 export interface IssueFeedback {
@@ -61,6 +67,10 @@ const PROPOSALS: IssueState[] = ["proposed", "needs-refinement", "wontfix-propos
 export type Action =
   | { type: "plan"; repo: string; issues: number[] }
   | { type: "revise"; repo: string; issue: number; comments: Comment[]; bodyChanged: boolean }
+  | { type: "approve"; repo: string; issue: number; notes: string; at: string; upToCommentId: number }
+  | { type: "reject-approval"; repo: string; issue: number }
+  | { type: "block"; repo: string; issue: number; blockers: number[] }
+  | { type: "unblock"; repo: string; issue: number }
   | { type: "resume-interrupted"; session: SessionRecord }
   | { type: "mark-closed"; session: SessionRecord }
   | { type: "fail"; repo: string; issues: number[]; session?: SessionRecord; reason: string };
@@ -88,13 +98,52 @@ export function deriveActions(s: Snapshot): Action[] {
       actions.push({ type: "fail", repo: s.repo, issues: [i.number], reason: `no ${role} session to resume` });
   }
 
-  // REQ-001-03: the Owner's feedback on a proposal revises the plan.
+  // REQ-001-04 / REQ-001-03: on a proposal, the Owner's /approve approves it; other feedback revises the plan.
   for (const i of issues) {
-    if (!PROPOSALS.includes(issueState(i.labels))) continue;
+    const state = issueState(i.labels);
+    if (!PROPOSALS.includes(state)) continue;
     const f = s.feedback?.get(i.number);
-    const comments = (f?.comments ?? []).filter((c) => c.author.id === s.ownerId && !isCommand(c.body));
-    if (comments.length > 0 || f?.bodyChanged)
+    const own = (f?.comments ?? []).filter((c) => c.author.id === s.ownerId);
+    const approval = state === "proposed" ? own.findLast((c) => /^\/approve(\s|$)/.test(c.body.trim())) : undefined;
+    const comments = own.filter((c) => !isCommand(c.body));
+    if (approval) {
+      const notes = [...comments.map((c) => c.body), approval.body.trim().slice("/approve".length).trim()];
+      actions.push({
+        type: "approve",
+        repo: s.repo,
+        issue: i.number,
+        notes: notes.filter(Boolean).join("\n\n"),
+        at: approval.createdAt,
+        upToCommentId: Math.max(...own.map((c) => c.id)),
+      });
+    } else if (comments.length > 0 || f?.bodyChanged)
       actions.push({ type: "revise", repo: s.repo, issue: i.number, comments, bodyChanged: f?.bodyChanged ?? false });
+  }
+
+  // REQ-001-04: the approved label counts only when the Owner added it. REQ-001-05: blocked issues wait.
+  const open = new Set(s.items.map((i) => i.number));
+  for (const i of issues) {
+    const state = issueState(i.labels);
+    if (state !== "approved" && state !== "blocked") continue;
+    const rec = s.records?.get(i.number);
+    if (!rec?.approvedAt) {
+      if (state !== "approved" || !s.labelActors?.has(i.number)) continue;
+      if (s.labelActors.get(i.number)?.id === s.ownerId)
+        actions.push({
+          type: "approve",
+          repo: s.repo,
+          issue: i.number,
+          notes: "",
+          at: s.now ?? new Date().toISOString(),
+          upToCommentId: 0,
+        });
+      else actions.push({ type: "reject-approval", repo: s.repo, issue: i.number });
+      continue;
+    }
+    const blockers = blockedBy(rec.assessment).filter((n) => open.has(n));
+    if (state === "approved" && blockers.length)
+      actions.push({ type: "block", repo: s.repo, issue: i.number, blockers });
+    if (state === "blocked" && !blockers.length) actions.push({ type: "unblock", repo: s.repo, issue: i.number });
   }
 
   // REQ-001-02: one Planner pass over all new issues.
@@ -102,6 +151,16 @@ export function deriveActions(s: Snapshot): Action[] {
   if (fresh.length > 0) actions.push({ type: "plan", repo: s.repo, issues: fresh });
 
   return actions;
+}
+
+function blockedBy(assessment: string | null): number[] {
+  if (!assessment) return [];
+  try {
+    const a = JSON.parse(assessment) as { blockedBy?: unknown };
+    return Array.isArray(a.blockedBy) ? a.blockedBy.filter((n): n is number => typeof n === "number") : [];
+  } catch {
+    return [];
+  }
 }
 
 const fail = (session: SessionRecord, reason: string): Action => ({

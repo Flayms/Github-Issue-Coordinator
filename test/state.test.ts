@@ -33,7 +33,9 @@ const session = (s: Partial<SessionRecord> & Pick<SessionRecord, "role" | "issue
   ...s,
 });
 
+const NOW_ISO = "2026-11-11T12:00:00.000Z";
 const snap = (s: Partial<Snapshot>): Snapshot => ({
+  now: NOW_ISO,
   repo: "octo/app",
   ownerId: OWNER.id,
   items: [],
@@ -88,6 +90,103 @@ describe("deriveActions", () => {
       snap({ items: [issue(5, ["agent:approved"])], feedback: new Map([[5, { comments, bodyChanged: true }]]) }),
     );
     expect(actions).toEqual([]);
+  });
+
+  const c = (id: number, body: string, author = OWNER) => ({
+    id,
+    body,
+    author,
+    createdAt: `2026-11-11T0${id % 10}:00:00Z`,
+    updatedAt: "",
+  });
+  const assessment = (blockedBy: number[] = []) =>
+    JSON.stringify({ issue: 5, verdict: "proposed", approach: "A", bundleWith: [], blockedBy, questions: [] });
+
+  test("REQ-001-04 the Owner's /approve on a proposal approves it, with earlier feedback in the notes", () => {
+    const actions = deriveActions(
+      snap({
+        items: [issue(5, ["agent:proposed"])],
+        feedback: new Map([[5, { comments: [c(21, "Also log it"), c(22, "/approve ship it")], bodyChanged: false }]]),
+      }),
+    );
+    expect(actions).toEqual([
+      {
+        type: "approve",
+        repo: "octo/app",
+        issue: 5,
+        notes: "Also log it\n\nship it",
+        at: "2026-11-11T02:00:00Z",
+        upToCommentId: 22,
+      },
+    ]);
+  });
+
+  test("REQ-001-04 /approve by anyone else, or on an issue that is not proposed, approves nothing", () => {
+    const mallory = { login: "mallory", id: 666 };
+    expect(
+      deriveActions(
+        snap({
+          items: [issue(5, ["agent:proposed"])],
+          feedback: new Map([[5, { comments: [c(21, "/approve", mallory)], bodyChanged: false }]]),
+        }),
+      ),
+    ).toEqual([]);
+    expect(
+      deriveActions(
+        snap({
+          items: [issue(5, ["agent:needs-refinement"])],
+          feedback: new Map([[5, { comments: [c(21, "/approve")], bodyChanged: false }]]),
+        }),
+      ),
+    ).toEqual([]);
+  });
+
+  test("REQ-001-04 an agent:approved label added by the Owner approves the issue", () => {
+    const actions = deriveActions(
+      snap({ items: [issue(5, ["agent:proposed", "agent:approved"])], labelActors: new Map([[5, OWNER]]) }),
+    );
+    expect(actions).toEqual([
+      { type: "approve", repo: "octo/app", issue: 5, notes: "", at: NOW_ISO, upToCommentId: 0 },
+    ]);
+  });
+
+  test("REQ-001-04 an agent:approved label added by anyone else is removed", () => {
+    for (const actor of [{ login: "mallory", id: 666 }, undefined]) {
+      const actions = deriveActions(
+        snap({ items: [issue(5, ["agent:proposed", "agent:approved"])], labelActors: new Map([[5, actor]]) }),
+      );
+      expect(actions).toEqual([{ type: "reject-approval", repo: "octo/app", issue: 5 }]);
+    }
+  });
+
+  test("REQ-001-04 an approval already on record needs no label check", () => {
+    const actions = deriveActions(
+      snap({
+        items: [issue(5, ["agent:approved"])],
+        records: new Map([[5, { approvedAt: "x", assessment: assessment() }]]),
+      }),
+    );
+    expect(actions.filter((a) => a.type === "reject-approval" || a.type === "approve")).toEqual([]);
+  });
+
+  test("REQ-001-05 an approved issue blocked by an open issue gets agent:blocked", () => {
+    const actions = deriveActions(
+      snap({
+        items: [issue(5, ["agent:approved"]), issue(8, ["agent:proposed"])],
+        records: new Map([[5, { approvedAt: "x", assessment: assessment([8, 99]) }]]),
+      }),
+    );
+    expect(actions).toContainEqual({ type: "block", repo: "octo/app", issue: 5, blockers: [8] });
+  });
+
+  test("REQ-001-05 a blocked issue returns to agent:approved once its blockers are closed", () => {
+    const records = new Map([[5, { approvedAt: "x", assessment: assessment([8]) }]]);
+    expect(deriveActions(snap({ items: [issue(5, ["agent:blocked"])], records }))).toEqual([
+      { type: "unblock", repo: "octo/app", issue: 5 },
+    ]);
+    expect(deriveActions(snap({ items: [issue(5, ["agent:blocked"]), issue(8)], records }))).not.toContainEqual(
+      expect.objectContaining({ type: "unblock" }),
+    );
   });
 
   test("REQ-001-01 ignores issues by anyone but the Owner, and PRs", () => {
