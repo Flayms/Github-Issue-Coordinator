@@ -215,6 +215,17 @@ describe("session runner", () => {
     expect(runner.liveSessionIds()).toEqual(new Set([id]));
   });
 
+  test("REQ-001-16 a session still marked running whose window is gone (interrupted) can be resumed and closed", () => {
+    const id = startImplementer();
+    store.setClaudeSessionId(id, "sess-abc");
+    tmux.windows.clear();
+    runner.resume(id, "Continue", { model: "opus" });
+    expect(runner.liveSessionIds()).toEqual(new Set([id]));
+    tmux.windows.clear();
+    runner.close(id);
+    expect(store.session(id)?.state).toBe("closed");
+  });
+
   test("a session that never reported its id cannot be resumed", () => {
     const id = startImplementer();
     store.patchSession(id, { state: "idle" });

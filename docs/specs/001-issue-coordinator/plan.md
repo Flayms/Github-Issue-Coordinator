@@ -83,5 +83,5 @@ export default {
 - [ ] T11 Implementer run, push and PR creation, plus the sync after any turn. (REQ-001-06, REQ-001-09, REQ-001-19)
 - [ ] T12 Reviewer run and PR review posting; close the session once posted. (REQ-001-10, REQ-001-23)
 - [ ] T13 Feedback rounds: blocking findings, Owner `/agent` and changes-requested, failing checks. (REQ-001-11, REQ-001-12, REQ-001-13, REQ-001-24)
-- [ ] T15 Reconcile loop: poll each repo, gather facts (Owner comments, body changes, live windows), derive actions, schedule, execute and sync; the `bun start` entry point. Done right after T8 so the Coordinator runs end to end as features land. (REQ-001-01, REQ-001-07, REQ-001-16, REQ-001-17, REQ-001-20)
+- [x] T15 Reconcile loop (`src/coordinator.ts`, `src/index.ts`; main clones in `src/git.ts`): poll each repo, gather facts (Owner comments, body changes, live windows), derive actions, schedule, execute and sync; the `bun start` entry point. Done right after T8 so the Coordinator runs end to end as features land. (REQ-001-01, REQ-001-07, REQ-001-16, REQ-001-17, REQ-001-20)
 - [ ] T14 Deployment: systemd unit, `agent` user, a setup guide for the GitHub App, the ruleset, the one-time `/login`, and disabling the GitHub Actions reviewer. (REQ-001-15)

@@ -103,7 +103,7 @@ export class SessionRunner {
   /** Continues a session with a new prompt; refuses while it is running (REQ-001-19). */
   resume(id: number, prompt: string, model: RoleSettings): void {
     const s = this.mustGet(id);
-    if (s.state === "running") throw new SessionBusyError(id);
+    if (this.isBusy(s)) throw new SessionBusyError(id);
     if (!s.claudeSessionId) throw new Error(`session ${id} has no Claude session id to resume`);
     const meta = JSON.parse(readFileSync(join(this.sessionDir(id), "meta.json"), "utf8")) as { cwd: string };
     this.o.tmux.killWindow(`s${id}`);
@@ -114,9 +114,14 @@ export class SessionRunner {
   /** Closes an idle session (REQ-001-20); it can be resumed later. */
   close(id: number): void {
     const s = this.mustGet(id);
-    if (s.state === "running") throw new SessionBusyError(id);
+    if (this.isBusy(s)) throw new SessionBusyError(id);
     this.o.tmux.killWindow(`s${id}`);
     this.o.store.patchSession(id, { state: "closed" });
+  }
+
+  /** Running with a live window; a "running" session without one was interrupted (REQ-001-16). */
+  private isBusy(s: SessionRecord): boolean {
+    return s.state === "running" && this.liveSessionIds().has(s.id);
   }
 
   /** Store ids of sessions whose tmux window is alive. */
