@@ -37,6 +37,10 @@ echo "== Coordinator checkout and dependencies (as $AGENT)"
 as_agent "[ -d $CHECKOUT/.git ] || git clone -q $REPO_URL $CHECKOUT"
 as_agent "cd $CHECKOUT && ~/.bun/bin/bun install --frozen-lockfile"
 
+echo "== PATH for bun and claude in login shells (as $AGENT)"
+# The installers only extend ~/.bashrc, which non-interactive shells (sudo -iu agent bash -lc ...) skip.
+as_agent 'grep -q "coordinator: PATH" ~/.profile || echo "export PATH=\$HOME/.local/bin:\$HOME/.bun/bin:\$PATH  # coordinator: PATH" >> ~/.profile'
+
 echo "== Directory for the GitHub App key (as $AGENT)"
 as_agent 'mkdir -p ~/.config/coordinator && chmod 700 ~/.config/coordinator'
 
