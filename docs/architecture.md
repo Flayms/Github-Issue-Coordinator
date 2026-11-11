@@ -13,24 +13,26 @@ flowchart LR
 
 ## Modules
 
-| Module                         | Responsibility                                                                                         | Status   |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------ | -------- |
-| `src/index.ts`                 | Entry point (`bun start`): wires everything, runs the loop, checks for dialogs every 3s                | T15 done |
-| `src/coordinator.ts`           | Reconcile loop: sync finished turns, poll, derive, schedule across repos, execute                      | T15 done |
-| `src/git.ts`                   | Main clone per repo, reset to the default branch; the App token is passed per command, never stored    | T15 done |
-| `src/worktrees.ts`             | Worktree per issue/Bundle (local clone + branch + setup), push, review checkouts, removal              | T10 done |
-| `src/config.ts`                | Load and validate `config.ts`; resolve a Role's model and effort per repository                        | T2 done  |
-| `src/labels.ts`                | The `agent:*` labels that carry state on GitHub                                                        | T3 done  |
-| `src/github/app-auth.ts`       | GitHub App JWT; installation token per repository owner, cached until near expiry                      | T3 done  |
-| `src/github/client.ts`         | REST client: ETag polling, comments, timeline label actor, labels, PRs, Reviews, checks                | T3 done  |
-| `src/store.ts`                 | `bun:sqlite`: sessions (Role, issues, Claude session id, state) and per-issue bookkeeping              | T4 done  |
-| `src/state.ts`                 | Pure: issue state from labels; actions from labels, store and live tmux windows                        | T4 done  |
-| `src/scheduler.ts`             | Pure: which queued work starts, which idle sessions close (Slots, priority, pause, live limit)         | T5 done  |
-| `src/runner.ts`, `src/tmux.ts` | Start/resume/close `claude --remote-control` sessions in tmux windows `s<id>`; answer the trust dialog | T6 done  |
-| `src/hook.ts`                  | Claude Code hook: session id, Owner vs. Coordinator prompts, Result validation on `Stop`, payload log  | T6 done  |
-| `src/prompts.ts`, `prompts/`   | Role prompts with repo overrides; permissions per Role (`dontAsk` read-only, or `auto` in the sandbox) | T7 done  |
-| `src/planner.ts`               | Planner pass, plan revision, Assessment comments and labels, sync after every Planner turn             | T8 done  |
-| `src/results.ts`               | Result schemas per Role and the instructions shown to sessions                                         | T6 done  |
+| Module                         | Responsibility                                                                                               | Status   |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------ | -------- |
+| `src/index.ts`                 | Entry point (`bun start`): wires everything, runs the loop, checks for dialogs every 3s                      | T15 done |
+| `src/coordinator.ts`           | Reconcile loop: sync finished turns, poll, derive, schedule across repos, execute                            | T15 done |
+| `src/git.ts`                   | Main clone per repo, reset to the default branch; the App token is passed per command, never stored          | T15 done |
+| `src/implementer.ts`           | Implementer start (Bundle, Worktree, limited context), push + PR after every turn, cleanup after merge/close | T11 done |
+| `src/note.ts`                  | The agent note heading every comment, PR and review                                                          | T11 done |
+| `src/worktrees.ts`             | Worktree per issue/Bundle (local clone + branch + setup), push, review checkouts, removal                    | T10 done |
+| `src/config.ts`                | Load and validate `config.ts`; resolve a Role's model and effort per repository                              | T2 done  |
+| `src/labels.ts`                | The `agent:*` labels that carry state on GitHub                                                              | T3 done  |
+| `src/github/app-auth.ts`       | GitHub App JWT; installation token per repository owner, cached until near expiry                            | T3 done  |
+| `src/github/client.ts`         | REST client: ETag polling, comments, timeline label actor, labels, PRs, Reviews, checks                      | T3 done  |
+| `src/store.ts`                 | `bun:sqlite`: sessions (Role, issues, Claude session id, state) and per-issue bookkeeping                    | T4 done  |
+| `src/state.ts`                 | Pure: issue state from labels; actions from labels, store and live tmux windows                              | T4 done  |
+| `src/scheduler.ts`             | Pure: which queued work starts, which idle sessions close (Slots, priority, pause, live limit)               | T5 done  |
+| `src/runner.ts`, `src/tmux.ts` | Start/resume/close `claude --remote-control` sessions in tmux windows `s<id>`; answer the trust dialog       | T6 done  |
+| `src/hook.ts`                  | Claude Code hook: session id, Owner vs. Coordinator prompts, Result validation on `Stop`, payload log        | T6 done  |
+| `src/prompts.ts`, `prompts/`   | Role prompts with repo overrides; permissions per Role (`dontAsk` read-only, or `auto` in the sandbox)       | T7 done  |
+| `src/planner.ts`               | Planner pass, plan revision, Assessment comments and labels, sync after every Planner turn                   | T8 done  |
+| `src/results.ts`               | Result schemas per Role and the instructions shown to sessions                                               | T6 done  |
 
 ## Tech Stack
 

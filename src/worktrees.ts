@@ -98,6 +98,15 @@ export class Worktrees {
     git(path, [...gitAuthArgs(await this.o.token(repo)), "push", "-q", "origin", `${branch}:refs/heads/${branch}`]);
   }
 
+  currentBranch(path: string): string {
+    return git(path, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  }
+
+  /** The remote's default branch, e.g. `main`. */
+  defaultBranch(path: string): string {
+    return git(path, ["rev-parse", "--abbrev-ref", "origin/HEAD"]).replace(/^origin\//, "");
+  }
+
   head(path: string): string {
     return git(path, ["rev-parse", "HEAD"]);
   }

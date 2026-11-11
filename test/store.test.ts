@@ -87,6 +87,19 @@ describe("store", () => {
     }
   });
 
+  test("REQ-001-14 lists Worktrees on record with their issues and PR", () => {
+    const s = new Store(":memory:");
+    s.updateIssue("octo/app", 5, { worktreePath: "/wt/5", prNumber: 9 });
+    s.updateIssue("octo/app", 6, { worktreePath: "/wt/5", prNumber: 9 });
+    s.updateIssue("octo/app", 7, { worktreePath: "/wt/7" });
+    s.updateIssue("octo/app", 8, { prNumber: 3 });
+    s.updateIssue("octo/other", 1, { worktreePath: "/wt/o1" });
+    expect(s.worktrees("octo/app")).toEqual([
+      { worktreePath: "/wt/5", issues: [5, 6], prNumber: 9 },
+      { worktreePath: "/wt/7", issues: [7], prNumber: null },
+    ]);
+  });
+
   test("keeps per-issue bookkeeping, merging partial updates", () => {
     const s = new Store(":memory:");
     expect(s.issue("octo/app", 5)).toEqual({

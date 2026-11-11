@@ -85,6 +85,13 @@ describe("worktrees", () => {
     expect(git(origin, "rev-parse", wt.branch)).toBe(w.head(wt.path));
   });
 
+  test("knows the checkout's branch and the default branch", async () => {
+    const w = make();
+    const wt = await w.create("octo/app", [5], "x");
+    expect(w.currentBranch(wt.path)).toBe("agent/5-x");
+    expect(w.defaultBranch(wt.path)).toBe("main");
+  });
+
   test("respects maxWorktrees", async () => {
     const w = make(undefined, 1);
     await w.create("octo/app", [5], "x");

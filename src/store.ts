@@ -265,6 +265,23 @@ export class Store {
       .run(...(entries.map(([, v]) => v) as (string | number | null)[]), repo, number);
   }
 
+  /** Worktrees on record (REQ-001-14), grouped by path, with their issues and PR. */
+  worktrees(repo: string): { worktreePath: string; issues: number[]; prNumber: number | null }[] {
+    const rows = this.db
+      .query<{ number: number; worktree_path: string; pr_number: number | null }, [string]>(
+        "SELECT number, worktree_path, pr_number FROM issues WHERE repo = ? AND worktree_path IS NOT NULL ORDER BY number",
+      )
+      .all(repo);
+    const byPath = new Map<string, { worktreePath: string; issues: number[]; prNumber: number | null }>();
+    for (const r of rows) {
+      const w = byPath.get(r.worktree_path) ?? { worktreePath: r.worktree_path, issues: [], prNumber: null };
+      w.issues.push(r.number);
+      w.prNumber ??= r.pr_number;
+      byPath.set(r.worktree_path, w);
+    }
+    return [...byPath.values()];
+  }
+
   /** End of the usage-limit pause (REQ-001-17), if one is in force or was recorded. */
   pausedUntil(): string | undefined {
     return this.db.query<{ value: string }, [string]>("SELECT value FROM meta WHERE key = ?").get("pausedUntil")?.value;

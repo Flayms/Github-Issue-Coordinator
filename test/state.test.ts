@@ -189,6 +189,55 @@ describe("deriveActions", () => {
     );
   });
 
+  const bundleAssessment = (issue: number, bundleWith: number[] = [], blockedBy: number[] = []) =>
+    JSON.stringify({ issue, verdict: "proposed", approach: "A", bundleWith, blockedBy, questions: [] });
+
+  test("REQ-001-09 an approved, unblocked issue without an Implementer is queued for implementation", () => {
+    const actions = deriveActions(
+      snap({
+        items: [issue(5, ["agent:approved"])],
+        records: new Map([[5, { approvedAt: "2026-11-11T09:00:00Z", assessment: bundleAssessment(5) }]]),
+      }),
+    );
+    expect(actions).toEqual([{ type: "implement", repo: "octo/app", issues: [5], approvedAt: "2026-11-11T09:00:00Z" }]);
+  });
+
+  test("REQ-001-06 a Bundle takes in the open issues it is bundled with, once", () => {
+    const actions = deriveActions(
+      snap({
+        items: [
+          issue(5, ["agent:approved"]),
+          issue(6, ["agent:approved"]),
+          issue(7, ["agent:proposed"]),
+          issue(8, ["agent:pr-open"]),
+        ],
+        records: new Map([
+          [5, { approvedAt: "2026-11-11T09:00:00Z", assessment: bundleAssessment(5, [6, 7, 8, 99]) }],
+          [6, { approvedAt: "2026-11-11T08:00:00Z", assessment: bundleAssessment(6, [5]) }],
+        ]),
+      }),
+    );
+    expect(actions).toEqual([
+      { type: "implement", repo: "octo/app", issues: [5, 6, 7], approvedAt: "2026-11-11T08:00:00Z" },
+    ]);
+  });
+
+  test("REQ-001-14 a Worktree whose PR is no longer open is cleaned up", () => {
+    const actions = deriveActions(
+      snap({
+        items: [issue(5, ["agent:pr-open"]), issue(10, [], { isPullRequest: true, author: { login: "bot", id: 1 } })],
+        worktrees: [
+          { issues: [5, 6], prNumber: 9, worktreePath: "/wt/5" },
+          { issues: [7], prNumber: 10, worktreePath: "/wt/7" },
+          { issues: [8], prNumber: null, worktreePath: "/wt/8" },
+        ],
+      }),
+    );
+    expect(actions).toEqual([
+      { type: "cleanup", repo: "octo/app", issues: [5, 6], prNumber: 9, worktreePath: "/wt/5" },
+    ]);
+  });
+
   test("REQ-001-01 ignores issues by anyone but the Owner, and PRs", () => {
     const actions = deriveActions(
       snap({

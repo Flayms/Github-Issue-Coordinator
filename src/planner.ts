@@ -7,6 +7,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Config, roleSettings } from "./config.ts";
 import type { GitHubClient, Item } from "./github/client.ts";
+import { agentNote } from "./note.ts";
 import { loadPrompt, renderPrompt } from "./prompts.ts";
 import { type PlannerResult, validateResult } from "./results.ts";
 import type { SessionRunner } from "./runner.ts";
@@ -28,11 +29,7 @@ const BODY_LIMIT = 4_000;
 export const bodyHash = (body: string): string => createHash("sha256").update(body).digest("hex");
 
 export function renderAssessment(a: Assessment, by: { owner: string; model: string }): string {
-  const parts = [
-    `> [!Note]\n> 🤖 Claude (${by.model}) writing on behalf of ${by.owner}`,
-    `## Assessment: ${VERDICT_TITLES[a.verdict]}`,
-    a.approach,
-  ];
+  const parts = [agentNote(by.model, by.owner), `## Assessment: ${VERDICT_TITLES[a.verdict]}`, a.approach];
   if (a.questions.length) parts.push(`**Questions**\n\n${a.questions.map((q) => `- ${q}`).join("\n")}`);
   const notes = [
     ...a.bundleWith.map((n) => `- Do together with #${n}`),
@@ -146,7 +143,7 @@ export class Planner {
           await this.d.gh.createComment(
             s.repo,
             n,
-            `> [!Note]\n> 🤖 Claude (${model}) writing on behalf of ${this.d.config.owner.login}\n\nThe Planner could not produce a valid Assessment: ${check.problem}`,
+            `${agentNote(model, this.d.config.owner.login)}\n\nThe Planner could not produce a valid Assessment: ${check.problem}`,
           );
         }
         this.d.runner.close(sessionId);

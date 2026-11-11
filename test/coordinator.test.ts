@@ -66,6 +66,36 @@ class FakeGitHub {
   async updateComment(_r: string, id: number, body: string) {
     this.calls.push(["updateComment", id, body]);
   }
+  async createPull(_r: string, pr: { title: string; body: string; head: string; base: string }) {
+    this.calls.push(["createPull", pr.title]);
+    return 70;
+  }
+  async updatePull(_r: string, pr: number) {
+    this.calls.push(["updatePull", pr]);
+  }
+}
+
+class FakeWorktrees {
+  removed: string[] = [];
+  hasRoom() {
+    return true;
+  }
+  async create(_repo: string, issues: number[]) {
+    return { path: `/wt/${issues[0]}`, branch: `agent/${issues[0]}-x` };
+  }
+  async push() {}
+  commitsAhead() {
+    return 1;
+  }
+  currentBranch() {
+    return "agent/5-x";
+  }
+  defaultBranch() {
+    return "main";
+  }
+  remove(path: string) {
+    this.removed.push(path);
+  }
 }
 
 /** Behaves like the real runner on top of the store, with "windows" as a set. */
@@ -110,6 +140,7 @@ let now: Date;
 let store: Store;
 let gh: FakeGitHub;
 let runner: FakeRunner;
+let worktrees: FakeWorktrees;
 let coordinator: Coordinator;
 
 beforeEach(() => {
@@ -118,11 +149,13 @@ beforeEach(() => {
   store = new Store(":memory:", () => now);
   gh = new FakeGitHub();
   runner = new FakeRunner(store, dir);
+  worktrees = new FakeWorktrees();
   coordinator = new Coordinator({
     config,
     store,
     gh,
     runner,
+    worktrees,
     clones: { mainClone: async (repo: string) => `/clones/${repo}` },
     now: () => now,
     log: () => {},
@@ -257,6 +290,36 @@ describe("reconcile loop", () => {
     expect(gh.items[0]?.labels).toEqual(["agent:approved"]);
   });
 
+  test("REQ-001-09 / REQ-001-14 an approved issue is implemented, gets a PR, and is cleaned up once the PR is merged", async () => {
+    await proposed();
+    gh.comments.set(5, [{ id: 970, body: "/approve", author: OWNER, createdAt: "t", updatedAt: "" }]);
+    gh.changed = true;
+    await coordinator.tick(); // approve
+    await coordinator.tick(); // implement
+    const impl = runner.started.at(-1);
+    expect(impl).toMatchObject({ role: "implementer", issues: [5], cwd: "/wt/5" });
+    expect(gh.items[0]?.labels).toEqual(["agent:in-progress"]);
+
+    const id = runner.started.length;
+    writeFileSync(
+      join(runner.sessionDir(id), "result.json"),
+      JSON.stringify({ prTitle: "T", prBody: "B", summary: "S" }),
+    );
+    store.patchSession(id, { state: "idle", needsSync: true });
+    gh.items.push(item(70, [], { isPullRequest: true, author: { login: "bot", id: 1 } }));
+    await coordinator.tick();
+    expect(gh.calls).toContainEqual(["createPull", "T"]);
+    expect(gh.items[0]?.labels).toEqual(["agent:pr-open"]);
+    expect(runner.started.filter((s) => s.role === "implementer")).toHaveLength(1);
+
+    gh.items = gh.items.filter((i) => i.number !== 70 && i.number !== 5); // merged, issue closed
+    gh.changed = true;
+    await coordinator.tick();
+    expect(worktrees.removed).toEqual(["/wt/5"]);
+    expect(store.session(id)?.state).toBe("closed");
+    expect(store.issue("octo/app", 5).worktreePath).toBeNull();
+  });
+
   test("only fetches comments when the repository's issues changed", async () => {
     gh.items = [item(5, ["agent:proposed"])];
     await coordinator.tick();
@@ -334,6 +397,7 @@ describe("reconcile loop", () => {
       store,
       gh: { ...gh, listOpenItems: async () => Promise.reject(new Error("GitHub down")) } as unknown as FakeGitHub,
       runner,
+      worktrees,
       clones: { mainClone: async () => "/c" },
       now: () => now,
       log: (m) => logs.push(m),

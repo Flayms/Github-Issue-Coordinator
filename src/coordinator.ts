@@ -6,6 +6,8 @@
 import { type Config, type Role, roleSettings } from "./config.ts";
 import type { Clones } from "./git.ts";
 import type { Actor, GitHubClient, Item } from "./github/client.ts";
+import { Implementer, type ImplementerDeps } from "./implementer.ts";
+import { agentNote } from "./note.ts";
 import { bodyHash, Planner } from "./planner.ts";
 import type { SessionRunner } from "./runner.ts";
 import { type LiveSession, schedule, type Work } from "./scheduler.ts";
@@ -23,10 +25,19 @@ export interface CoordinatorDeps {
   store: Store;
   gh: Pick<
     GitHubClient,
-    "listOpenItems" | "listComments" | "labelActor" | "addLabels" | "removeLabel" | "createComment" | "updateComment"
+    | "listOpenItems"
+    | "listComments"
+    | "labelActor"
+    | "addLabels"
+    | "removeLabel"
+    | "createComment"
+    | "updateComment"
+    | "createPull"
+    | "updatePull"
   >;
   runner: Pick<SessionRunner, "start" | "resume" | "close" | "sessionDir" | "liveSessionIds" | "answerDialogs">;
   clones: Pick<Clones, "mainClone">;
+  worktrees: ImplementerDeps["worktrees"];
   now?: () => Date;
   log?: (message: string) => void;
 }
@@ -39,12 +50,14 @@ interface RepoView {
 
 export class Coordinator {
   private readonly planner: Planner;
+  private readonly implementer: Implementer;
   private readonly views = new Map<string, RepoView>();
   private readonly now: () => Date;
   private readonly log: (m: string) => void;
 
   constructor(private readonly d: CoordinatorDeps) {
     this.planner = new Planner(d);
+    this.implementer = new Implementer(d);
     this.now = d.now ?? (() => new Date());
     this.log = d.log ?? ((m) => console.log(`${new Date().toISOString()} ${m}`));
   }
@@ -68,6 +81,7 @@ export class Coordinator {
             labelActors: view.labelActors,
             records: this.records(repo, view.items),
             now: this.now().toISOString(),
+            worktrees: this.d.store.worktrees(repo),
           });
           for (const a of actions) await this.handle(a, view, queue, jobs);
           this.queueUsageLimited(repo, queue, jobs);
@@ -96,6 +110,7 @@ export class Coordinator {
         if (!s.needsSync) continue;
         try {
           if (s.role === "planner") await this.planner.sync(s.id);
+          if (s.role === "implementer") await this.implementer.sync(s.id);
         } catch (e) {
           this.log(`${repo}: sync of session ${s.id} failed: ${e instanceof Error ? e.message : String(e)}`);
         }
@@ -163,6 +178,31 @@ export class Coordinator {
         await this.d.gh.removeLabel(a.repo, a.issue, "agent:blocked");
         await this.d.gh.addLabels(a.repo, a.issue, ["agent:approved"]);
         this.log(`${a.repo}#${a.issue}: unblocked`);
+        return;
+      case "implement": {
+        const members = a.issues.map((n) => view.items.find((i) => i.number === n)).filter((i) => i !== undefined);
+        const key = `${a.repo}#${a.issues[0]} implement`;
+        this.add(queue, jobs, { key, kind: "implement", role: "implementer", queuedAt: a.approvedAt }, async () => {
+          if (!this.d.worktrees.hasRoom()) {
+            this.log(`${key}: waiting, maxWorktrees reached`);
+            return;
+          }
+          try {
+            const id = await this.implementer.start(a.repo, members);
+            this.log(`${a.repo}: implementing ${a.issues.map((n) => `#${n}`).join(", ")} (session ${id})`);
+          } catch (e) {
+            await this.fail(
+              a.repo,
+              a.issues,
+              `could not start the Implementer: ${e instanceof Error ? e.message : String(e)}`,
+            );
+          }
+        });
+        return;
+      }
+      case "cleanup":
+        if (await this.implementer.cleanup(a.repo, a.issues, a.worktreePath))
+          this.log(`${a.repo}: PR #${a.prNumber} is closed; cleaned up ${a.issues.map((n) => `#${n}`).join(", ")}`);
         return;
       case "resume-interrupted": {
         const s = a.session;
@@ -304,9 +344,11 @@ export class Coordinator {
         const i = view?.items.find((x) => x.number === n);
         return i !== undefined && PROPOSALS.includes(issueState(i.labels));
       });
+    const pr = s.role === "implementer" ? this.d.store.issue(s.repo, s.issues[0] ?? 0).prNumber : null;
     return {
       id: s.id,
       role: s.role as Role,
+      keepLonger: pr !== null && (view?.items.some((i) => i.number === pr) ?? false),
       state: s.state === "running" ? "running" : "idle",
       lastActivityAt: s.lastActivityAt,
       waitingOnOwner,
@@ -323,7 +365,7 @@ export class Coordinator {
       await this.d.gh.createComment(
         repo,
         n,
-        `> [!Note]\n> 🤖 Claude (${model}) writing on behalf of ${this.d.config.owner.login}\n\nThe Coordinator gave up on this issue: ${reason}.`,
+        `${agentNote(model, this.d.config.owner.login)}\n\nThe Coordinator gave up on this issue: ${reason}.`,
       );
     }
     if (session) {

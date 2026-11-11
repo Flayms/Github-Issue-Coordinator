@@ -52,6 +52,8 @@ export interface Snapshot {
   records?: ReadonlyMap<number, Pick<IssueRecord, "approvedAt" | "assessment">>;
   /** Who added `agent:approved`, looked up for approved issues without an approval on record. */
   labelActors?: ReadonlyMap<number, Actor | undefined>;
+  /** Worktrees on record for this repository, with the PR they belong to. */
+  worktrees?: { issues: number[]; prNumber: number | null; worktreePath: string }[];
 }
 
 export interface IssueFeedback {
@@ -71,6 +73,10 @@ export type Action =
   | { type: "reject-approval"; repo: string; issue: number }
   | { type: "block"; repo: string; issue: number; blockers: number[] }
   | { type: "unblock"; repo: string; issue: number }
+  | { type: "implement"; repo: string; issues: number[]; approvedAt: string }
+  | { type: "cleanup"; repo: string; issues: number[]; prNumber: number; worktreePath: string }
+  | { type: "implement"; repo: string; issues: number[]; approvedAt: string }
+  | { type: "cleanup"; repo: string; issues: number[]; prNumber: number; worktreePath: string }
   | { type: "resume-interrupted"; session: SessionRecord }
   | { type: "mark-closed"; session: SessionRecord }
   | { type: "fail"; repo: string; issues: number[]; session?: SessionRecord; reason: string };
@@ -140,10 +146,43 @@ export function deriveActions(s: Snapshot): Action[] {
       else actions.push({ type: "reject-approval", repo: s.repo, issue: i.number });
       continue;
     }
-    const blockers = blockedBy(rec.assessment).filter((n) => open.has(n));
+    const blockers = coordination(rec.assessment, "blockedBy").filter((n) => open.has(n));
     if (state === "approved" && blockers.length)
       actions.push({ type: "block", repo: s.repo, issue: i.number, blockers });
     if (state === "blocked" && !blockers.length) actions.push({ type: "unblock", repo: s.repo, issue: i.number });
+  }
+
+  // REQ-001-09 / REQ-001-06: approved, unblocked issues start an Implementer, together with their Bundle.
+  const bundled = new Set<number>();
+  for (const i of [...issues].sort((a, b) => a.number - b.number)) {
+    const rec = s.records?.get(i.number);
+    if (issueState(i.labels) !== "approved" || !rec?.approvedAt || bundled.has(i.number)) continue;
+    if (coordination(rec.assessment, "blockedBy").some((n) => open.has(n))) continue;
+    const joinable = (n: number) => {
+      const other = issues.find((x) => x.number === n);
+      return other !== undefined && ["proposed", "approved"].includes(issueState(other.labels));
+    };
+    const members = [...new Set([i.number, ...coordination(rec.assessment, "bundleWith").filter(joinable)])].sort(
+      (a, b) => a - b,
+    );
+    for (const n of members) bundled.add(n);
+    const approvedAt = members
+      .map((n) => s.records?.get(n)?.approvedAt)
+      .filter((t): t is string => !!t)
+      .sort()[0] as string;
+    actions.push({ type: "implement", repo: s.repo, issues: members, approvedAt });
+  }
+
+  // REQ-001-14: a Worktree whose PR was merged or closed is cleaned up.
+  for (const w of s.worktrees ?? []) {
+    if (w.prNumber !== null && !open.has(w.prNumber))
+      actions.push({
+        type: "cleanup",
+        repo: s.repo,
+        issues: w.issues,
+        prNumber: w.prNumber,
+        worktreePath: w.worktreePath,
+      });
   }
 
   // REQ-001-02: one Planner pass over all new issues.
@@ -153,11 +192,11 @@ export function deriveActions(s: Snapshot): Action[] {
   return actions;
 }
 
-function blockedBy(assessment: string | null): number[] {
+function coordination(assessment: string | null, key: "blockedBy" | "bundleWith"): number[] {
   if (!assessment) return [];
   try {
-    const a = JSON.parse(assessment) as { blockedBy?: unknown };
-    return Array.isArray(a.blockedBy) ? a.blockedBy.filter((n): n is number => typeof n === "number") : [];
+    const list = (JSON.parse(assessment) as Record<string, unknown>)[key];
+    return Array.isArray(list) ? list.filter((n): n is number => typeof n === "number") : [];
   } catch {
     return [];
   }

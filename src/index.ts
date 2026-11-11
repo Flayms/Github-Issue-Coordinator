@@ -9,6 +9,7 @@ import { GitHubClient } from "./github/client.ts";
 import { SessionRunner } from "./runner.ts";
 import { Store } from "./store.ts";
 import { TmuxCli } from "./tmux.ts";
+import { Worktrees } from "./worktrees.ts";
 
 export const NAME = "github-issue-coordinator";
 const DIALOG_CHECK_MS = 3_000;
@@ -39,7 +40,15 @@ async function main() {
     hookCommand: [process.execPath, resolve(import.meta.dir, "hook.ts")],
   });
   const clones = new Clones({ root: join(stateDir, "clones"), token: (repo) => auth.tokenFor(repo) });
-  const coordinator = new Coordinator({ config, store, gh, runner, clones, log });
+  const worktrees = new Worktrees({
+    root: stateDir,
+    clones,
+    token: (repo) => auth.tokenFor(repo),
+    setup: (repo) => config.repos.find((r) => r.name.toLowerCase() === repo.toLowerCase())?.setup,
+    maxWorktrees: config.limits.maxWorktrees,
+    commitAuthor: config.github.commitAuthor,
+  });
+  const coordinator = new Coordinator({ config, store, gh, runner, clones, worktrees, log });
 
   for (const { name } of config.repos) {
     try {
