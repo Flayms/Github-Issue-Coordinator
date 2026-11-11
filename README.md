@@ -7,5 +7,7 @@ A self-hosted Bun daemon that polls GitHub and runs Claude Code agents. They tri
 ```sh
 bun install
 cp config.example.ts config.ts   # fill in the Owner, Roles and repositories
+claude                           # once: /login with the Claude subscription
+claude --permission-mode bypassPermissions   # once: accept the warning (Implementer sessions run in the sandbox)
 bun start                        # validates the config; the reconcile loop follows
 ```

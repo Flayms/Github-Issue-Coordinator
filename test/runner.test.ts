@@ -68,7 +68,7 @@ describe("claude command line", () => {
         settingsPath: "/s/settings.json",
         addDir: "/s",
         model: { model: "sonnet", effort: "high" },
-        permissionMode: "acceptEdits",
+        permissions: { permissionMode: "dontAsk", allowedTools: ["Read", "Bash(git log:*)"], sandbox: false },
       }),
     ).toEqual([
       "--add-dir",
@@ -79,10 +79,13 @@ describe("claude command line", () => {
       "sonnet",
       "--effort",
       "high",
+      "--allowedTools",
+      "Read",
+      "Bash(git log:*)",
       "--remote-control",
       "octo/app#5 implementer",
       "--permission-mode",
-      "acceptEdits",
+      "dontAsk",
       "Do it",
     ]);
   });
@@ -94,11 +97,12 @@ describe("claude command line", () => {
       settingsPath: "s",
       addDir: "d",
       model: { model: "opus" },
-      permissionMode: "acceptEdits",
+      permissions: { permissionMode: "bypassPermissions", allowedTools: [], sandbox: true },
       resumeId: "abc",
     });
     expect(args.slice(0, 2)).toEqual(["--resume", "abc"]);
     expect(args).not.toContain("--effort");
+    expect(args).not.toContain("--allowedTools");
   });
 
   test("REQ-001-18 names sessions <repo>#<issue> <role>, and a batch Planner <repo> planner", () => {
@@ -135,6 +139,37 @@ describe("session runner", () => {
     ]);
     expect(store.session(id)).toMatchObject({ state: "running", coordinatorPromptPending: true });
     expect(runner.liveSessionIds()).toEqual(new Set([id]));
+  });
+
+  test("REQ-001-25 the Implementer runs with bypassPermissions in the sandbox; a Reviewer in dontAsk with its allowed tools", () => {
+    const impl = startImplementer();
+    expect(tmux.windows.get(`s${impl}`)?.command).toContain("'--permission-mode' 'bypassPermissions'");
+    const implSettings = JSON.parse(readFileSync(join(dir, "sessions", String(impl), "settings.json"), "utf8"));
+    expect(implSettings.sandbox).toEqual({ enabled: true, autoAllowBashIfSandboxed: true });
+
+    const rev = runner.start({
+      repo: "octo/app",
+      role: "reviewer",
+      kind: "issue",
+      issues: [9],
+      cwd: "/work/review-9",
+      prompt: "Review #9",
+      model: { model: "opus" },
+    });
+    const cmd = tmux.windows.get(`s${rev}`)?.command ?? "";
+    expect(cmd).toContain("'--permission-mode' 'dontAsk'");
+    expect(cmd).toContain(`'Write(/${join(dir, "sessions", String(rev), "result.json")})'`);
+    expect(
+      JSON.parse(readFileSync(join(dir, "sessions", String(rev), "settings.json"), "utf8")).sandbox,
+    ).toBeUndefined();
+  });
+
+  test("REQ-001-25 a resumed session keeps its Role's permissions", () => {
+    const id = startImplementer();
+    store.setClaudeSessionId(id, "sess-abc");
+    store.patchSession(id, { state: "idle" });
+    runner.resume(id, "more", { model: "opus" });
+    expect(tmux.windows.get(`s${id}`)?.command).toContain("'--permission-mode' 'bypassPermissions'");
   });
 
   test("the prompt tells the session where to write its Result", () => {
@@ -184,6 +219,16 @@ describe("session runner", () => {
     const id = startImplementer();
     store.patchSession(id, { state: "idle" });
     expect(() => runner.resume(id, "x", { model: "opus" })).toThrow("no Claude session id");
+  });
+
+  test("REQ-001-25 reports a session stuck at the bypass-permissions warning and never answers it", () => {
+    const id = startImplementer();
+    const win = tmux.windows.get(`s${id}`);
+    if (win) win.pane = "WARNING: Claude Code running in Bypass Permissions mode\n  No, exit\n❯ Yes, I accept";
+    expect(runner.answerDialogs()).toEqual([
+      { sessionId: id, problem: expect.stringContaining("claude --permission-mode bypassPermissions") },
+    ]);
+    expect(tmux.keys).toEqual([]);
   });
 
   test("answers the folder trust dialog in new folders", () => {

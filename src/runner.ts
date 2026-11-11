@@ -6,12 +6,14 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Role, RoleSettings } from "./config.ts";
+import { type Permissions, rolePermissions } from "./prompts.ts";
 import { resultInstructions } from "./results.ts";
 import type { SessionRecord, Store } from "./store.ts";
 import type { Tmux } from "./tmux.ts";
 
 const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "Notification", "SessionEnd"] as const;
 const TRUST_DIALOG = /Yes, I trust this folder/;
+const BYPASS_WARNING = /Bypass Permissions mode|Yes, I accept/i;
 const WINDOW = /^s(\d+)$/;
 
 export class SessionBusyError extends Error {
@@ -33,15 +35,16 @@ export function claudeArgs(o: {
   settingsPath: string;
   addDir: string;
   model: RoleSettings;
-  permissionMode: string;
+  permissions: Permissions;
   resumeId?: string;
 }): string[] {
   const args: string[] = [];
   if (o.resumeId) args.push("--resume", o.resumeId);
   args.push("--add-dir", o.addDir, "--settings", o.settingsPath, "--model", o.model.model);
   if (o.model.effort) args.push("--effort", o.model.effort);
+  if (o.permissions.allowedTools.length) args.push("--allowedTools", ...o.permissions.allowedTools);
   // The prompt must follow a single-value flag: --add-dir is variadic, --remote-control has an optional value.
-  args.push("--remote-control", o.name, "--permission-mode", o.permissionMode, o.prompt);
+  args.push("--remote-control", o.name, "--permission-mode", o.permissions.permissionMode, o.prompt);
   return args;
 }
 
@@ -53,7 +56,6 @@ export interface StartOptions {
   cwd: string;
   prompt: string;
   model: RoleSettings;
-  permissionMode?: string;
 }
 
 export class SessionRunner {
@@ -90,12 +92,12 @@ export class SessionRunner {
         ],
       ]),
     );
-    writeFileSync(join(dir, "settings.json"), JSON.stringify({ hooks }, null, 2));
-    writeFileSync(
-      join(dir, "meta.json"),
-      JSON.stringify({ cwd: opts.cwd, permissionMode: opts.permissionMode ?? "acceptEdits" }),
-    );
-    this.launch(id, opts.cwd, opts.prompt, opts.model, opts.permissionMode ?? "acceptEdits");
+    const sandbox = rolePermissions(opts.role, dir).sandbox
+      ? { enabled: true, autoAllowBashIfSandboxed: true }
+      : undefined;
+    writeFileSync(join(dir, "settings.json"), JSON.stringify({ hooks, sandbox }, null, 2));
+    writeFileSync(join(dir, "meta.json"), JSON.stringify({ cwd: opts.cwd }));
+    this.launch(id, opts.cwd, opts.prompt, opts.model);
     return id;
   }
 
@@ -104,13 +106,10 @@ export class SessionRunner {
     const s = this.mustGet(id);
     if (s.state === "running") throw new SessionBusyError(id);
     if (!s.claudeSessionId) throw new Error(`session ${id} has no Claude session id to resume`);
-    const meta = JSON.parse(readFileSync(join(this.sessionDir(id), "meta.json"), "utf8")) as {
-      cwd: string;
-      permissionMode: string;
-    };
+    const meta = JSON.parse(readFileSync(join(this.sessionDir(id), "meta.json"), "utf8")) as { cwd: string };
     this.o.tmux.killWindow(`s${id}`);
     this.o.store.patchSession(id, { state: "running", resultFailures: 0, usageLimited: false });
-    this.launch(id, meta.cwd, prompt, model, meta.permissionMode, s.claudeSessionId);
+    this.launch(id, meta.cwd, prompt, model, s.claudeSessionId);
   }
 
   /** Closes an idle session (REQ-001-20); it can be resumed later. */
@@ -127,23 +126,29 @@ export class SessionRunner {
   }
 
   /** Answers the folder trust dialog that blocks `claude` in a new folder (docs/known-pitfalls.md). */
-  answerDialogs(): void {
+  /**
+   * Also reports sessions stuck at the bypass-permissions warning. That one is the Owner's decision:
+   * it is accepted once per Linux user by hand, never by the Coordinator (REQ-001-25).
+   */
+  answerDialogs(): { sessionId: number; problem: string }[] {
+    const blocked: { sessionId: number; problem: string }[] = [];
     for (const id of this.liveSessionIds()) {
-      if (TRUST_DIALOG.test(this.o.tmux.capture(`s${id}`))) {
+      const pane = this.o.tmux.capture(`s${id}`);
+      if (BYPASS_WARNING.test(pane)) {
+        blocked.push({
+          sessionId: id,
+          problem:
+            "waiting at the bypass-permissions warning; run `claude --permission-mode bypassPermissions` once as this user and accept it",
+        });
+      } else if (TRUST_DIALOG.test(pane)) {
         this.o.tmux.sendKeys(`s${id}`, "Down");
         this.o.tmux.sendKeys(`s${id}`, "Enter");
       }
     }
+    return blocked;
   }
 
-  private launch(
-    id: number,
-    cwd: string,
-    prompt: string,
-    model: RoleSettings,
-    permissionMode: string,
-    resumeId?: string,
-  ) {
+  private launch(id: number, cwd: string, prompt: string, model: RoleSettings, resumeId?: string) {
     const s = this.mustGet(id);
     const dir = this.sessionDir(id);
     const resultPath = join(dir, "result.json");
@@ -155,7 +160,7 @@ export class SessionRunner {
       settingsPath: join(dir, "settings.json"),
       addDir: dir,
       model,
-      permissionMode,
+      permissions: rolePermissions(s.role, dir),
       resumeId,
     });
     this.o.tmux.newWindow(`s${id}`, cwd, shellQuote([this.o.claudeBin ?? "claude", ...args]));

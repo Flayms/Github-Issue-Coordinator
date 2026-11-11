@@ -76,7 +76,7 @@ export default {
 - [x] T4 Store (`src/store.ts`: sessions, per-issue bookkeeping) and the state derivation as a pure function (`src/state.ts`: issue state from labels, Planner trigger, no double pickup, restart recovery; later tasks add their triggers there). (REQ-001-07, REQ-001-16)
 - [x] T5 Scheduler (`src/scheduler.ts`, pure): Slots per Role plus a total limit, priority order, usage-limit pause (persisted in the store), idle timeout and live-session limit with the eviction order. (REQ-001-08, REQ-001-17, REQ-001-20)
 - [x] T6 Session runner (`src/runner.ts`, `src/tmux.ts`), hook script (`src/hook.ts`), Result schemas (`src/results.ts`), Owner-busy guard; smoke-tested against real tmux + claude with `bun scripts/smoke-runner.ts`. (REQ-001-18, REQ-001-19, REQ-001-21)
-- [ ] T7 Prompts and per-Role model resolution, with per-repo overrides. (REQ-001-22)
+- [x] T7 Prompts (`prompts/<role>.md`, repo override `.github/coordinator/<role>.md`, `src/prompts.ts`) and per-Role permissions: Planner/Reviewer `dontAsk` with read-only tools plus their Result file; Implementer `bypassPermissions` in the sandbox, whose warning the Owner accepts once per Linux user. (REQ-001-22, REQ-001-25)
 - [ ] T8 Planner pass and Assessment rendering/editing, plus the sync after any turn. (REQ-001-02, REQ-001-03, REQ-001-19)
 - [ ] T9 Approval handling and blocked/unblock logic. (REQ-001-04, REQ-001-05)
 - [ ] T10 Worktree manager: bare clone, create, setup command, review checkouts, cleanup, `maxWorktrees`. (REQ-001-06, REQ-001-14)
