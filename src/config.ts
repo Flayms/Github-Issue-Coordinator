@@ -52,7 +52,14 @@ const configSchema = z
   .strictObject({
     owner: z.strictObject({ login: z.string().min(1), id: positiveInt }),
     /** The Coordinator's GitHub identity: a private GitHub App (REQ-001-15). Keep the key outside the repo. */
-    github: z.strictObject({ appId: positiveInt, privateKeyPath: z.string().min(1) }),
+    github: z.strictObject({
+      appId: positiveInt,
+      privateKeyPath: z.string().min(1),
+      /** Author of the Implementer's commits. */
+      commitAuthor: z
+        .strictObject({ name: z.string().min(1), email: z.string().min(3) })
+        .default({ name: "Claude", email: "noreply@anthropic.com" }),
+    }),
     pollIntervalSec: positiveInt.default(60),
     /** Store, session files and clones; relative paths are resolved against the working directory. */
     stateDir: z.string().min(1).default("state"),

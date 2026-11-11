@@ -18,6 +18,7 @@ flowchart LR
 | `src/index.ts`                 | Entry point (`bun start`): wires everything, runs the loop, checks for dialogs every 3s                | T15 done |
 | `src/coordinator.ts`           | Reconcile loop: sync finished turns, poll, derive, schedule across repos, execute                      | T15 done |
 | `src/git.ts`                   | Main clone per repo, reset to the default branch; the App token is passed per command, never stored    | T15 done |
+| `src/worktrees.ts`             | Worktree per issue/Bundle (local clone + branch + setup), push, review checkouts, removal              | T10 done |
 | `src/config.ts`                | Load and validate `config.ts`; resolve a Role's model and effort per repository                        | T2 done  |
 | `src/labels.ts`                | The `agent:*` labels that carry state on GitHub                                                        | T3 done  |
 | `src/github/app-auth.ts`       | GitHub App JWT; installation token per repository owner, cached until near expiry                      | T3 done  |

@@ -25,7 +25,7 @@ A single Bun process (`systemd` service, dedicated `agent` Linux user) runs a **
 | Role        | Where it runs                                               | Writes          | Result schema                                                          |
 | ----------- | ----------------------------------------------------------- | --------------- | ---------------------------------------------------------------------- |
 | Planner     | Main clone, read-only tools                                 | —               | `[{issue, verdict, approach, bundleWith[], blockedBy[], questions[]}]` |
-| Implementer | Own Worktree (one bare clone per repo)                      | Commits locally | `{prTitle, prBody, summary}`                                           |
+| Implementer | Own Worktree (a local clone of the main clone)              | Commits locally | `{prTitle, prBody, summary}`                                           |
 | Reviewer    | Temporary detached checkout of the PR head, read-only tools | —               | `{summary, findings[{path, line, severity, blocking, body}]}`          |
 
 ### Prompts and models
@@ -79,7 +79,7 @@ export default {
 - [x] T7 Prompts (`prompts/<role>.md`, repo override `.github/coordinator/<role>.md`, `src/prompts.ts`) and per-Role permissions: Planner/Reviewer `dontAsk` with read-only tools plus their Result file; Implementer in `auto` mode with the sandbox; whatever auto mode won't allow on its own waits for the Owner in the Claude app. (REQ-001-22, REQ-001-25)
 - [x] T8 Planner pass and Assessment rendering/editing, plus the sync after any turn (`src/planner.ts`; the latest Assessment is kept in the store as the source of Coordination notes; revise trigger in `src/state.ts`). (REQ-001-02, REQ-001-03, REQ-001-19)
 - [x] T9 Approval handling and blocked/unblock logic (approval and notes kept in the store, so the Coordinator re-adding `agent:approved` after unblocking is not mistaken for someone else's label; `/approve` takes all feedback comments since the last handled one as notes). (REQ-001-04, REQ-001-05)
-- [ ] T10 Worktree manager: bare clone, create, setup command, review checkouts, cleanup, `maxWorktrees`. (REQ-001-06, REQ-001-14)
+- [x] T10 Worktree manager (`src/worktrees.ts`): create, setup command, commit identity, push, review checkouts, removal, `maxWorktrees`. Each Worktree is a local clone of the main clone, not a `git worktree`, because a worktree writes commits into the main clone's `.git`, outside the Implementer's sandbox. (REQ-001-06, REQ-001-14)
 - [ ] T11 Implementer run, push and PR creation, plus the sync after any turn. (REQ-001-06, REQ-001-09, REQ-001-19)
 - [ ] T12 Reviewer run and PR review posting; close the session once posted. (REQ-001-10, REQ-001-23)
 - [ ] T13 Feedback rounds: blocking findings, Owner `/agent` and changes-requested, failing checks. (REQ-001-11, REQ-001-12, REQ-001-13, REQ-001-24)
