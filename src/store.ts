@@ -43,6 +43,10 @@ export interface IssueRecord {
   reviewedHeadSha: string | null;
   prNumber: number | null;
   worktreePath: string | null;
+  /** The latest Assessment as JSON (one Planner Result entry); the source of Coordination notes. */
+  assessment: string | null;
+  /** Hash of the issue body the Planner last saw, to notice edits (REQ-001-03). */
+  bodyHash: string | null;
 }
 
 const SCHEMA = `
@@ -71,6 +75,8 @@ CREATE TABLE IF NOT EXISTS issues (
   reviewed_head_sha TEXT,
   pr_number INTEGER,
   worktree_path TEXT,
+  assessment TEXT,
+  body_hash TEXT,
   PRIMARY KEY (repo, number)
 );
 CREATE TABLE IF NOT EXISTS meta (
@@ -120,6 +126,8 @@ const ISSUE_COLUMNS = {
   reviewedHeadSha: "reviewed_head_sha",
   prNumber: "pr_number",
   worktreePath: "worktree_path",
+  assessment: "assessment",
+  bodyHash: "body_hash",
 } as const satisfies Record<Exclude<keyof IssueRecord, "repo" | "number">, string>;
 
 export class Store {
@@ -227,6 +235,8 @@ export class Store {
       reviewedHeadSha: null,
       prNumber: null,
       worktreePath: null,
+      assessment: null,
+      bodyHash: null,
     };
     if (row) {
       for (const [key, col] of Object.entries(ISSUE_COLUMNS))

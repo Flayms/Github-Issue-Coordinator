@@ -57,6 +57,39 @@ describe("deriveActions", () => {
     expect(actions).toEqual([{ type: "plan", repo: "octo/app", issues: [1, 2] }]);
   });
 
+  test("REQ-001-03 Owner feedback on a proposal, or an edited body, queues a plan revision", () => {
+    const feedback = { id: 11, body: "Use v2", author: OWNER, createdAt: "", updatedAt: "" };
+    const wake = { id: 12, body: "/wake", author: OWNER, createdAt: "", updatedAt: "" };
+    const sneaky = { id: 13, body: "sneaky", author: { login: "mallory", id: 666 }, createdAt: "", updatedAt: "" };
+    const comments = [feedback, wake, sneaky];
+    const actions = deriveActions(
+      snap({
+        items: [
+          issue(5, ["agent:proposed"]),
+          issue(6, ["agent:needs-refinement"]),
+          issue(7, ["agent:wontfix-proposed"]),
+        ],
+        feedback: new Map([
+          [5, { comments, bodyChanged: false }],
+          [6, { comments: [], bodyChanged: true }],
+          [7, { comments: [wake, sneaky], bodyChanged: false }],
+        ]),
+      }),
+    );
+    expect(actions).toEqual([
+      { type: "revise", repo: "octo/app", issue: 5, comments: [feedback], bodyChanged: false },
+      { type: "revise", repo: "octo/app", issue: 6, comments: [], bodyChanged: true },
+    ]);
+  });
+
+  test("REQ-001-03 feedback on an issue that is not a proposal does not revise the plan", () => {
+    const comments = [{ id: 11, body: "Use v2", author: OWNER, createdAt: "", updatedAt: "" }];
+    const actions = deriveActions(
+      snap({ items: [issue(5, ["agent:approved"])], feedback: new Map([[5, { comments, bodyChanged: true }]]) }),
+    );
+    expect(actions).toEqual([]);
+  });
+
   test("REQ-001-01 ignores issues by anyone but the Owner, and PRs", () => {
     const actions = deriveActions(
       snap({

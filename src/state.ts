@@ -3,7 +3,7 @@
  * Pure, so every rule is unit-tested; the scheduler (T5) decides when actions run.
  */
 import type { Role } from "./config.ts";
-import type { Item } from "./github/client.ts";
+import type { Comment, Item } from "./github/client.ts";
 import { type AgentLabel, isAgentLabel } from "./labels.ts";
 import type { SessionRecord } from "./store.ts";
 
@@ -44,10 +44,23 @@ export interface Snapshot {
   sessions: SessionRecord[];
   /** Store ids of the sessions whose tmux window is alive. */
   liveSessionIds: ReadonlySet<number>;
+  /** Per issue: comments newer than the last handled one, and whether the body changed since the Planner saw it. */
+  feedback?: ReadonlyMap<number, IssueFeedback>;
 }
+
+export interface IssueFeedback {
+  comments: Comment[];
+  bodyChanged: boolean;
+}
+
+/** `/approve`, `/agent` and `/wake` are commands; any other comment is feedback. */
+export const isCommand = (body: string): boolean => /^\/(approve|agent|wake)(\s|$)/.test(body.trim());
+
+const PROPOSALS: IssueState[] = ["proposed", "needs-refinement", "wontfix-proposed"];
 
 export type Action =
   | { type: "plan"; repo: string; issues: number[] }
+  | { type: "revise"; repo: string; issue: number; comments: Comment[]; bodyChanged: boolean }
   | { type: "resume-interrupted"; session: SessionRecord }
   | { type: "mark-closed"; session: SessionRecord }
   | { type: "fail"; repo: string; issues: number[]; session?: SessionRecord; reason: string };
@@ -73,6 +86,15 @@ export function deriveActions(s: Snapshot): Action[] {
     const role = IN_FLIGHT[issueState(i.labels)];
     if (role && !s.sessions.some((x) => x.role === role && x.issues.includes(i.number)))
       actions.push({ type: "fail", repo: s.repo, issues: [i.number], reason: `no ${role} session to resume` });
+  }
+
+  // REQ-001-03: the Owner's feedback on a proposal revises the plan.
+  for (const i of issues) {
+    if (!PROPOSALS.includes(issueState(i.labels))) continue;
+    const f = s.feedback?.get(i.number);
+    const comments = (f?.comments ?? []).filter((c) => c.author.id === s.ownerId && !isCommand(c.body));
+    if (comments.length > 0 || f?.bodyChanged)
+      actions.push({ type: "revise", repo: s.repo, issue: i.number, comments, bodyChanged: f?.bodyChanged ?? false });
   }
 
   // REQ-001-02: one Planner pass over all new issues.
