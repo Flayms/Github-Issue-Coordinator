@@ -4,19 +4,18 @@ How to run the Coordinator on a server. The Owner does these steps once; nothing
 
 ## 1. Linux user, tools and Claude login
 
-The Coordinator and its agent sessions run as one Linux user. A dedicated user (here `agent`) keeps the agents away from your own home directory, SSH keys and credentials:
+The Coordinator and its agent sessions run as one Linux user. A dedicated user (here `agent`) keeps the agents away from your own home directory, SSH keys and credentials. As an admin, from a checkout of this repository:
 
 ```sh
-sudo adduser --disabled-password agent
-sudo -iu agent
-curl -fsSL https://bun.sh/install | bash        # Bun
-curl -fsSL https://claude.ai/install.sh | bash  # Claude Code
-sudo apt-get install -y tmux git bubblewrap     # as an admin user: tmux, git, the sandbox
+sudo bash deploy/create-agent-user.sh
 ```
 
-Then, still as that user, log in to Claude once with the subscription. Remote Control does not work with `claude setup-token`, so this must be the interactive login:
+It installs tmux, git and the sandbox tools (bubblewrap, socat), creates the `agent` user, installs Bun and Claude Code for it, clones this repository to `/home/agent/github-issue-coordinator` and creates `~/.config/coordinator` for the GitHub App key. It is safe to run again.
+
+Then log in to Claude once as that user, with the subscription. Remote Control does not work with `claude setup-token`, so this must be the interactive login:
 
 ```sh
+sudo -iu agent
 claude          # then /login, and /exit when done
 ```
 
