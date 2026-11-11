@@ -22,6 +22,7 @@ flowchart LR
 | `src/reviewer.ts`              | Reviewer start on a PR-head checkout, one COMMENT review, labels, session closed afterwards                  | T12 done |
 | `src/note.ts`                  | The agent note heading every comment, PR and review                                                          | T11 done |
 | `src/worktrees.ts`             | Worktree per issue/Bundle (local clone + branch + setup), push, review checkouts, removal                    | T10 done |
+| `src/doctor.ts`                | `bun run doctor`: read-only setup check (tools, login, config, GitHub App, repo access)                      | T14      |
 | `src/config.ts`                | Load and validate `config.ts`; resolve a Role's model and effort per repository                              | T2 done  |
 | `src/labels.ts`                | The `agent:*` labels that carry state on GitHub                                                              | T3 done  |
 | `src/github/app-auth.ts`       | GitHub App JWT; installation token per repository owner, cached until near expiry                            | T3 done  |

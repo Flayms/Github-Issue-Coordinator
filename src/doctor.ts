@@ -1,0 +1,111 @@
+#!/usr/bin/env bun
+/**
+ * Setup check: `bun run doctor`. Verifies everything the Coordinator needs before its first start
+ * (docs/setup.md) and prints what is missing. Read-only: it changes nothing.
+ */
+import { existsSync, readFileSync } from "node:fs";
+import { loadConfig } from "./config.ts";
+import { AppAuth, createAppJwt } from "./github/app-auth.ts";
+import { API, baseHeaders } from "./github/http.ts";
+
+type Status = "ok" | "fail" | "warn";
+const results: { status: Status; check: string; detail: string }[] = [];
+const report = (status: Status, check: string, detail = "") => {
+  results.push({ status, check, detail });
+  console.log(`${{ ok: "✓", fail: "✗", warn: "!" }[status]} ${check}${detail ? `: ${detail}` : ""}`);
+};
+const run = (cmd: string[]) => {
+  try {
+    const p = Bun.spawnSync(cmd, { stdout: "pipe", stderr: "pipe" });
+    return { ok: p.exitCode === 0, out: p.stdout.toString().trim() || p.stderr.toString().trim() };
+  } catch (e) {
+    return { ok: false, out: String(e) };
+  }
+};
+
+for (const [bin, arg] of [
+  ["claude", "--version"],
+  ["tmux", "-V"],
+  ["git", "--version"],
+  ["bwrap", "--version"],
+] as const) {
+  const r = run([bin, arg]);
+  report(
+    r.ok ? "ok" : bin === "bwrap" ? "warn" : "fail",
+    `${bin} installed`,
+    r.ok ? r.out.split("\n")[0] : "not found",
+  );
+}
+const auth = run(["claude", "auth", "status"]);
+try {
+  const s = JSON.parse(auth.out) as { loggedIn?: boolean; subscriptionType?: string };
+  report(
+    s.loggedIn ? "ok" : "fail",
+    "claude logged in",
+    s.loggedIn ? `${s.subscriptionType ?? "?"} subscription` : "run `claude` and /login",
+  );
+} catch {
+  report("fail", "claude logged in", "could not read `claude auth status`");
+}
+
+let config: Awaited<ReturnType<typeof loadConfig>> | undefined;
+try {
+  config = await loadConfig(process.env.COORDINATOR_CONFIG ?? "config.ts");
+  report("ok", "config valid", `${config.repos.length} repositories, Owner ${config.owner.login} (${config.owner.id})`);
+} catch (e) {
+  report("fail", "config valid", e instanceof Error ? e.message : String(e));
+}
+
+if (config) {
+  const ownerRes = await fetch(`${API}/users/${config.owner.login}`, { headers: baseHeaders });
+  const owner = ownerRes.ok ? ((await ownerRes.json()) as { id: number }) : undefined;
+  if (owner)
+    report(owner.id === config.owner.id ? "ok" : "fail", "Owner id matches the login", `GitHub says ${owner.id}`);
+
+  const keyPath = config.github.privateKeyPath;
+  if (!existsSync(keyPath)) report("fail", "GitHub App private key", `${keyPath} not found`);
+  else {
+    const key = readFileSync(keyPath, "utf8");
+    const app = await fetch(`${API}/app`, {
+      headers: { ...baseHeaders, authorization: `Bearer ${createAppJwt(config.github.appId, key, new Date())}` },
+    });
+    const body = (await app.json()) as { slug?: string; permissions?: Record<string, string>; message?: string };
+    report(
+      app.ok ? "ok" : "fail",
+      "GitHub App",
+      app.ok ? `${body.slug}, permissions ${JSON.stringify(body.permissions)}` : (body.message ?? ""),
+    );
+    const wanted = { issues: "write", pull_requests: "write", contents: "write", checks: "read", metadata: "read" };
+    for (const [perm, level] of Object.entries(wanted)) {
+      const have = body.permissions?.[perm];
+      if (app.ok && have !== level && !(level === "read" && have === "write"))
+        report("fail", `App permission ${perm}`, `needs ${level}, has ${have ?? "none"}`);
+    }
+    const appAuth = new AppAuth({ appId: config.github.appId, privateKey: key });
+    for (const { name } of config.repos) {
+      try {
+        const token = await appAuth.tokenFor(name);
+        const repo = await fetch(`${API}/repos/${name}`, {
+          headers: { ...baseHeaders, authorization: `token ${token}` },
+        });
+        const r = (await repo.json()) as { default_branch?: string; message?: string };
+        report(
+          repo.ok ? "ok" : "fail",
+          `${name} reachable`,
+          repo.ok ? `default branch ${r.default_branch}` : (r.message ?? ""),
+        );
+      } catch (e) {
+        report(
+          "fail",
+          `${name} reachable`,
+          `${e instanceof Error ? e.message : String(e)} (is the App installed on it?)`,
+        );
+      }
+    }
+  }
+  report("warn", "default-branch rulesets", "not checkable with the App's permissions; see docs/setup.md step 3");
+}
+
+const failed = results.filter((r) => r.status === "fail").length;
+console.log(failed ? `\n${failed} problem(s) to fix (docs/setup.md).` : "\nAll set.");
+process.exit(failed ? 1 : 0);

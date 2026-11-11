@@ -17,7 +17,7 @@ Keep the docs up to date when something changes.
 ## Project
 
 - Stack: TypeScript on Bun, Claude Code CLI (interactive sessions in detached tmux with Remote Control, hooks), GitHub REST API, git worktrees; deployed as a systemd service on Ubuntu.
-- Install: `bun install` · Test: `bun test` (real tmux + claude: `bun scripts/smoke-runner.ts`, uses the subscription) · Lint: `bun run lint` (Biome + `tsc --noEmit`; autofix: `bun run lint:fix`) · Run: `bun start` (reads `config.ts`, or `$COORDINATOR_CONFIG`; copy `config.example.ts`)
+- Install: `bun install` · Test: `bun test` (real tmux + claude: `bun scripts/smoke-runner.ts`, uses the subscription) · Lint: `bun run lint` (Biome + `tsc --noEmit`; autofix: `bun run lint:fix`) · Run: `bun start` (reads `config.ts`, or `$COORDINATOR_CONFIG`; copy `config.example.ts`) · Setup check: `bun run doctor` · Deployment: `docs/setup.md`
 
 ## Principles
 

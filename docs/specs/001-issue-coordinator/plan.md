@@ -85,3 +85,5 @@ export default {
 - [x] T13 Feedback rounds: blocking findings, Owner `/agent` and changes-requested, failing checks, `/wake` (all pending feedback on a PR goes into one round; it counts only without Owner input; no Review of a head a pending round is about to change). (REQ-001-11, REQ-001-12, REQ-001-13, REQ-001-24)
 - [x] T15 Reconcile loop (`src/coordinator.ts`, `src/index.ts`; main clones in `src/git.ts`): poll each repo, gather facts (Owner comments, body changes, live windows), derive actions, schedule, execute and sync; the `bun start` entry point. Done right after T8 so the Coordinator runs end to end as features land. (REQ-001-01, REQ-001-07, REQ-001-16, REQ-001-17, REQ-001-20)
 - [ ] T14 Deployment: systemd unit, `agent` user, a setup guide for the GitHub App, the ruleset, the one-time `/login`, and disabling the GitHub Actions reviewer. (REQ-001-15)
+  - [x] Prepared: `deploy/github-issue-coordinator.service` (`KillMode=process` keeps sessions alive across restarts), `docs/setup.md`, `bun run doctor`.
+  - [ ] Owner: create the GitHub App and rulesets, decide on the `agent` user, install the service.

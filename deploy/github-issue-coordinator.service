@@ -1,0 +1,25 @@
+# systemd unit for the Coordinator. See docs/setup.md ("Run as a service").
+# Install: sudo cp deploy/github-issue-coordinator.service /etc/systemd/system/
+#          (adjust User, WorkingDirectory and the paths below), then
+#          sudo systemctl daemon-reload && sudo systemctl enable --now github-issue-coordinator
+[Unit]
+Description=GitHub Issue Coordinator (Claude Code agents for GitHub issues)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=agent
+WorkingDirectory=/home/agent/github-issue-coordinator
+# claude (~/.local/bin) and bun (~/.bun/bin) are installed per user.
+Environment=PATH=/home/agent/.local/bin:/home/agent/.bun/bin:/usr/local/bin:/usr/bin:/bin
+Environment=COORDINATOR_CONFIG=/home/agent/github-issue-coordinator/config.ts
+ExecStart=/home/agent/.bun/bin/bun src/index.ts
+Restart=on-failure
+RestartSec=30
+# Agent sessions live in a tmux server started by the Coordinator. Only stop the Coordinator
+# itself on restart; the sessions keep running and are picked up again on the next start.
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

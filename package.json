@@ -7,7 +7,8 @@
     "test": "bun test",
     "lint": "biome check . && tsc --noEmit",
     "lint:fix": "biome check --write .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "doctor": "bun src/doctor.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.6",
