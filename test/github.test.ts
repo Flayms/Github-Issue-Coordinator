@@ -221,6 +221,35 @@ describe("GitHub client", () => {
     });
   });
 
+  test("REQ-001-12 lists PR reviews with their author and state", async () => {
+    const { gh } = client({
+      "GET /repos/octo/app/pulls/9/reviews": {
+        body: [{ id: 3, state: "CHANGES_REQUESTED", body: "Please split it", user: { login: "octo", id: 42 } }],
+      },
+    });
+    expect(await gh.listReviews("octo/app", 9)).toEqual([
+      { id: 3, state: "CHANGES_REQUESTED", body: "Please split it", author: { login: "octo", id: 42 } },
+    ]);
+  });
+
+  test("REQ-001-13 failed checks carry their output summary", async () => {
+    const { gh } = client({
+      "GET /repos/octo/app/commits/abc/check-runs": {
+        body: {
+          check_runs: [
+            {
+              name: "test",
+              status: "completed",
+              conclusion: "failure",
+              output: { title: "2 failed", summary: "foo.test.ts" },
+            },
+          ],
+        },
+      },
+    });
+    expect((await gh.checks("octo/app", "abc")).failed).toEqual(["test: 2 failed — foo.test.ts"]);
+  });
+
   test("REQ-001-10 summarises check runs on a commit as none, pending, success or failure", async () => {
     const runs = (...r: { status: string; conclusion: string | null; name?: string }[]) => ({
       "GET /repos/octo/app/commits/abc/check-runs": { body: { total_count: r.length, check_runs: r } },

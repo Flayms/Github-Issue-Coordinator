@@ -21,7 +21,7 @@ export interface ImplementerDeps {
   config: Config;
   store: Store;
   gh: Pick<GitHubClient, "addLabels" | "removeLabel" | "createComment" | "createPull" | "updatePull">;
-  runner: Pick<SessionRunner, "start" | "close" | "sessionDir">;
+  runner: Pick<SessionRunner, "start" | "resume" | "close" | "sessionDir">;
   worktrees: Pick<
     Worktrees,
     "create" | "push" | "commitsAhead" | "currentBranch" | "defaultBranch" | "remove" | "hasRoom"
@@ -105,7 +105,40 @@ export class Implementer {
       }
     } else {
       await this.d.gh.updatePull(s.repo, first.prNumber, { title: result.prTitle, body });
+      if (first.inFeedbackRound) {
+        for (const n of s.issues) {
+          this.d.store.updateIssue(s.repo, n, { inFeedbackRound: 0 });
+          await this.d.gh.removeLabel(s.repo, n, "agent:in-progress");
+          await this.d.gh.addLabels(s.repo, n, ["agent:pr-open"]);
+        }
+      }
     }
+  }
+
+  /**
+   * REQ-001-11/12/13: resume the Implementer in its Worktree with the feedback; a session that
+   * can't be resumed is replaced by a fresh one in the same Worktree.
+   */
+  async feedbackRound(repo: string, pr: number, issues: number[], text: string): Promise<number> {
+    for (const n of issues) {
+      for (const l of ["agent:pr-open", "agent:reviewed"]) await this.d.gh.removeLabel(repo, n, l);
+      await this.d.gh.addLabels(repo, n, ["agent:in-progress"]);
+      this.d.store.updateIssue(repo, n, { inFeedbackRound: 1 });
+    }
+    await this.d.gh.removeLabel(repo, pr, "agent:reviewed");
+    const prompt = `## Feedback round on PR #${pr}\n\n${text}\n\nAddress this with new commits on the same branch, then update your Result (prTitle and prBody describe the whole PR).`;
+    const model = roleSettings(this.d.config, repo, "implementer");
+    const own = this.d.store.latestSession(repo, issues[0] ?? 0, "implementer");
+    let id: number;
+    if (own?.claudeSessionId) {
+      this.d.runner.resume(own.id, prompt, model);
+      id = own.id;
+    } else {
+      const wt = this.d.store.issue(repo, issues[0] ?? 0).worktreePath;
+      if (!wt) throw new Error(`no Worktree on record for #${issues[0]}`);
+      id = this.d.runner.start({ repo, role: "implementer", kind: "issue", issues, cwd: wt, prompt, model });
+    }
+    return id;
   }
 
   /**

@@ -96,8 +96,24 @@ describe("store", () => {
     s.updateIssue("octo/other", 1, { worktreePath: "/wt/o1" });
     s.updateIssue("octo/app", 5, { reviewedHeadSha: "abc" });
     expect(s.worktrees("octo/app")).toEqual([
-      { worktreePath: "/wt/5", issues: [5, 6], prNumber: 9, reviewedHeadSha: "abc" },
-      { worktreePath: "/wt/7", issues: [7], prNumber: null, reviewedHeadSha: null },
+      {
+        worktreePath: "/wt/5",
+        issues: [5, 6],
+        prNumber: 9,
+        reviewedHeadSha: "abc",
+        feedbackRounds: 0,
+        pendingFeedback: null,
+        failedChecksSha: null,
+      },
+      {
+        worktreePath: "/wt/7",
+        issues: [7],
+        prNumber: null,
+        reviewedHeadSha: null,
+        feedbackRounds: 0,
+        pendingFeedback: null,
+        failedChecksSha: null,
+      },
     ]);
   });
 
@@ -117,6 +133,9 @@ describe("store", () => {
       approvedAt: null,
       approvalNotes: null,
       pendingFeedback: null,
+      lastHandledReviewId: 0,
+      failedChecksSha: null,
+      inFeedbackRound: 0,
     });
     s.updateIssue("octo/app", 5, { assessmentCommentId: 77, lastHandledCommentId: 12 });
     s.updateIssue("octo/app", 5, { feedbackRounds: 1 });

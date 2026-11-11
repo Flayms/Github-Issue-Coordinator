@@ -83,6 +83,7 @@ class FakeWorktrees {
 
 class FakeRunner {
   started: StartOptions[] = [];
+  resumed: [number, string][] = [];
   closed: number[] = [];
   constructor(
     private store: Store,
@@ -93,6 +94,10 @@ class FakeRunner {
     const id = this.store.createSession({ repo: o.repo, role: o.role, kind: o.kind, issues: o.issues });
     mkdirSync(this.sessionDir(id), { recursive: true });
     return id;
+  }
+  resume(id: number, prompt: string) {
+    this.resumed.push([id, prompt]);
+    this.store.patchSession(id, { state: "running" });
   }
   close(id: number) {
     const s = this.store.session(id);
@@ -244,6 +249,50 @@ describe("Implementer run", () => {
       ["addLabels", 5, ["agent:failed"]],
       ["addLabels", 6, ["agent:failed"]],
     ]);
+  });
+
+  const withPr = async () => {
+    const id = await impl.start("octo/app", [item(5)]);
+    store.setClaudeSessionId(id, "claude-1");
+    wt.ahead = 1;
+    finish(id);
+    await impl.sync(id);
+    gh.calls = [];
+    return id;
+  };
+
+  test("REQ-001-11 a Feedback round resumes the Implementer session in its Worktree with the feedback", async () => {
+    const id = await withPr();
+    await impl.feedbackRound("octo/app", 77, [5], "Blocking: crash on empty input");
+    expect(runner.resumed).toEqual([[id, expect.stringContaining("crash on empty input")]]);
+    expect(gh.of("addLabels")).toEqual([["addLabels", 5, ["agent:in-progress"]]]);
+    expect(gh.of("removeLabel").map((c) => [c[1], c[2]])).toEqual([
+      [5, "agent:pr-open"],
+      [5, "agent:reviewed"],
+      [77, "agent:reviewed"],
+    ]);
+  });
+
+  test("REQ-001-11 a Feedback round without a resumable session starts a fresh one in the existing Worktree", async () => {
+    const id = await impl.start("octo/app", [item(5)]); // never reported a Claude session id
+    wt.ahead = 1;
+    finish(id);
+    await impl.sync(id);
+    const fresh = await impl.feedbackRound("octo/app", 77, [5], "Fix it");
+    expect(fresh).not.toBe(id);
+    expect(runner.started.at(-1)).toMatchObject({ role: "implementer", issues: [5], cwd: "/wt/5" });
+    expect(runner.started.at(-1)?.prompt).toContain("Fix it");
+  });
+
+  test("REQ-001-11 the sync after a Feedback round pushes, updates the PR and returns the issue to agent:pr-open", async () => {
+    const id = await withPr();
+    await impl.feedbackRound("octo/app", 77, [5], "Fix it");
+    gh.calls = [];
+    finish(id);
+    await impl.sync(id);
+    expect(gh.of("updatePull")).toHaveLength(1);
+    expect(gh.of("addLabels")).toEqual([["addLabels", 5, ["agent:pr-open"]]]);
+    expect(gh.of("removeLabel")).toEqual([["removeLabel", 5, "agent:in-progress"]]);
   });
 
   test("REQ-001-14 cleanup removes the Worktree, closes the sessions and clears the agent labels", async () => {

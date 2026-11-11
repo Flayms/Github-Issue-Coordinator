@@ -54,8 +54,11 @@ export interface Snapshot {
   labelActors?: ReadonlyMap<number, Actor | undefined>;
   /** Worktrees on record for this repository, with the PR they belong to. */
   worktrees?: WorktreeRecord[];
-  /** Head commit and checks of agent PRs awaiting a Review. */
-  pulls?: ReadonlyMap<number, { headSha: string; checks: ChecksState }>;
+  /** Head commit and checks of open agent PRs. */
+  pulls?: ReadonlyMap<number, { headSha: string; checks: ChecksState; failed?: string[] }>;
+  /** Per agent PR: the Owner's comments since the last handled one, and changes-requested reviews by the Owner. */
+  prFeedback?: ReadonlyMap<number, { comments: Comment[]; changesRequested: { id: number; body: string }[] }>;
+  maxFeedbackRounds?: number;
 }
 
 export interface IssueFeedback {
@@ -65,6 +68,8 @@ export interface IssueFeedback {
 
 /** `/approve`, `/agent` and `/wake` are commands; any other comment is feedback. */
 export const isCommand = (body: string): boolean => /^\/(approve|agent|wake)(\s|$)/.test(body.trim());
+
+const isWake = (body: string): boolean => /^\/wake(\s|$)/.test(body.trim());
 
 const PROPOSALS: IssueState[] = ["proposed", "needs-refinement", "wontfix-proposed"];
 
@@ -82,7 +87,21 @@ export type Action =
   | { type: "cleanup"; repo: string; issues: number[]; prNumber: number; worktreePath: string }
   | { type: "resume-interrupted"; session: SessionRecord }
   | { type: "mark-closed"; session: SessionRecord }
-  | { type: "fail"; repo: string; issues: number[]; session?: SessionRecord; reason: string };
+  | { type: "fail"; repo: string; issues: number[]; session?: SessionRecord; pr?: number; reason: string }
+  | {
+      type: "feedback";
+      repo: string;
+      pr: number;
+      issues: number[];
+      text: string;
+      /** Automatic rounds count toward maxFeedbackRounds; the Owner's don't (REQ-001-12). */
+      counted: boolean;
+      headSha: string;
+      upToCommentId: number;
+      upToReviewId: number;
+      checksFailed: boolean;
+    }
+  | { type: "wake"; repo: string; issue: number; upToCommentId: number; recordNumber: number };
 
 export function deriveActions(s: Snapshot): Action[] {
   const actions: Action[] = [];
@@ -176,10 +195,75 @@ export function deriveActions(s: Snapshot): Action[] {
     actions.push({ type: "implement", repo: s.repo, issues: members, approvedAt });
   }
 
+  // REQ-001-11/12/13: Feedback rounds on agent PRs; REQ-001-24: /wake.
+  const withFeedback = new Set<number>();
+  for (const w of s.worktrees ?? []) {
+    const pull = w.prNumber !== null && open.has(w.prNumber) ? s.pulls?.get(w.prNumber) : undefined;
+    if (!pull || w.prNumber === null) continue;
+    if (s.sessions.some((x) => x.role === "reviewer" && x.issues.some((n) => w.issues.includes(n)))) continue;
+    const f = s.prFeedback?.get(w.prNumber);
+    const comments = (f?.comments ?? []).filter((x) => x.author.id === s.ownerId);
+    const owner = [
+      ...comments
+        .filter((x) => /^\/agent(\s|$)/.test(x.body.trim()))
+        .map((x) => x.body.trim().slice("/agent".length).trim()),
+      ...(f?.changesRequested ?? []).map((r) => r.body.trim() || "The Owner requested changes in a review."),
+    ].filter(Boolean);
+    const checksFailed = pull.checks === "failure" && pull.headSha !== w.failedChecksSha;
+    const auto = [
+      ...(w.pendingFeedback ? [w.pendingFeedback] : []),
+      ...(checksFailed
+        ? [`Failing checks on ${pull.headSha}:\n\n${(pull.failed ?? []).map((x) => `- ${x}`).join("\n")}`]
+        : []),
+    ];
+    const upToCommentId = Math.max(0, ...comments.map((x) => x.id));
+    const upToReviewId = Math.max(0, ...(f?.changesRequested ?? []).map((r) => r.id));
+    if (owner.length || auto.length) {
+      withFeedback.add(w.prNumber);
+      if (!owner.length && w.feedbackRounds >= (s.maxFeedbackRounds ?? 2))
+        actions.push({
+          type: "fail",
+          repo: s.repo,
+          issues: w.issues,
+          pr: w.prNumber,
+          reason: `the PR still had problems after ${w.feedbackRounds} automatic Feedback rounds`,
+        });
+      else
+        actions.push({
+          type: "feedback",
+          repo: s.repo,
+          pr: w.prNumber,
+          issues: w.issues,
+          text: [...owner, ...auto].join("\n\n"),
+          counted: owner.length === 0,
+          headSha: pull.headSha,
+          upToCommentId,
+          upToReviewId,
+          checksFailed,
+        });
+    } else if (comments.some((x) => isWake(x.body))) {
+      actions.push({ type: "wake", repo: s.repo, issue: w.issues[0] ?? 0, upToCommentId, recordNumber: w.prNumber });
+    }
+  }
+  const handledComments = new Set(
+    actions.flatMap((a) => (a.type === "approve" || a.type === "revise" ? [a.issue] : [])),
+  );
+  for (const i of issues) {
+    const own = (s.feedback?.get(i.number)?.comments ?? []).filter((x) => x.author.id === s.ownerId);
+    if (!handledComments.has(i.number) && own.some((x) => isWake(x.body)))
+      actions.push({
+        type: "wake",
+        repo: s.repo,
+        issue: i.number,
+        upToCommentId: Math.max(...own.map((x) => x.id)),
+        recordNumber: i.number,
+      });
+  }
+
   // REQ-001-10: an unreviewed head whose checks passed gets a Review, unless an agent is still on it (REQ-001-07).
   for (const w of s.worktrees ?? []) {
     const pull = w.prNumber !== null && open.has(w.prNumber) ? s.pulls?.get(w.prNumber) : undefined;
-    if (!pull || w.prNumber === null || pull.headSha === w.reviewedHeadSha) continue;
+    if (!pull || w.prNumber === null || pull.headSha === w.reviewedHeadSha || withFeedback.has(w.prNumber)) continue;
     if (pull.checks !== "success" && pull.checks !== "none") continue;
     const busy = s.sessions.some(
       (x) =>

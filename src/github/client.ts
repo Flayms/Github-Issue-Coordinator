@@ -40,6 +40,13 @@ export interface ReviewComment {
 
 export type ChecksState = "none" | "pending" | "success" | "failure";
 
+export interface Review {
+  id: number;
+  state: string;
+  body: string;
+  author: Actor;
+}
+
 export interface Pull {
   number: number;
   headSha: string;
@@ -160,6 +167,12 @@ export class GitHubClient {
     });
   }
 
+  /** Reviews on a PR, oldest first (REQ-001-12). */
+  async listReviews(repo: string, pr: number): Promise<Review[]> {
+    const raw = await this.all<RawReview>(repo, `/repos/${repo}/pulls/${pr}/reviews?per_page=100`);
+    return raw.map((r) => ({ id: r.id, state: r.state, body: r.body ?? "", author: actor(r.user) }));
+  }
+
   /** A PR's head commit and branches (REQ-001-10). */
   async getPull(repo: string, pr: number): Promise<Pull> {
     const r = await this.request<RawPull>(repo, "GET", `/repos/${repo}/pulls/${pr}`);
@@ -175,7 +188,12 @@ export class GitHubClient {
       runs.push(...page.data.check_runs);
       url = page.next;
     }
-    const failed = runs.filter((r) => r.status === "completed" && !PASSING.has(r.conclusion ?? "")).map((r) => r.name);
+    const failed = runs
+      .filter((r) => r.status === "completed" && !PASSING.has(r.conclusion ?? ""))
+      .map((r) => {
+        const detail = [r.output?.title, r.output?.summary].filter(Boolean).join(" — ");
+        return detail ? `${r.name}: ${detail.slice(0, 2000)}` : r.name;
+      });
     const state: ChecksState =
       runs.length === 0
         ? "none"
@@ -285,4 +303,12 @@ interface RawCheckRun {
   name: string;
   status: string;
   conclusion: string | null;
+  output?: { title?: string | null; summary?: string | null };
+}
+
+interface RawReview {
+  id: number;
+  state: string;
+  body: string | null;
+  user: RawUser;
 }

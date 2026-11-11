@@ -226,6 +226,17 @@ describe("session runner", () => {
     expect(store.session(id)?.state).toBe("closed");
   });
 
+  test("REQ-001-24 a wake keeps the existing Result file", () => {
+    const id = startImplementer();
+    store.setClaudeSessionId(id, "sess-abc");
+    store.patchSession(id, { state: "idle" });
+    const resultPath = join(dir, "sessions", String(id), "result.json");
+    writeFileSync(resultPath, "{}");
+    runner.resume(id, "The Owner wants to chat", { model: "opus" }, { keepResult: true });
+    expect(existsSync(resultPath)).toBe(true);
+    expect(tmux.windows.get(`s${id}`)?.command).not.toContain("Before ending your turn, write your Result");
+  });
+
   test("a session that never reported its id cannot be resumed", () => {
     const id = startImplementer();
     store.patchSession(id, { state: "idle" });

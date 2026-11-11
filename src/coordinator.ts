@@ -5,7 +5,7 @@
  */
 import { type Config, type Role, roleSettings } from "./config.ts";
 import type { Clones } from "./git.ts";
-import type { Actor, ChecksState, GitHubClient, Item } from "./github/client.ts";
+import type { Actor, ChecksState, Comment, GitHubClient, Item } from "./github/client.ts";
 import { Implementer, type ImplementerDeps } from "./implementer.ts";
 import { agentNote } from "./note.ts";
 import { bodyHash, Planner } from "./planner.ts";
@@ -38,6 +38,7 @@ export interface CoordinatorDeps {
     | "getPull"
     | "checks"
     | "createReview"
+    | "listReviews"
   >;
   runner: Pick<SessionRunner, "start" | "resume" | "close" | "sessionDir" | "liveSessionIds" | "answerDialogs">;
   clones: Pick<Clones, "mainClone">;
@@ -50,6 +51,7 @@ interface RepoView {
   items: Item[];
   feedback: Map<number, IssueFeedback>;
   labelActors: Map<number, Actor | undefined>;
+  prFeedback: Map<number, { comments: Comment[]; changesRequested: { id: number; body: string }[] }>;
 }
 
 export class Coordinator {
@@ -90,6 +92,8 @@ export class Coordinator {
             now: this.now().toISOString(),
             worktrees,
             pulls: await this.pulls(repo, view, worktrees),
+            prFeedback: view.prFeedback,
+            maxFeedbackRounds: this.d.config.limits.maxFeedbackRounds,
           });
           for (const a of actions) await this.handle(a, view, queue, jobs);
           this.queueUsageLimited(repo, queue, jobs);
@@ -140,14 +144,30 @@ export class Coordinator {
       // REQ-001-04: who added agent:approved, for approvals not on record yet.
       if (issueState(i.labels) === "approved" && !rec.approvedAt)
         labelActors.set(i.number, await this.d.gh.labelActor(repo, i.number, "agent:approved"));
-      if (!PROPOSALS.includes(issueState(i.labels))) continue;
+      // Comments matter on proposals (feedback, /approve) and on any agent issue (/wake, REQ-001-24).
+      if (issueState(i.labels) === "new") continue;
       const comments = (await this.d.gh.listComments(repo, i.number, { afterId: rec.lastHandledCommentId })).filter(
         (c) => c.author.id === this.d.config.owner.id,
       );
-      const bodyChanged = rec.bodyHash !== null && rec.bodyHash !== bodyHash(i.body);
+      const bodyChanged =
+        PROPOSALS.includes(issueState(i.labels)) && rec.bodyHash !== null && rec.bodyHash !== bodyHash(i.body);
       if (comments.length || bodyChanged) feedback.set(i.number, { comments, bodyChanged });
     }
-    const view = { items, feedback, labelActors };
+    // REQ-001-12 / REQ-001-24: the Owner's comments and changes-requested reviews on agent PRs.
+    const prFeedback = new Map<number, { comments: Comment[]; changesRequested: { id: number; body: string }[] }>();
+    for (const w of this.d.store.worktrees(repo)) {
+      if (w.prNumber === null || !items.some((i) => i.number === w.prNumber)) continue;
+      const rec = this.d.store.issue(repo, w.prNumber);
+      const owner = (a: { author: { id: number } }) => a.author.id === this.d.config.owner.id;
+      const comments = (await this.d.gh.listComments(repo, w.prNumber, { afterId: rec.lastHandledCommentId })).filter(
+        owner,
+      );
+      const changesRequested = (await this.d.gh.listReviews(repo, w.prNumber))
+        .filter((r) => owner(r) && r.state === "CHANGES_REQUESTED" && r.id > rec.lastHandledReviewId)
+        .map((r) => ({ id: r.id, body: r.body }));
+      if (comments.length || changesRequested.length) prFeedback.set(w.prNumber, { comments, changesRequested });
+    }
+    const view = { items, feedback, labelActors, prFeedback };
     this.views.set(repo, view);
     return view;
   }
@@ -159,8 +179,67 @@ export class Coordinator {
         this.d.store.patchSession(a.session.id, { state: "closed" });
         return;
       case "fail":
-        await this.fail(a.repo, a.issues, a.reason, a.session);
+        await this.fail(a.repo, a.issues, a.reason, a.session, a.pr);
         return;
+      case "feedback": {
+        const own = this.d.store.latestSession(a.repo, a.issues[0] ?? 0, "implementer");
+        const sessionId = own && own.state !== "closed" ? own.id : undefined;
+        const key = `${a.repo} PR #${a.pr} feedback`;
+        this.add(queue, jobs, { key, kind: "feedback", role: "implementer", queuedAt: now, sessionId }, async () => {
+          for (const n of a.issues) {
+            const rec = this.d.store.issue(a.repo, n);
+            this.d.store.updateIssue(a.repo, n, {
+              pendingFeedback: null,
+              feedbackRounds: rec.feedbackRounds + (a.counted ? 1 : 0),
+              failedChecksSha: a.checksFailed ? a.headSha : rec.failedChecksSha,
+            });
+          }
+          const pr = this.d.store.issue(a.repo, a.pr);
+          this.d.store.updateIssue(a.repo, a.pr, {
+            lastHandledCommentId: Math.max(pr.lastHandledCommentId, a.upToCommentId),
+            lastHandledReviewId: Math.max(pr.lastHandledReviewId, a.upToReviewId),
+          });
+          view.prFeedback.delete(a.pr);
+          const id = await this.implementer.feedbackRound(a.repo, a.pr, a.issues, a.text);
+          this.log(`${a.repo}: Feedback round on PR #${a.pr}${a.counted ? "" : " (from the Owner)"} (session ${id})`);
+        });
+        return;
+      }
+      case "wake": {
+        const target =
+          this.d.store.latestSession(a.repo, a.issue, "implementer") ??
+          this.d.store.latestSession(a.repo, a.issue, "planner");
+        const handled = () => {
+          const rec = this.d.store.issue(a.repo, a.recordNumber);
+          this.d.store.updateIssue(a.repo, a.recordNumber, {
+            lastHandledCommentId: Math.max(rec.lastHandledCommentId, a.upToCommentId),
+          });
+          view.feedback.delete(a.recordNumber);
+          view.prFeedback.delete(a.recordNumber);
+        };
+        if (!target?.claudeSessionId) {
+          handled();
+          this.log(`${a.repo}#${a.issue}: /wake, but there is no session to wake`);
+          return;
+        }
+        const key = `${a.repo}#${a.issue} wake`;
+        this.add(
+          queue,
+          jobs,
+          { key, kind: "wake", role: target.role, queuedAt: now, sessionId: target.id },
+          async () => {
+            handled();
+            this.d.runner.resume(
+              target.id,
+              "The Owner wants to chat with you in the Claude app. Reply with one short line that you are ready, then wait for their message.",
+              roleSettings(this.d.config, a.repo, target.role),
+              { keepResult: true },
+            );
+            this.log(`${a.repo}#${a.issue}: woke session ${target.id} for the Owner`);
+          },
+        );
+        return;
+      }
       case "approve":
         this.d.store.updateIssue(a.repo, a.issue, {
           approvedAt: a.at,
@@ -390,11 +469,14 @@ export class Coordinator {
   }
 
   /** Labels the issues agent:failed with the reason and closes the session (REQ-001-16, REQ-001-21). */
-  private async fail(repo: string, issues: number[], reason: string, session?: SessionRecord) {
+  private async fail(repo: string, issues: number[], reason: string, session?: SessionRecord, pr?: number) {
     const model = session ? roleSettings(this.d.config, repo, session.role).model : "coordinator";
     for (const n of issues) {
       for (const l of IN_FLIGHT_LABELS) await this.d.gh.removeLabel(repo, n, l);
+      if (pr !== undefined)
+        for (const l of ["agent:pr-open", "agent:reviewed"]) await this.d.gh.removeLabel(repo, n, l);
       await this.d.gh.addLabels(repo, n, ["agent:failed"]);
+      this.d.store.updateIssue(repo, n, { pendingFeedback: null });
       await this.d.gh.createComment(
         repo,
         n,
@@ -408,6 +490,7 @@ export class Coordinator {
         this.d.store.patchSession(session.id, { state: "closed" });
       }
     }
+    if (pr !== undefined) await this.d.gh.addLabels(repo, pr, ["agent:failed"]);
     this.log(`${repo}: ${issues.map((n) => `#${n}`).join(", ")} failed: ${reason}`);
   }
 }

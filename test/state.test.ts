@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Item } from "../src/github/client.ts";
 import { deriveActions, issueState, type Snapshot } from "../src/state.ts";
-import type { SessionRecord } from "../src/store.ts";
+import type { SessionRecord, WorktreeRecord } from "../src/store.ts";
 
 const OWNER = { login: "octo", id: 42 };
 
@@ -78,7 +78,7 @@ describe("deriveActions", () => {
         ]),
       }),
     );
-    expect(actions).toEqual([
+    expect(actions.filter((a) => a.type === "revise")).toEqual([
       { type: "revise", repo: "octo/app", issue: 5, comments: [feedback], bodyChanged: false },
       { type: "revise", repo: "octo/app", issue: 6, comments: [], bodyChanged: true },
     ]);
@@ -227,9 +227,33 @@ describe("deriveActions", () => {
       snap({
         items: [issue(5, ["agent:pr-open"]), issue(10, [], { isPullRequest: true, author: { login: "bot", id: 1 } })],
         worktrees: [
-          { issues: [5, 6], prNumber: 9, worktreePath: "/wt/5", reviewedHeadSha: null },
-          { issues: [7], prNumber: 10, worktreePath: "/wt/7", reviewedHeadSha: null },
-          { issues: [8], prNumber: null, worktreePath: "/wt/8", reviewedHeadSha: null },
+          {
+            issues: [5, 6],
+            prNumber: 9,
+            worktreePath: "/wt/5",
+            reviewedHeadSha: null,
+            feedbackRounds: 0,
+            pendingFeedback: null,
+            failedChecksSha: null,
+          },
+          {
+            issues: [7],
+            prNumber: 10,
+            worktreePath: "/wt/7",
+            reviewedHeadSha: null,
+            feedbackRounds: 0,
+            pendingFeedback: null,
+            failedChecksSha: null,
+          },
+          {
+            issues: [8],
+            prNumber: null,
+            worktreePath: "/wt/8",
+            reviewedHeadSha: null,
+            feedbackRounds: 0,
+            pendingFeedback: null,
+            failedChecksSha: null,
+          },
         ],
       }),
     );
@@ -239,8 +263,17 @@ describe("deriveActions", () => {
   });
 
   const pr = (n: number) => issue(n, [], { isPullRequest: true, author: { login: "bot", id: 1 } });
-  const wt = (reviewedHeadSha: string | null = null) => [
-    { issues: [5], prNumber: 9, worktreePath: "/wt/5", reviewedHeadSha },
+  const wt = (reviewedHeadSha: string | null = null, extra: Partial<WorktreeRecord> = {}): WorktreeRecord[] => [
+    {
+      issues: [5],
+      prNumber: 9,
+      worktreePath: "/wt/5",
+      reviewedHeadSha,
+      feedbackRounds: 0,
+      pendingFeedback: null,
+      failedChecksSha: null,
+      ...extra,
+    },
   ];
 
   test("REQ-001-10 an agent PR whose head is unreviewed and whose checks passed (or has none) gets a Review", () => {
@@ -295,6 +328,127 @@ describe("deriveActions", () => {
       );
       expect(actions.filter((a) => a.type === "review")).toEqual([]);
     }
+  });
+
+  const prItems = () => [issue(5, ["agent:pr-open"]), pr(9)];
+  const passing = new Map([[9, { headSha: "h2", checks: "success" as const, failed: [] }]]);
+  const failing = new Map([[9, { headSha: "h2", checks: "failure" as const, failed: ["test: 2 failed"] }]]);
+  const fb = (comments: { id: number; body: string }[], changesRequested: { id: number; body: string }[] = []) =>
+    new Map([[9, { comments: comments.map((x) => c(x.id, x.body)), changesRequested }]]);
+
+  test("REQ-001-11 blocking findings start a counted Feedback round", () => {
+    const actions = deriveActions(
+      snap({ items: prItems(), worktrees: wt("h2", { pendingFeedback: "Blocking: crash" }), pulls: passing }),
+    );
+    expect(actions).toEqual([
+      {
+        type: "feedback",
+        repo: "octo/app",
+        pr: 9,
+        issues: [5],
+        text: "Blocking: crash",
+        counted: true,
+        headSha: "h2",
+        upToCommentId: 0,
+        upToReviewId: 0,
+        checksFailed: false,
+      },
+    ]);
+  });
+
+  test("REQ-001-13 failing checks start a counted Feedback round with their output, once per head", () => {
+    const actions = deriveActions(snap({ items: prItems(), worktrees: wt(), pulls: failing }));
+    expect(actions).toEqual([
+      expect.objectContaining({
+        type: "feedback",
+        counted: true,
+        checksFailed: true,
+        text: expect.stringContaining("test: 2 failed"),
+      }),
+    ]);
+    expect(
+      deriveActions(snap({ items: prItems(), worktrees: wt(null, { failedChecksSha: "h2" }), pulls: failing })),
+    ).toEqual([]);
+  });
+
+  test("REQ-001-11 after maxFeedbackRounds automatic rounds the PR is labelled agent:failed instead", () => {
+    const actions = deriveActions(
+      snap({
+        items: prItems(),
+        worktrees: wt("h2", { pendingFeedback: "x", feedbackRounds: 2 }),
+        pulls: passing,
+        maxFeedbackRounds: 2,
+      }),
+    );
+    expect(actions).toEqual([
+      {
+        type: "fail",
+        repo: "octo/app",
+        issues: [5],
+        pr: 9,
+        reason: "the PR still had problems after 2 automatic Feedback rounds",
+      },
+    ]);
+  });
+
+  test("REQ-001-12 the Owner's /agent comment or changes-requested review starts an uncounted round, even past the limit", () => {
+    const actions = deriveActions(
+      snap({
+        items: prItems(),
+        worktrees: wt("h2", { pendingFeedback: "Blocking: crash", feedbackRounds: 2 }),
+        pulls: passing,
+        maxFeedbackRounds: 2,
+        prFeedback: fb(
+          [
+            { id: 31, body: "/agent please also add docs" },
+            { id: 32, body: "nice" },
+          ],
+          [{ id: 7, body: "Split the function" }],
+        ),
+      }),
+    );
+    expect(actions).toEqual([
+      {
+        type: "feedback",
+        repo: "octo/app",
+        pr: 9,
+        issues: [5],
+        text: "please also add docs\n\nSplit the function\n\nBlocking: crash",
+        counted: false,
+        headSha: "h2",
+        upToCommentId: 32,
+        upToReviewId: 7,
+        checksFailed: false,
+      },
+    ]);
+  });
+
+  test("REQ-001-10 / REQ-001-12 no Review of a head that a pending Feedback round is about to change", () => {
+    const actions = deriveActions(
+      snap({
+        items: prItems(),
+        worktrees: wt(null),
+        pulls: passing,
+        prFeedback: fb([{ id: 31, body: "/agent add docs" }]),
+      }),
+    );
+    expect(actions.map((a) => a.type)).toEqual(["feedback"]);
+  });
+
+  test("REQ-001-24 /wake on an agent PR or an issue asks to wake its session", () => {
+    expect(
+      deriveActions(
+        snap({ items: prItems(), worktrees: wt("h2"), pulls: passing, prFeedback: fb([{ id: 40, body: "/wake" }]) }),
+      ),
+    ).toEqual([{ type: "wake", repo: "octo/app", issue: 5, upToCommentId: 40, recordNumber: 9 }]);
+    expect(
+      deriveActions(
+        snap({
+          items: [issue(5, ["agent:pr-open"])],
+          feedback: new Map([[5, { comments: [c(41, "/wake")], bodyChanged: false }]]),
+        }),
+      ),
+    ).toEqual([{ type: "wake", repo: "octo/app", issue: 5, upToCommentId: 41, recordNumber: 5 }]);
   });
 
   test("REQ-001-01 ignores issues by anyone but the Owner, and PRs", () => {

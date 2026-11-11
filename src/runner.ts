@@ -101,14 +101,14 @@ export class SessionRunner {
   }
 
   /** Continues a session with a new prompt; refuses while it is running (REQ-001-19). */
-  resume(id: number, prompt: string, model: RoleSettings): void {
+  resume(id: number, prompt: string, model: RoleSettings, opts: { keepResult?: boolean } = {}): void {
     const s = this.mustGet(id);
     if (this.isBusy(s)) throw new SessionBusyError(id);
     if (!s.claudeSessionId) throw new Error(`session ${id} has no Claude session id to resume`);
     const meta = JSON.parse(readFileSync(join(this.sessionDir(id), "meta.json"), "utf8")) as { cwd: string };
     this.o.tmux.killWindow(`s${id}`);
     this.o.store.patchSession(id, { state: "running", resultFailures: 0, usageLimited: false });
-    this.launch(id, meta.cwd, prompt, model, s.claudeSessionId);
+    this.launch(id, meta.cwd, prompt, model, s.claudeSessionId, opts.keepResult);
   }
 
   /** Closes an idle session (REQ-001-20); it can be resumed later. */
@@ -139,15 +139,16 @@ export class SessionRunner {
     }
   }
 
-  private launch(id: number, cwd: string, prompt: string, model: RoleSettings, resumeId?: string) {
+  private launch(id: number, cwd: string, prompt: string, model: RoleSettings, resumeId?: string, keepResult = false) {
     const s = this.mustGet(id);
     const dir = this.sessionDir(id);
     const resultPath = join(dir, "result.json");
-    rmSync(resultPath, { force: true }); // a Result from an earlier turn must not pass for this one
+    // A Result from an earlier turn must not pass for this one, unless the turn has no new task (a wake).
+    if (!keepResult) rmSync(resultPath, { force: true });
     this.o.store.patchSession(id, { coordinatorPromptPending: true });
     const args = claudeArgs({
       name: remoteControlName(s),
-      prompt: `${prompt}\n\n${resultInstructions(s.role, resultPath)}`,
+      prompt: keepResult ? prompt : `${prompt}\n\n${resultInstructions(s.role, resultPath)}`,
       settingsPath: join(dir, "settings.json"),
       addDir: dir,
       model,

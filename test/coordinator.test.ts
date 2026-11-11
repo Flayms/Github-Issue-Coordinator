@@ -84,6 +84,10 @@ class FakeGitHub {
   async createReview(_r: string, pr: number, review: { commitId: string }) {
     this.calls.push(["createReview", pr, review.commitId]);
   }
+  reviews = new Map<number, { id: number; state: string; body: string; author: { login: string; id: number } }[]>();
+  async listReviews(_r: string, pr: number) {
+    return this.reviews.get(pr) ?? [];
+  }
 }
 
 class FakeWorktrees {
@@ -136,8 +140,10 @@ class FakeRunner {
     this.live.add(id);
     return id;
   }
-  resume(id: number, prompt: string) {
+  kept: number[] = [];
+  resume(id: number, prompt: string, _model?: unknown, opts: { keepResult?: boolean } = {}) {
     this.resumed.push([id, prompt]);
+    if (opts.keepResult) this.kept.push(id);
     this.store.patchSession(id, { state: "running", usageLimited: false });
     this.live.add(id);
   }
@@ -362,6 +368,78 @@ describe("reconcile loop", () => {
     expect(store.session(1)?.state).toBe("closed");
     await coordinator.tick();
     expect(runner.started).toHaveLength(1);
+  });
+
+  const prOpen = (extra: Record<string, unknown> = {}) => {
+    gh.items = [item(5, ["agent:pr-open"]), item(70, [], { isPullRequest: true, author: { login: "bot", id: 1 } })];
+    store.updateIssue("octo/app", 5, { worktreePath: "/wt/5", prNumber: 70, reviewedHeadSha: "h1", ...extra });
+    const id = store.createSession({ repo: "octo/app", role: "implementer", kind: "issue", issues: [5] });
+    store.setClaudeSessionId(id, "claude-impl");
+    store.patchSession(id, { state: "idle" });
+    runner.live.add(id);
+    return id;
+  };
+
+  test("REQ-001-11 blocking findings resume the Implementer in a counted Feedback round", async () => {
+    const id = prOpen({ pendingFeedback: "Blocking: crash" });
+    await coordinator.tick();
+    expect(runner.resumed).toEqual([[id, expect.stringContaining("Blocking: crash")]]);
+    expect(store.issue("octo/app", 5)).toMatchObject({ feedbackRounds: 1, pendingFeedback: null });
+    expect(gh.items[0]?.labels).toEqual(["agent:in-progress"]);
+  });
+
+  test("REQ-001-11 past maxFeedbackRounds the PR and its issue are labelled agent:failed", async () => {
+    prOpen({ pendingFeedback: "Blocking: crash", feedbackRounds: 2 });
+    await coordinator.tick();
+    expect(runner.resumed).toEqual([]);
+    expect(gh.calls).toContainEqual(["addLabels", 5, ["agent:failed"]]);
+    expect(gh.calls).toContainEqual(["addLabels", 70, ["agent:failed"]]);
+    expect(store.issue("octo/app", 5).pendingFeedback).toBeNull();
+  });
+
+  test("REQ-001-13 failing checks start a round with their output, once per head", async () => {
+    const id = prOpen();
+    gh.checkState = "failure";
+    await coordinator.tick();
+    expect(runner.resumed).toEqual([[id, expect.stringContaining("- test")]]);
+    store.patchSession(id, { state: "idle" });
+    gh.changed = true;
+    await coordinator.tick();
+    expect(runner.resumed).toHaveLength(1);
+    expect(store.issue("octo/app", 5).feedbackRounds).toBe(1);
+  });
+
+  test("REQ-001-12 the Owner's /agent comment and changes-requested review run uncounted rounds; others are ignored", async () => {
+    const id = prOpen();
+    gh.comments.set(70, [
+      { id: 980, body: "/agent do X", author: { login: "mallory", id: 666 }, createdAt: "", updatedAt: "" },
+      { id: 981, body: "/agent add docs", author: OWNER, createdAt: "", updatedAt: "" },
+    ]);
+    gh.reviews.set(70, [
+      { id: 5, state: "CHANGES_REQUESTED", body: "Split it", author: OWNER },
+      { id: 6, state: "CHANGES_REQUESTED", body: "Evil", author: { login: "mallory", id: 666 } },
+    ]);
+    await coordinator.tick();
+    expect(runner.resumed).toEqual([[id, expect.stringContaining("add docs\n\nSplit it")]]);
+    expect(runner.resumed[0]?.[1]).not.toContain("do X");
+    expect(runner.resumed[0]?.[1]).not.toContain("Evil");
+    expect(store.issue("octo/app", 5).feedbackRounds).toBe(0);
+    expect(store.issue("octo/app", 70)).toMatchObject({ lastHandledCommentId: 981, lastHandledReviewId: 5 });
+  });
+
+  test("REQ-001-24 /wake on a PR resumes its closed Implementer session without a new task", async () => {
+    const id = prOpen();
+    runner.close(id);
+    gh.comments.set(70, [{ id: 990, body: "/wake", author: OWNER, createdAt: "", updatedAt: "" }]);
+    await coordinator.tick();
+    expect(runner.resumed).toEqual([[id, expect.stringContaining("wants to chat")]]);
+    expect(runner.kept).toEqual([id]);
+    expect(gh.items[0]?.labels).toEqual(["agent:pr-open"]);
+    expect(store.issue("octo/app", 5).feedbackRounds).toBe(0);
+    store.patchSession(id, { state: "idle" });
+    gh.changed = true;
+    await coordinator.tick();
+    expect(runner.resumed).toHaveLength(1);
   });
 
   test("only fetches comments when the repository's issues changed", async () => {
