@@ -73,6 +73,17 @@ class FakeGitHub {
   async updatePull(_r: string, pr: number) {
     this.calls.push(["updatePull", pr]);
   }
+  heads = new Map<number, string>();
+  checkState: "none" | "pending" | "success" | "failure" = "success";
+  async getPull(_r: string, pr: number) {
+    return { number: pr, headSha: this.heads.get(pr) ?? "h1", headRef: "agent/5-x", baseRef: "main" };
+  }
+  async checks() {
+    return { state: this.checkState, failed: this.checkState === "failure" ? ["test"] : [] };
+  }
+  async createReview(_r: string, pr: number, review: { commitId: string }) {
+    this.calls.push(["createReview", pr, review.commitId]);
+  }
 }
 
 class FakeWorktrees {
@@ -95,6 +106,15 @@ class FakeWorktrees {
   }
   remove(path: string) {
     this.removed.push(path);
+  }
+  async reviewCheckout(_repo: string, pr: number) {
+    return `/reviews/${pr}`;
+  }
+  reviewPath(_repo: string, pr: number) {
+    return `/reviews/${pr}`;
+  }
+  head() {
+    return "h1";
   }
 }
 
@@ -292,6 +312,7 @@ describe("reconcile loop", () => {
 
   test("REQ-001-09 / REQ-001-14 an approved issue is implemented, gets a PR, and is cleaned up once the PR is merged", async () => {
     await proposed();
+    gh.checkState = "pending"; // keep the Reviewer out of this one
     gh.comments.set(5, [{ id: 970, body: "/approve", author: OWNER, createdAt: "t", updatedAt: "" }]);
     gh.changed = true;
     await coordinator.tick(); // approve
@@ -318,6 +339,29 @@ describe("reconcile loop", () => {
     expect(worktrees.removed).toEqual(["/wt/5"]);
     expect(store.session(id)?.state).toBe("closed");
     expect(store.issue("octo/app", 5).worktreePath).toBeNull();
+  });
+
+  test("REQ-001-10 / REQ-001-23 an agent PR is reviewed once its checks pass, then the Reviewer closes", async () => {
+    gh.items = [item(5, ["agent:pr-open"]), item(70, [], { isPullRequest: true, author: { login: "bot", id: 1 } })];
+    store.updateIssue("octo/app", 5, { worktreePath: "/wt/5", prNumber: 70 });
+    gh.checkState = "pending";
+    await coordinator.tick();
+    expect(runner.started).toEqual([]);
+
+    gh.checkState = "success"; // checks finishing does not change the issue list
+    await coordinator.tick();
+    expect(runner.started).toEqual([expect.objectContaining({ role: "reviewer", issues: [5], cwd: "/reviews/70" })]);
+    await coordinator.tick();
+    expect(runner.started).toHaveLength(1);
+
+    writeFileSync(join(runner.sessionDir(1), "result.json"), JSON.stringify({ summary: "Good", findings: [] }));
+    store.patchSession(1, { state: "idle", needsSync: true });
+    await coordinator.tick();
+    expect(gh.calls).toContainEqual(["createReview", 70, "h1"]);
+    expect(gh.items[0]?.labels).toEqual(["agent:reviewed"]);
+    expect(store.session(1)?.state).toBe("closed");
+    await coordinator.tick();
+    expect(runner.started).toHaveLength(1);
   });
 
   test("only fetches comments when the repository's issues changed", async () => {

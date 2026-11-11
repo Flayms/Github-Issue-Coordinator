@@ -19,6 +19,7 @@ flowchart LR
 | `src/coordinator.ts`           | Reconcile loop: sync finished turns, poll, derive, schedule across repos, execute                            | T15 done |
 | `src/git.ts`                   | Main clone per repo, reset to the default branch; the App token is passed per command, never stored          | T15 done |
 | `src/implementer.ts`           | Implementer start (Bundle, Worktree, limited context), push + PR after every turn, cleanup after merge/close | T11 done |
+| `src/reviewer.ts`              | Reviewer start on a PR-head checkout, one COMMENT review, labels, session closed afterwards                  | T12 done |
 | `src/note.ts`                  | The agent note heading every comment, PR and review                                                          | T11 done |
 | `src/worktrees.ts`             | Worktree per issue/Bundle (local clone + branch + setup), push, review checkouts, removal                    | T10 done |
 | `src/config.ts`                | Load and validate `config.ts`; resolve a Role's model and effort per repository                              | T2 done  |

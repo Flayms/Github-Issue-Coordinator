@@ -207,6 +207,20 @@ describe("GitHub client", () => {
     });
   });
 
+  test("REQ-001-10 reads a PR's head commit and base branch", async () => {
+    const { gh } = client({
+      "GET /repos/octo/app/pulls/9": {
+        body: { number: 9, state: "open", head: { sha: "abc", ref: "agent/5-x" }, base: { ref: "main" } },
+      },
+    });
+    expect(await gh.getPull("octo/app", 9)).toEqual({
+      number: 9,
+      headSha: "abc",
+      headRef: "agent/5-x",
+      baseRef: "main",
+    });
+  });
+
   test("REQ-001-10 summarises check runs on a commit as none, pending, success or failure", async () => {
     const runs = (...r: { status: string; conclusion: string | null; name?: string }[]) => ({
       "GET /repos/octo/app/commits/abc/check-runs": { body: { total_count: r.length, check_runs: r } },

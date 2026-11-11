@@ -3,9 +3,9 @@
  * Pure, so every rule is unit-tested; the scheduler (T5) decides when actions run.
  */
 import type { Role } from "./config.ts";
-import type { Actor, Comment, Item } from "./github/client.ts";
+import type { Actor, ChecksState, Comment, Item } from "./github/client.ts";
 import { type AgentLabel, isAgentLabel } from "./labels.ts";
-import type { IssueRecord, SessionRecord } from "./store.ts";
+import type { IssueRecord, SessionRecord, WorktreeRecord } from "./store.ts";
 
 export type IssueState = "new" | (AgentLabel extends `agent:${infer S}` ? S : never);
 
@@ -53,7 +53,9 @@ export interface Snapshot {
   /** Who added `agent:approved`, looked up for approved issues without an approval on record. */
   labelActors?: ReadonlyMap<number, Actor | undefined>;
   /** Worktrees on record for this repository, with the PR they belong to. */
-  worktrees?: { issues: number[]; prNumber: number | null; worktreePath: string }[];
+  worktrees?: WorktreeRecord[];
+  /** Head commit and checks of agent PRs awaiting a Review. */
+  pulls?: ReadonlyMap<number, { headSha: string; checks: ChecksState }>;
 }
 
 export interface IssueFeedback {
@@ -75,6 +77,7 @@ export type Action =
   | { type: "unblock"; repo: string; issue: number }
   | { type: "implement"; repo: string; issues: number[]; approvedAt: string }
   | { type: "cleanup"; repo: string; issues: number[]; prNumber: number; worktreePath: string }
+  | { type: "review"; repo: string; pr: number; issues: number[]; headSha: string }
   | { type: "implement"; repo: string; issues: number[]; approvedAt: string }
   | { type: "cleanup"; repo: string; issues: number[]; prNumber: number; worktreePath: string }
   | { type: "resume-interrupted"; session: SessionRecord }
@@ -171,6 +174,19 @@ export function deriveActions(s: Snapshot): Action[] {
       .filter((t): t is string => !!t)
       .sort()[0] as string;
     actions.push({ type: "implement", repo: s.repo, issues: members, approvedAt });
+  }
+
+  // REQ-001-10: an unreviewed head whose checks passed gets a Review, unless an agent is still on it (REQ-001-07).
+  for (const w of s.worktrees ?? []) {
+    const pull = w.prNumber !== null && open.has(w.prNumber) ? s.pulls?.get(w.prNumber) : undefined;
+    if (!pull || w.prNumber === null || pull.headSha === w.reviewedHeadSha) continue;
+    if (pull.checks !== "success" && pull.checks !== "none") continue;
+    const busy = s.sessions.some(
+      (x) =>
+        x.issues.some((n) => w.issues.includes(n)) &&
+        (x.role === "reviewer" || (x.role === "implementer" && x.state === "running")),
+    );
+    if (!busy) actions.push({ type: "review", repo: s.repo, pr: w.prNumber, issues: w.issues, headSha: pull.headSha });
   }
 
   // REQ-001-14: a Worktree whose PR was merged or closed is cleaned up.

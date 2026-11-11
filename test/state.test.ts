@@ -227,15 +227,74 @@ describe("deriveActions", () => {
       snap({
         items: [issue(5, ["agent:pr-open"]), issue(10, [], { isPullRequest: true, author: { login: "bot", id: 1 } })],
         worktrees: [
-          { issues: [5, 6], prNumber: 9, worktreePath: "/wt/5" },
-          { issues: [7], prNumber: 10, worktreePath: "/wt/7" },
-          { issues: [8], prNumber: null, worktreePath: "/wt/8" },
+          { issues: [5, 6], prNumber: 9, worktreePath: "/wt/5", reviewedHeadSha: null },
+          { issues: [7], prNumber: 10, worktreePath: "/wt/7", reviewedHeadSha: null },
+          { issues: [8], prNumber: null, worktreePath: "/wt/8", reviewedHeadSha: null },
         ],
       }),
     );
     expect(actions).toEqual([
       { type: "cleanup", repo: "octo/app", issues: [5, 6], prNumber: 9, worktreePath: "/wt/5" },
     ]);
+  });
+
+  const pr = (n: number) => issue(n, [], { isPullRequest: true, author: { login: "bot", id: 1 } });
+  const wt = (reviewedHeadSha: string | null = null) => [
+    { issues: [5], prNumber: 9, worktreePath: "/wt/5", reviewedHeadSha },
+  ];
+
+  test("REQ-001-10 an agent PR whose head is unreviewed and whose checks passed (or has none) gets a Review", () => {
+    for (const checks of ["success", "none"] as const) {
+      const actions = deriveActions(
+        snap({
+          items: [issue(5, ["agent:pr-open"]), pr(9)],
+          worktrees: wt(),
+          pulls: new Map([[9, { headSha: "h1", checks }]]),
+        }),
+      );
+      expect(actions).toEqual([{ type: "review", repo: "octo/app", pr: 9, issues: [5], headSha: "h1" }]);
+    }
+  });
+
+  test("REQ-001-10 no Review while checks are pending or failed, or when the head was already reviewed", () => {
+    const items = [issue(5, ["agent:pr-open"]), pr(9)];
+    for (const [checks, reviewed] of [
+      ["pending", null],
+      ["failure", null],
+      ["success", "h1"],
+    ] as const) {
+      const actions = deriveActions(
+        snap({ items, worktrees: wt(reviewed), pulls: new Map([[9, { headSha: "h1", checks }]]) }),
+      );
+      expect(actions.filter((a) => a.type === "review")).toEqual([]);
+    }
+  });
+
+  test("REQ-001-10 an idle Implementer session (kept for Feedback rounds) does not hold back the Review", () => {
+    const actions = deriveActions(
+      snap({
+        items: [issue(5, ["agent:pr-open"]), pr(9)],
+        worktrees: wt(),
+        pulls: new Map([[9, { headSha: "h1", checks: "success" as const }]]),
+        sessions: [session({ role: "implementer", issues: [5], state: "idle" })],
+        liveSessionIds: new Set([1]),
+      }),
+    );
+    expect(actions).toContainEqual(expect.objectContaining({ type: "review", pr: 9 }));
+  });
+
+  test("REQ-001-07 / REQ-001-10 no Review while the Implementer is running or a Reviewer session is open", () => {
+    const items = [issue(5, ["agent:pr-open"]), pr(9)];
+    const pulls = new Map([[9, { headSha: "h1", checks: "success" as const }]]);
+    for (const s of [
+      session({ role: "implementer", issues: [5] }),
+      session({ role: "reviewer", issues: [5], state: "idle" }),
+    ]) {
+      const actions = deriveActions(
+        snap({ items, worktrees: wt(), pulls, sessions: [s], liveSessionIds: new Set([1]) }),
+      );
+      expect(actions.filter((a) => a.type === "review")).toEqual([]);
+    }
   });
 
   test("REQ-001-01 ignores issues by anyone but the Owner, and PRs", () => {

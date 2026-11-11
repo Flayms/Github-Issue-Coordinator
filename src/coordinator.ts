@@ -5,14 +5,15 @@
  */
 import { type Config, type Role, roleSettings } from "./config.ts";
 import type { Clones } from "./git.ts";
-import type { Actor, GitHubClient, Item } from "./github/client.ts";
+import type { Actor, ChecksState, GitHubClient, Item } from "./github/client.ts";
 import { Implementer, type ImplementerDeps } from "./implementer.ts";
 import { agentNote } from "./note.ts";
 import { bodyHash, Planner } from "./planner.ts";
+import { Reviewer, type ReviewerDeps } from "./reviewer.ts";
 import type { SessionRunner } from "./runner.ts";
 import { type LiveSession, schedule, type Work } from "./scheduler.ts";
 import { type Action, deriveActions, type IssueFeedback, issueState } from "./state.ts";
-import type { IssueRecord, SessionRecord, Store } from "./store.ts";
+import type { IssueRecord, SessionRecord, Store, WorktreeRecord } from "./store.ts";
 
 /** How long to wait after a usage limit before trying again; the reset time's format is still unknown. */
 export const USAGE_LIMIT_PAUSE_MIN = 30;
@@ -34,10 +35,13 @@ export interface CoordinatorDeps {
     | "updateComment"
     | "createPull"
     | "updatePull"
+    | "getPull"
+    | "checks"
+    | "createReview"
   >;
   runner: Pick<SessionRunner, "start" | "resume" | "close" | "sessionDir" | "liveSessionIds" | "answerDialogs">;
   clones: Pick<Clones, "mainClone">;
-  worktrees: ImplementerDeps["worktrees"];
+  worktrees: ImplementerDeps["worktrees"] & ReviewerDeps["worktrees"];
   now?: () => Date;
   log?: (message: string) => void;
 }
@@ -51,6 +55,7 @@ interface RepoView {
 export class Coordinator {
   private readonly planner: Planner;
   private readonly implementer: Implementer;
+  private readonly reviewer: Reviewer;
   private readonly views = new Map<string, RepoView>();
   private readonly now: () => Date;
   private readonly log: (m: string) => void;
@@ -58,6 +63,7 @@ export class Coordinator {
   constructor(private readonly d: CoordinatorDeps) {
     this.planner = new Planner(d);
     this.implementer = new Implementer(d);
+    this.reviewer = new Reviewer(d);
     this.now = d.now ?? (() => new Date());
     this.log = d.log ?? ((m) => console.log(`${new Date().toISOString()} ${m}`));
   }
@@ -71,6 +77,7 @@ export class Coordinator {
       for (const { name: repo } of this.d.config.repos) {
         try {
           const view = await this.poll(repo);
+          const worktrees = this.d.store.worktrees(repo);
           const actions = deriveActions({
             repo,
             ownerId: this.d.config.owner.id,
@@ -81,7 +88,8 @@ export class Coordinator {
             labelActors: view.labelActors,
             records: this.records(repo, view.items),
             now: this.now().toISOString(),
-            worktrees: this.d.store.worktrees(repo),
+            worktrees,
+            pulls: await this.pulls(repo, view, worktrees),
           });
           for (const a of actions) await this.handle(a, view, queue, jobs);
           this.queueUsageLimited(repo, queue, jobs);
@@ -111,6 +119,7 @@ export class Coordinator {
         try {
           if (s.role === "planner") await this.planner.sync(s.id);
           if (s.role === "implementer") await this.implementer.sync(s.id);
+          if (s.role === "reviewer") await this.reviewer.sync(s.id);
         } catch (e) {
           this.log(`${repo}: sync of session ${s.id} failed: ${e instanceof Error ? e.message : String(e)}`);
         }
@@ -200,6 +209,15 @@ export class Coordinator {
         });
         return;
       }
+      case "review": {
+        const issues = a.issues.map((n) => view.items.find((i) => i.number === n)).filter((i) => i !== undefined);
+        const key = `${a.repo} PR #${a.pr} review`;
+        this.add(queue, jobs, { key, kind: "review", role: "reviewer", queuedAt: now }, async () => {
+          const id = await this.reviewer.start(a.repo, a.pr, issues, a.headSha);
+          this.log(`${a.repo}: reviewing PR #${a.pr} at ${a.headSha.slice(0, 7)} (session ${id})`);
+        });
+        return;
+      }
       case "cleanup":
         if (await this.implementer.cleanup(a.repo, a.issues, a.worktreePath))
           this.log(`${a.repo}: PR #${a.prNumber} is closed; cleaned up ${a.issues.map((n) => `#${n}`).join(", ")}`);
@@ -261,6 +279,21 @@ export class Coordinator {
         return;
       }
     }
+  }
+
+  /**
+   * Head and checks of open agent PRs. Read on every tick: a check finishing does not change the
+   * issue list, so the ETag poll would not notice it (REQ-001-10).
+   */
+  private async pulls(repo: string, view: RepoView, worktrees: WorktreeRecord[]) {
+    const out = new Map<number, { headSha: string; checks: ChecksState; failed: string[] }>();
+    for (const w of worktrees) {
+      if (w.prNumber === null || !view.items.some((i) => i.number === w.prNumber)) continue;
+      const pull = await this.d.gh.getPull(repo, w.prNumber);
+      const checks = await this.d.gh.checks(repo, pull.headSha);
+      out.set(w.prNumber, { headSha: pull.headSha, checks: checks.state, failed: checks.failed });
+    }
+    return out;
   }
 
   private records(repo: string, items: Item[]): Map<number, Pick<IssueRecord, "approvedAt" | "assessment">> {

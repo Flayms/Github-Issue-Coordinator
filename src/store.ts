@@ -32,6 +32,14 @@ export interface SessionRecord {
   usageLimited: boolean;
 }
 
+/** A Worktree on record: its issues (a Bundle shares one), PR and last reviewed head. */
+export interface WorktreeRecord {
+  worktreePath: string;
+  issues: number[];
+  prNumber: number | null;
+  reviewedHeadSha: string | null;
+}
+
 export interface IssueRecord {
   repo: string;
   number: number;
@@ -51,6 +59,8 @@ export interface IssueRecord {
   approvedAt: string | null;
   /** Notes from `/approve [notes]`, passed to the Implementer. */
   approvalNotes: string | null;
+  /** Blocking Review findings (or other feedback) waiting for a Feedback round (REQ-001-11). */
+  pendingFeedback: string | null;
 }
 
 const SCHEMA = `
@@ -83,6 +93,7 @@ CREATE TABLE IF NOT EXISTS issues (
   body_hash TEXT,
   approved_at TEXT,
   approval_notes TEXT,
+  pending_feedback TEXT,
   PRIMARY KEY (repo, number)
 );
 CREATE TABLE IF NOT EXISTS meta (
@@ -136,6 +147,7 @@ const ISSUE_COLUMNS = {
   bodyHash: "body_hash",
   approvedAt: "approved_at",
   approvalNotes: "approval_notes",
+  pendingFeedback: "pending_feedback",
 } as const satisfies Record<Exclude<keyof IssueRecord, "repo" | "number">, string>;
 
 export class Store {
@@ -247,6 +259,7 @@ export class Store {
       bodyHash: null,
       approvedAt: null,
       approvalNotes: null,
+      pendingFeedback: null,
     };
     if (row) {
       for (const [key, col] of Object.entries(ISSUE_COLUMNS))
@@ -266,17 +279,26 @@ export class Store {
   }
 
   /** Worktrees on record (REQ-001-14), grouped by path, with their issues and PR. */
-  worktrees(repo: string): { worktreePath: string; issues: number[]; prNumber: number | null }[] {
+  worktrees(repo: string): WorktreeRecord[] {
     const rows = this.db
-      .query<{ number: number; worktree_path: string; pr_number: number | null }, [string]>(
-        "SELECT number, worktree_path, pr_number FROM issues WHERE repo = ? AND worktree_path IS NOT NULL ORDER BY number",
+      .query<
+        { number: number; worktree_path: string; pr_number: number | null; reviewed_head_sha: string | null },
+        [string]
+      >(
+        "SELECT number, worktree_path, pr_number, reviewed_head_sha FROM issues WHERE repo = ? AND worktree_path IS NOT NULL ORDER BY number",
       )
       .all(repo);
-    const byPath = new Map<string, { worktreePath: string; issues: number[]; prNumber: number | null }>();
+    const byPath = new Map<string, WorktreeRecord>();
     for (const r of rows) {
-      const w = byPath.get(r.worktree_path) ?? { worktreePath: r.worktree_path, issues: [], prNumber: null };
+      const w = byPath.get(r.worktree_path) ?? {
+        worktreePath: r.worktree_path,
+        issues: [],
+        prNumber: null,
+        reviewedHeadSha: null,
+      };
       w.issues.push(r.number);
       w.prNumber ??= r.pr_number;
+      w.reviewedHeadSha ??= r.reviewed_head_sha;
       byPath.set(r.worktree_path, w);
     }
     return [...byPath.values()];

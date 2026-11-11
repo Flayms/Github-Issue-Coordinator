@@ -40,6 +40,13 @@ export interface ReviewComment {
 
 export type ChecksState = "none" | "pending" | "success" | "failure";
 
+export interface Pull {
+  number: number;
+  headSha: string;
+  headRef: string;
+  baseRef: string;
+}
+
 interface RawUser {
   login: string;
   id: number;
@@ -153,6 +160,12 @@ export class GitHubClient {
     });
   }
 
+  /** A PR's head commit and branches (REQ-001-10). */
+  async getPull(repo: string, pr: number): Promise<Pull> {
+    const r = await this.request<RawPull>(repo, "GET", `/repos/${repo}/pulls/${pr}`);
+    return { number: r.number, headSha: r.head.sha, headRef: r.head.ref, baseRef: r.base.ref };
+  }
+
   /** Summary of the check runs on a commit, with the names of failed ones. */
   async checks(repo: string, sha: string): Promise<{ state: ChecksState; failed: string[] }> {
     const runs: RawCheckRun[] = [];
@@ -260,6 +273,12 @@ interface RawTimelineEvent {
   event: string;
   label?: { name: string };
   actor?: RawUser;
+}
+
+interface RawPull {
+  number: number;
+  head: { sha: string; ref: string };
+  base: { ref: string };
 }
 
 interface RawCheckRun {

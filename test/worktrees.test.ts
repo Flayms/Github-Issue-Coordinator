@@ -110,6 +110,7 @@ describe("worktrees", () => {
     const path = await make().reviewCheckout("octo/app", 9, sha);
     expect(git(path, "rev-parse", "HEAD")).toBe(sha);
     expect(readFileSync(join(path, "f.txt"), "utf8")).toBe("pr");
+    expect(make().reviewPath("octo/app", 9)).toBe(path);
     make().remove(path);
     expect(existsSync(path)).toBe(false);
   });

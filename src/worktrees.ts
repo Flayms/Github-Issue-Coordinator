@@ -79,9 +79,13 @@ export class Worktrees {
     return { path, branch };
   }
 
+  reviewPath(repo: string, pr: number): string {
+    return join(this.o.root, "reviews", ...repo.split("/"), String(pr));
+  }
+
   /** A detached checkout of a PR's head commit, for a Review (REQ-001-10). */
   async reviewCheckout(repo: string, pr: number, sha: string): Promise<string> {
-    const path = join(this.o.root, "reviews", ...repo.split("/"), String(pr));
+    const path = this.reviewPath(repo, pr);
     rmSync(path, { recursive: true, force: true });
     await this.checkout(repo, path);
     git(path, [...gitAuthArgs(await this.o.token(repo)), "fetch", "-q", "origin", `pull/${pr}/head`]);

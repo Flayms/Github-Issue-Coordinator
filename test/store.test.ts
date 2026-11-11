@@ -94,9 +94,10 @@ describe("store", () => {
     s.updateIssue("octo/app", 7, { worktreePath: "/wt/7" });
     s.updateIssue("octo/app", 8, { prNumber: 3 });
     s.updateIssue("octo/other", 1, { worktreePath: "/wt/o1" });
+    s.updateIssue("octo/app", 5, { reviewedHeadSha: "abc" });
     expect(s.worktrees("octo/app")).toEqual([
-      { worktreePath: "/wt/5", issues: [5, 6], prNumber: 9 },
-      { worktreePath: "/wt/7", issues: [7], prNumber: null },
+      { worktreePath: "/wt/5", issues: [5, 6], prNumber: 9, reviewedHeadSha: "abc" },
+      { worktreePath: "/wt/7", issues: [7], prNumber: null, reviewedHeadSha: null },
     ]);
   });
 
@@ -115,6 +116,7 @@ describe("store", () => {
       bodyHash: null,
       approvedAt: null,
       approvalNotes: null,
+      pendingFeedback: null,
     });
     s.updateIssue("octo/app", 5, { assessmentCommentId: 77, lastHandledCommentId: 12 });
     s.updateIssue("octo/app", 5, { feedbackRounds: 1 });
