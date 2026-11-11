@@ -24,11 +24,25 @@ claude          # then /login, and /exit when done
 Create a private GitHub App: GitHub → Settings → Developer settings → GitHub Apps → New GitHub App.
 
 - Name: anything, e.g. `my-issue-coordinator`. Homepage URL: this repository.
-- Webhook: **off** (the Coordinator polls).
+- Webhook: untick **Active** (the Coordinator polls).
 - Repository permissions: **Issues** read & write, **Pull requests** read & write, **Contents** read & write, **Checks** read-only, **Metadata** read-only. Nothing else.
 - Where can it be installed: **Only on this account**.
 
-After creating it, note the **App ID**, generate a **private key** (a `.pem` file) and copy it to the server outside any repository, e.g. `/home/agent/.config/coordinator/app.pem` (`chmod 600`). Then **Install App** on the repositories the Coordinator should manage.
+After creating it:
+
+1. Note the **App ID** at the top of the App's page.
+2. **Generate a private key**; the browser downloads a `.pem` file.
+3. **Install App** (left sidebar) → **Only select repositories** → the repositories the Coordinator should manage.
+
+Copy the key to the server and hand it to the `agent` user; it must stay outside any repository and never be shared:
+
+```sh
+scp ~/Downloads/<app-name>.*.private-key.pem <you>@<server>:~/app.pem   # from your computer
+sudo install -o agent -g agent -m 600 ~/app.pem /home/agent/.config/coordinator/app.pem   # on the server
+rm ~/app.pem
+```
+
+If you change the App's permissions later, GitHub asks the installation to accept them: Settings → Applications → Installed GitHub Apps → **Configure** → review and accept the request. Until then the installation keeps the old permissions.
 
 ## 3. Ruleset on each managed repository
 
@@ -42,19 +56,26 @@ After creating it, note the **App ID**, generate a **private key** (a `.pem` fil
 
 The Coordinator's Reviewer replaces any GitHub Actions workflow that reviews PRs with Claude. Disable it in each managed repository (Actions → the workflow → ⋯ → Disable workflow), or delete its file from `.github/workflows/`.
 
-## 5. Install and configure
+## 5. Configure
+
+The setup script already cloned this repository for `agent` to `/home/agent/github-issue-coordinator`. Write `config.ts` there, starting from `config.example.ts`:
+
+- `owner`: your login and numeric id (`curl -s https://api.github.com/users/<login> | grep '"id"'`).
+- `github`: the App ID and the key path (`/home/agent/.config/coordinator/app.pem`).
+- `stateDir`: where the store, session files and clones live, e.g. `/home/agent/coordinator-state`.
+- `roles`: a model per Role (`sonnet`, `opus`, …), optionally an effort.
+- `repos`: each managed repository with its `setup` command (e.g. `bun install`), run once in every new Worktree.
+
+`config.ts` is not committed; it only exists on the server. One way to write it is in your own checkout, then hand it over:
 
 ```sh
-git clone https://github.com/<you>/Github-Issue-Coordinator.git ~/github-issue-coordinator
-cd ~/github-issue-coordinator
-bun install
-cp config.example.ts config.ts
+sudo install -o agent -g agent -m 640 config.ts /home/agent/github-issue-coordinator/config.ts
 ```
 
-Fill in `config.ts`: your login and numeric id (`curl -s https://api.github.com/users/<login> | grep '"id"'`), the App ID and key path, the repositories (with their `setup` command, e.g. `bun install`), and a model per Role. Then:
+Then check everything:
 
 ```sh
-bun run doctor
+sudo -iu agent bash -lc 'cd ~/github-issue-coordinator && git pull -q && bun install && bun run doctor'
 ```
 
 ## 6. Run as a service
@@ -67,6 +88,19 @@ journalctl -u github-issue-coordinator -f                               # the lo
 ```
 
 Restarting the service leaves running agent sessions alone (`KillMode=process`); the Coordinator picks them up again. To look at a session on the server (you normally don't need to): `sudo -iu agent tmux attach -t coordinator`.
+
+## Adding a repository later
+
+1. Install the App on it (Settings → Applications → Installed GitHub Apps → Configure → add the repository).
+2. Add the ruleset (step 3) and turn off any old review workflow (step 4).
+3. Add it to `repos` in `config.ts`, run `bun run doctor`, and restart: `sudo systemctl restart github-issue-coordinator`.
+
+## Updating the Coordinator
+
+```sh
+sudo -iu agent bash -lc 'cd ~/github-issue-coordinator && git pull -q && bun install'
+sudo systemctl restart github-issue-coordinator
+```
 
 ## Using it
 
