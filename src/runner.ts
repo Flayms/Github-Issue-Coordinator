@@ -92,7 +92,7 @@ export class SessionRunner {
       ]),
     );
     const sandbox = rolePermissions(opts.role, dir).sandbox
-      ? { enabled: true, autoAllowBashIfSandboxed: true }
+      ? { enabled: true, autoAllowBashIfSandboxed: true, failIfUnavailable: true, allowUnsandboxedCommands: false }
       : undefined;
     writeFileSync(join(dir, "settings.json"), JSON.stringify({ hooks, sandbox }, null, 2));
     writeFileSync(join(dir, "meta.json"), JSON.stringify({ cwd: opts.cwd }));

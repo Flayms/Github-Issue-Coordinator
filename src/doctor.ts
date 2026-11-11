@@ -36,6 +36,29 @@ for (const [bin, arg] of [
     r.ok ? r.out.split("\n")[0] : "not found",
   );
 }
+// The Implementer's sandbox runs a helper inside bubblewrap that needs its own user namespace;
+// Ubuntu's bwrap-userns-restrict AppArmor profile forbids that (docs/setup.md, step 1).
+const nested = run([
+  "bwrap",
+  "--ro-bind",
+  "/",
+  "/",
+  "--unshare-user",
+  "--dev",
+  "/dev",
+  "--proc",
+  "/proc",
+  "unshare",
+  "--user",
+  "--map-root-user",
+  "true",
+]);
+report(
+  nested.ok ? "ok" : "fail",
+  "sandbox can nest user namespaces",
+  nested.ok ? "" : `${nested.out} (Ubuntu AppArmor; see docs/setup.md step 1)`,
+);
+
 const auth = run(["claude", "auth", "status"]);
 try {
   const s = JSON.parse(auth.out) as { loggedIn?: boolean; subscriptionType?: string };

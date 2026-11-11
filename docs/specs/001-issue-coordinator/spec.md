@@ -185,7 +185,7 @@ The Owner (the single human user) wants GitHub issues across their public and pr
 - **When** it tries to use a tool
 - **Then** it may only read the repository, run read-only git commands and write its Result; anything else is denied without asking
 - **And** given an Implementer session, Claude Code's auto mode decides on routine actions without asking, and anything it will not allow on its own is left for the Owner to approve or refuse in the Claude app
-- **And** an Implementer's shell commands run in Claude Code's sandbox
+- **And** an Implementer's shell commands run in Claude Code's sandbox, and never unsandboxed: without a working sandbox the session runs no commands at all
 
 ## Out of scope
 

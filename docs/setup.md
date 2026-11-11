@@ -12,6 +12,19 @@ sudo bash deploy/create-agent-user.sh
 
 It installs tmux, git and the sandbox tools (bubblewrap, socat), creates the `agent` user, installs Bun and Claude Code for it, clones this repository to `/home/agent/github-issue-coordinator` and creates `~/.config/coordinator` for the GitHub App key. It is safe to run again.
 
+**Ubuntu 24.04 and later:** Ubuntu's AppArmor profile `bwrap-userns-restrict` stops Claude Code's sandbox from working, and the Implementer then can't run any command. Replace it with the profile the [Claude Code sandboxing docs](https://code.claude.com/docs/en/sandboxing) recommend. Both define the profile named `bwrap`, so Ubuntu's has to be turned off:
+
+```sh
+sudo ln -sf /etc/apparmor.d/bwrap-userns-restrict /etc/apparmor.d/disable/
+sudo apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict
+printf '%s\n' 'abi <abi/4.0>,' 'include <tunables/global>' '' \
+  'profile bwrap /usr/bin/bwrap flags=(unconfined) {' '  userns,' '  include if exists <local/bwrap>' '}' \
+  | sudo tee /etc/apparmor.d/bwrap > /dev/null
+sudo systemctl reload apparmor
+```
+
+`bun run doctor` checks this ("sandbox can nest user namespaces").
+
 Then log in to Claude once as that user, with the subscription. Remote Control does not work with `claude setup-token`, so this must be the interactive login:
 
 ```sh

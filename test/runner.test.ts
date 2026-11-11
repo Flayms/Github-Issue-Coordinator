@@ -145,7 +145,13 @@ describe("session runner", () => {
     const impl = startImplementer();
     expect(tmux.windows.get(`s${impl}`)?.command).toContain("'--permission-mode' 'auto'");
     const implSettings = JSON.parse(readFileSync(join(dir, "sessions", String(impl), "settings.json"), "utf8"));
-    expect(implSettings.sandbox).toEqual({ enabled: true, autoAllowBashIfSandboxed: true });
+    // REQ-001-25: never fall back to unsandboxed Bash (e.g. when a sandbox dependency is missing).
+    expect(implSettings.sandbox).toEqual({
+      enabled: true,
+      autoAllowBashIfSandboxed: true,
+      failIfUnavailable: true,
+      allowUnsandboxedCommands: false,
+    });
 
     const rev = runner.start({
       repo: "octo/app",
