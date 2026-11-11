@@ -69,8 +69,7 @@ async function waitIdle(id: number, label: string, ms = 240_000) {
   const start = Date.now();
   process.stdout.write(`… ${label}`);
   while (Date.now() - start < ms) {
-    const blocked = runner.answerDialogs().find((b) => b.sessionId === id);
-    if (blocked) throw new Error(`session ${id} is ${blocked.problem}`);
+    runner.answerDialogs();
     const s = store.session(id);
     if (s?.state === "idle" && (s.needsSync || s.usageLimited)) {
       process.stdout.write(` ✓ (${Math.round((Date.now() - start) / 1000)}s)\n`);

@@ -13,7 +13,6 @@ import type { Tmux } from "./tmux.ts";
 
 const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "Notification", "SessionEnd"] as const;
 const TRUST_DIALOG = /Yes, I trust this folder/;
-const BYPASS_WARNING = /Bypass Permissions mode|Yes, I accept/i;
 const WINDOW = /^s(\d+)$/;
 
 export class SessionBusyError extends Error {
@@ -126,26 +125,13 @@ export class SessionRunner {
   }
 
   /** Answers the folder trust dialog that blocks `claude` in a new folder (docs/known-pitfalls.md). */
-  /**
-   * Also reports sessions stuck at the bypass-permissions warning. That one is the Owner's decision:
-   * it is accepted once per Linux user by hand, never by the Coordinator (REQ-001-25).
-   */
-  answerDialogs(): { sessionId: number; problem: string }[] {
-    const blocked: { sessionId: number; problem: string }[] = [];
+  answerDialogs(): void {
     for (const id of this.liveSessionIds()) {
-      const pane = this.o.tmux.capture(`s${id}`);
-      if (BYPASS_WARNING.test(pane)) {
-        blocked.push({
-          sessionId: id,
-          problem:
-            "waiting at the bypass-permissions warning; run `claude --permission-mode bypassPermissions` once as this user and accept it",
-        });
-      } else if (TRUST_DIALOG.test(pane)) {
+      if (TRUST_DIALOG.test(this.o.tmux.capture(`s${id}`))) {
         this.o.tmux.sendKeys(`s${id}`, "Down");
         this.o.tmux.sendKeys(`s${id}`, "Enter");
       }
     }
-    return blocked;
   }
 
   private launch(id: number, cwd: string, prompt: string, model: RoleSettings, resumeId?: string) {

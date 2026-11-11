@@ -97,7 +97,7 @@ describe("claude command line", () => {
       settingsPath: "s",
       addDir: "d",
       model: { model: "opus" },
-      permissions: { permissionMode: "bypassPermissions", allowedTools: [], sandbox: true },
+      permissions: { permissionMode: "auto", allowedTools: [], sandbox: true },
       resumeId: "abc",
     });
     expect(args.slice(0, 2)).toEqual(["--resume", "abc"]);
@@ -141,9 +141,9 @@ describe("session runner", () => {
     expect(runner.liveSessionIds()).toEqual(new Set([id]));
   });
 
-  test("REQ-001-25 the Implementer runs with bypassPermissions in the sandbox; a Reviewer in dontAsk with its allowed tools", () => {
+  test("REQ-001-25 the Implementer runs in auto mode in the sandbox; a Reviewer in dontAsk with its allowed tools", () => {
     const impl = startImplementer();
-    expect(tmux.windows.get(`s${impl}`)?.command).toContain("'--permission-mode' 'bypassPermissions'");
+    expect(tmux.windows.get(`s${impl}`)?.command).toContain("'--permission-mode' 'auto'");
     const implSettings = JSON.parse(readFileSync(join(dir, "sessions", String(impl), "settings.json"), "utf8"));
     expect(implSettings.sandbox).toEqual({ enabled: true, autoAllowBashIfSandboxed: true });
 
@@ -169,7 +169,7 @@ describe("session runner", () => {
     store.setClaudeSessionId(id, "sess-abc");
     store.patchSession(id, { state: "idle" });
     runner.resume(id, "more", { model: "opus" });
-    expect(tmux.windows.get(`s${id}`)?.command).toContain("'--permission-mode' 'bypassPermissions'");
+    expect(tmux.windows.get(`s${id}`)?.command).toContain("'--permission-mode' 'auto'");
   });
 
   test("the prompt tells the session where to write its Result", () => {
@@ -219,16 +219,6 @@ describe("session runner", () => {
     const id = startImplementer();
     store.patchSession(id, { state: "idle" });
     expect(() => runner.resume(id, "x", { model: "opus" })).toThrow("no Claude session id");
-  });
-
-  test("REQ-001-25 reports a session stuck at the bypass-permissions warning and never answers it", () => {
-    const id = startImplementer();
-    const win = tmux.windows.get(`s${id}`);
-    if (win) win.pane = "WARNING: Claude Code running in Bypass Permissions mode\n  No, exit\n❯ Yes, I accept";
-    expect(runner.answerDialogs()).toEqual([
-      { sessionId: id, problem: expect.stringContaining("claude --permission-mode bypassPermissions") },
-    ]);
-    expect(tmux.keys).toEqual([]);
   });
 
   test("answers the folder trust dialog in new folders", () => {

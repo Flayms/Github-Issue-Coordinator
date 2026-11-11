@@ -179,12 +179,13 @@ The Owner (the single human user) wants GitHub issues across their public and pr
 - **Then** it uses the configured model and that Role's prompt
 - **And** a repository can replace a Role's default prompt with its own
 
-### REQ-001-25 Sessions never wait for permission
+### REQ-001-25 Sessions don't wait for routine permission
 
 - **Given** a Planner or Reviewer session
 - **When** it tries to use a tool
 - **Then** it may only read the repository, run read-only git commands and write its Result; anything else is denied without asking
-- **And** given an Implementer session, it runs without permission prompts, with its commands confined by Claude Code's sandbox
+- **And** given an Implementer session, Claude Code's auto mode decides on routine actions without asking, and anything it will not allow on its own is left for the Owner to approve or refuse in the Claude app
+- **And** an Implementer's shell commands run in Claude Code's sandbox
 
 ## Out of scope
 
@@ -223,4 +224,4 @@ Partial rows: the REQ is only covered for the parts built so far (noted in brack
 | REQ-001-20 | `config > REQ-001-20 rejects maxRunning above maxLiveSessions …`; `scheduler > REQ-001-20 …` (8 tests); `session runner > REQ-001-20 closes an idle session by killing its window`, `… resumes a closed or idle session with --resume …`                                                                             | partial (wiring in the reconcile loop): pass                                            |
 | REQ-001-21 | `Result validation > REQ-001-21 …` (4 tests); `hook > REQ-001-21 …` (3 tests: block with instruction, 3 failures then the turn ends, reset on valid)                                                                                                                                                                 | partial (agent:failed labelling in the sync): pass                                      |
 | REQ-001-22 | `config > REQ-001-22 …` (3 tests); `prompts > REQ-001-22 each Role has a default prompt`, `… a repository can replace a Role's prompt …`; `claude command line > REQ-001-18 / REQ-001-22 …`                                                                                                                          | pass                                                                                    |
-| REQ-001-25 | `permissions > REQ-001-25 …` (2 tests); `session runner > REQ-001-25 …` (3 tests: modes and sandbox per Role, kept on resume, bypass warning reported but never answered); manual: `bun scripts/smoke-runner.ts --role reviewer` (2026-11-10: write denied without a prompt)                                         | partial (Implementer smoke run pending the one-time bypass acceptance): pass            |
+| REQ-001-25 | `permissions > REQ-001-25 …` (2 tests); `session runner > REQ-001-25 …` (2 tests: modes and sandbox per Role, kept on resume); manual: `bun scripts/smoke-runner.ts --role reviewer` (write denied without a prompt) and `--role implementer` (Bash, file and commit in auto mode, no prompts), 2026-11-11           | pass (sandbox confinement itself not yet observed)                                      |

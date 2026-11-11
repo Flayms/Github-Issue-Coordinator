@@ -54,9 +54,9 @@ describe("permissions", () => {
     }
   });
 
-  test("REQ-001-25 the Implementer runs without prompts inside the sandbox", () => {
+  test("REQ-001-25 the Implementer runs in auto mode inside the sandbox", () => {
     expect(rolePermissions("implementer", "/s")).toEqual({
-      permissionMode: "bypassPermissions",
+      permissionMode: "auto",
       allowedTools: [],
       sandbox: true,
     });

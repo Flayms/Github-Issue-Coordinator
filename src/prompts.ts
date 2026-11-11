@@ -23,7 +23,7 @@ export function renderPrompt(template: string, vars: Record<string, string>): st
 }
 
 export interface Permissions {
-  permissionMode: "dontAsk" | "bypassPermissions";
+  permissionMode: "dontAsk" | "auto";
   /** Pre-approved tools; in `dontAsk` mode everything else is denied without a prompt. */
   allowedTools: string[];
   /** Run Bash inside Claude Code's sandbox. */
@@ -40,9 +40,10 @@ const READ_ONLY = [
   "Bash(git status:*)",
 ];
 
-/** No session ever waits for a permission prompt (REQ-001-25). */
+/** Sessions don't wait for routine permission prompts (REQ-001-25). */
 export function rolePermissions(role: Role, sessionDir: string): Permissions {
-  if (role === "implementer") return { permissionMode: "bypassPermissions", allowedTools: [], sandbox: true };
+  // Auto mode decides on its own; what it won't allow is left to the Owner in the Claude app.
+  if (role === "implementer") return { permissionMode: "auto", allowedTools: [], sandbox: true };
   // Permission rules take absolute paths with a leading `//`.
   const result = `/${join(sessionDir, "result.json")}`;
   return {
