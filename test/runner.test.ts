@@ -41,6 +41,7 @@ beforeEach(() => {
     stateDir: dir,
     dbPath: join(dir, "state.db"),
     hookCommand: ["bun", "/app/src/hook.ts"],
+    secretPaths: ["/home/agent/.config/coordinator", "/home/agent/.claude/.credentials.json"],
   });
 });
 afterEach(() => {
@@ -57,6 +58,7 @@ const startImplementer = () =>
     cwd: "/work/app-5",
     prompt: "Implement #5",
     model: { model: "sonnet", effort: "high" },
+    sandboxDomains: ["registry.npmjs.org"],
   });
 
 describe("claude command line", () => {
@@ -151,6 +153,8 @@ describe("session runner", () => {
       autoAllowBashIfSandboxed: true,
       failIfUnavailable: true,
       allowUnsandboxedCommands: false,
+      filesystem: { denyRead: ["/home/agent/.config/coordinator", "/home/agent/.claude/.credentials.json"] },
+      network: { allowedDomains: ["registry.npmjs.org"] },
     });
 
     const rev = runner.start({
@@ -165,9 +169,37 @@ describe("session runner", () => {
     const cmd = tmux.windows.get(`s${rev}`)?.command ?? "";
     expect(cmd).toContain("'--permission-mode' 'dontAsk'");
     expect(cmd).toContain(`'Write(/${join(dir, "sessions", String(rev), "result.json")})'`);
-    expect(
-      JSON.parse(readFileSync(join(dir, "sessions", String(rev), "settings.json"), "utf8")).sandbox,
-    ).toBeUndefined();
+    const revSettings = JSON.parse(readFileSync(join(dir, "sessions", String(rev), "settings.json"), "utf8"));
+    expect(revSettings.sandbox).toMatchObject({
+      enabled: true,
+      failIfUnavailable: true,
+      network: { allowedDomains: [] },
+    });
+  });
+
+  test("REQ-001-26 every Role is denied reading the Coordinator's secrets, with file tools and in shell commands", () => {
+    for (const role of ["planner", "implementer", "reviewer"] as const) {
+      const id = runner.start({
+        repo: "octo/app",
+        role,
+        kind: "issue",
+        issues: [5],
+        cwd: "/w",
+        prompt: "p",
+        model: { model: "opus" },
+      });
+      const settings = JSON.parse(readFileSync(join(dir, "sessions", String(id), "settings.json"), "utf8"));
+      expect(settings.permissions.deny).toEqual([
+        "Read(//home/agent/.config/coordinator)",
+        "Read(//home/agent/.config/coordinator/**)",
+        "Read(//home/agent/.claude/.credentials.json)",
+        "Read(//home/agent/.claude/.credentials.json/**)",
+      ]);
+      expect(settings.sandbox.filesystem.denyRead).toEqual([
+        "/home/agent/.config/coordinator",
+        "/home/agent/.claude/.credentials.json",
+      ]);
+    }
   });
 
   test("REQ-001-25 a resumed session keeps its Role's permissions", () => {

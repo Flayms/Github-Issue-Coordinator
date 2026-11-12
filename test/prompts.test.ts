@@ -35,7 +35,7 @@ describe("prompts", () => {
 });
 
 describe("permissions", () => {
-  test("REQ-001-25 Planner and Reviewer may only read, run read-only git, and write their Result; nothing prompts", () => {
+  test("REQ-001-25 Planner and Reviewer may only read, run read-only git, use the web and write their Result; nothing prompts", () => {
     for (const role of ["planner", "reviewer"] as const) {
       const p = rolePermissions(role, "/state/sessions/3");
       expect(p.permissionMode).toBe("dontAsk");
@@ -47,10 +47,12 @@ describe("permissions", () => {
         "Bash(git show:*)",
         "Bash(git diff:*)",
         "Bash(git status:*)",
+        "WebSearch",
+        "WebFetch",
         "Write(//state/sessions/3/result.json)",
         "Edit(//state/sessions/3/result.json)",
       ]);
-      expect(p.sandbox).toBe(false);
+      expect(p.sandbox).toBe(true); // REQ-001-26: even read-only git can print any file (git diff --no-index)
     }
   });
 

@@ -171,6 +171,7 @@ describe("Implementer run", () => {
         issues: [5, 6],
         cwd: "/wt/5",
         model: { model: "sonnet" },
+        sandboxDomains: ["registry.npmjs.org", "pypi.org", "files.pythonhosted.org"],
       }),
     ]);
     expect(store.issue("octo/app", 6).worktreePath).toBe("/wt/5");
@@ -280,7 +281,12 @@ describe("Implementer run", () => {
     await impl.sync(id);
     const fresh = await impl.feedbackRound("octo/app", 77, [5], "Fix it");
     expect(fresh).not.toBe(id);
-    expect(runner.started.at(-1)).toMatchObject({ role: "implementer", issues: [5], cwd: "/wt/5" });
+    expect(runner.started.at(-1)).toMatchObject({
+      role: "implementer",
+      issues: [5],
+      cwd: "/wt/5",
+      sandboxDomains: ["registry.npmjs.org", "pypi.org", "files.pythonhosted.org"],
+    });
     expect(runner.started.at(-1)?.prompt).toContain("Fix it");
   });
 
