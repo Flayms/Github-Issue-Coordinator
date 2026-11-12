@@ -3,7 +3,9 @@
  * Setup check: `bun run doctor`. Verifies everything the Coordinator needs before its first start
  * (docs/setup.md) and prints what is missing. Read-only: it changes nothing.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { accessSync, constants, existsSync, readFileSync } from "node:fs";
+import { userInfo } from "node:os";
+import { dirname } from "node:path";
 import { loadConfig } from "./config.ts";
 import { AppAuth, createAppJwt } from "./github/app-auth.ts";
 import { API, baseHeaders } from "./github/http.ts";
@@ -96,8 +98,21 @@ if (config) {
     report(owner.id === config.owner.id ? "ok" : "fail", "Owner id matches the login", `GitHub says ${owner.id}`);
 
   const keyPath = config.github.privateKeyPath;
-  if (!existsSync(keyPath)) report("fail", "GitHub App private key", `${keyPath} not found`);
-  else {
+  let readable = true;
+  try {
+    accessSync(keyPath, constants.R_OK);
+  } catch (e) {
+    readable = false;
+    const denied = (e as NodeJS.ErrnoException).code === "EACCES";
+    report(
+      "fail",
+      "GitHub App private key",
+      denied || !existsSync(dirname(keyPath))
+        ? `${keyPath} is not readable by ${userInfo().username}; run doctor as the Coordinator's user (sudo -iu agent …)`
+        : `${keyPath} not found`,
+    );
+  }
+  if (readable) {
     const key = readFileSync(keyPath, "utf8");
     const app = await fetch(`${API}/app`, {
       headers: { ...baseHeaders, authorization: `Bearer ${createAppJwt(config.github.appId, key, new Date())}` },
