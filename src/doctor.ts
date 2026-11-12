@@ -59,6 +59,16 @@ report(
   nested.ok ? "" : `${nested.out} (Ubuntu AppArmor; see docs/setup.md step 1)`,
 );
 
+// Both files define the profile `bwrap`; without the disable link, Ubuntu's wins again at boot.
+if (existsSync("/etc/apparmor.d/bwrap-userns-restrict") && existsSync("/etc/apparmor.d/bwrap")) {
+  const disabled = existsSync("/etc/apparmor.d/disable/bwrap-userns-restrict");
+  report(
+    disabled ? "ok" : "fail",
+    "bwrap AppArmor change survives a reboot",
+    disabled ? "" : "Ubuntu's bwrap-userns-restrict is not disabled (see docs/setup.md step 1)",
+  );
+}
+
 const auth = run(["claude", "auth", "status"]);
 try {
   const s = JSON.parse(auth.out) as { loggedIn?: boolean; subscriptionType?: string };

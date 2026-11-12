@@ -15,6 +15,7 @@ It installs tmux, git and the sandbox tools (bubblewrap, socat), creates the `ag
 **Ubuntu 24.04 and later:** Ubuntu's AppArmor profile `bwrap-userns-restrict` stops Claude Code's sandbox from working, and the Implementer then can't run any command. Replace it with the profile the [Claude Code sandboxing docs](https://code.claude.com/docs/en/sandboxing) recommend. Both define the profile named `bwrap`, so Ubuntu's has to be turned off:
 
 ```sh
+sudo mkdir -p /etc/apparmor.d/disable   # does not exist on a fresh Ubuntu 26.04
 sudo ln -sf /etc/apparmor.d/bwrap-userns-restrict /etc/apparmor.d/disable/
 sudo apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict
 printf '%s\n' 'abi <abi/4.0>,' 'include <tunables/global>' '' \
@@ -23,7 +24,7 @@ printf '%s\n' 'abi <abi/4.0>,' 'include <tunables/global>' '' \
 sudo systemctl reload apparmor
 ```
 
-`bun run doctor` checks this ("sandbox can nest user namespaces").
+The link in `disable/` is what keeps Ubuntu's profile from loading again at the next boot; without it the change only lasts until a reboot. `bun run doctor` checks both ("sandbox can nest user namespaces", "bwrap AppArmor change survives a reboot").
 
 Then log in to Claude once as that user, with the subscription. Remote Control does not work with `claude setup-token`, so this must be the interactive login:
 
