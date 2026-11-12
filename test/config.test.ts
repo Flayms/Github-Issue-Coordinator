@@ -91,6 +91,15 @@ describe("config", () => {
     expect(issuesOf({ owner: {}, repos: [], roles: {} }).length).toBeGreaterThanOrEqual(6);
   });
 
+  test("REQ-001-25 sandbox network domains default to the common package registries, per repository", () => {
+    const c = parseConfig({
+      ...valid(),
+      repos: [{ name: "octo/app" }, { name: "octo/py", sandboxDomains: ["pypi.org"] }],
+    });
+    expect(c.repos[0]?.sandboxDomains).toEqual(["registry.npmjs.org", "pypi.org", "files.pythonhosted.org"]);
+    expect(c.repos[1]?.sandboxDomains).toEqual(["pypi.org"]);
+  });
+
   test("REQ-001-22 resolves a Role's model and effort, with the repository override winning", () => {
     const c = parseConfig({
       ...valid(),

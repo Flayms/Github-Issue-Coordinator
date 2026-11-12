@@ -1,6 +1,7 @@
 /** Coordinator entry point: `bun start` (config from `config.ts` or `$COORDINATOR_CONFIG`). */
 import { mkdirSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { loadConfig } from "./config.ts";
 import { Coordinator } from "./coordinator.ts";
 import { Clones } from "./git.ts";
@@ -38,6 +39,8 @@ async function main() {
     stateDir,
     dbPath,
     hookCommand: [process.execPath, resolve(import.meta.dir, "hook.ts")],
+    // REQ-001-26: the App key's folder and Claude's login.
+    secretPaths: [dirname(resolve(config.github.privateKeyPath)), join(homedir(), ".claude", ".credentials.json")],
   });
   const clones = new Clones({ root: join(stateDir, "clones"), token: (repo) => auth.tokenFor(repo) });
   const worktrees = new Worktrees({
