@@ -55,6 +55,8 @@ export interface StartOptions {
   cwd: string;
   prompt: string;
   model: RoleSettings;
+  /** Network domains the session's sandboxed shell commands may reach (Implementer only, REQ-001-25). */
+  sandboxDomains?: string[];
 }
 
 export class SessionRunner {
@@ -68,6 +70,8 @@ export class SessionRunner {
       /** How to run src/hook.ts, e.g. `[process.execPath, "/…/src/hook.ts"]`. */
       hookCommand: string[];
       claudeBin?: string;
+      /** Files and folders no agent may read: the App key, Claude's credentials (REQ-001-26). */
+      secretPaths?: string[];
     },
   ) {}
 
@@ -91,10 +95,21 @@ export class SessionRunner {
         ],
       ]),
     );
+    const secrets = this.o.secretPaths ?? [];
     const sandbox = rolePermissions(opts.role, dir).sandbox
-      ? { enabled: true, autoAllowBashIfSandboxed: true }
+      ? {
+          enabled: true,
+          autoAllowBashIfSandboxed: true,
+          // REQ-001-25: never run shell commands unsandboxed, e.g. when a sandbox dependency is missing.
+          failIfUnavailable: true,
+          allowUnsandboxedCommands: false,
+          filesystem: { denyRead: secrets },
+          network: { allowedDomains: opts.role === "implementer" ? (opts.sandboxDomains ?? []) : [] },
+        }
       : undefined;
-    writeFileSync(join(dir, "settings.json"), JSON.stringify({ hooks, sandbox }, null, 2));
+    // REQ-001-26: deny rules cover the file tools; sandbox.filesystem.denyRead covers shell commands.
+    const permissions = { deny: secrets.flatMap((p) => [`Read(/${p})`, `Read(/${p}/**)`]) };
+    writeFileSync(join(dir, "settings.json"), JSON.stringify({ hooks, permissions, sandbox }, null, 2));
     writeFileSync(join(dir, "meta.json"), JSON.stringify({ cwd: opts.cwd }));
     this.launch(id, opts.cwd, opts.prompt, opts.model);
     return id;

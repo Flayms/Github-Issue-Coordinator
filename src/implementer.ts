@@ -51,6 +51,7 @@ export class Implementer {
       cwd: wt.path,
       prompt: renderPrompt(loadPrompt("implementer", wt.path), { repo, context }),
       model: roleSettings(this.d.config, repo, "implementer"),
+      sandboxDomains: this.sandboxDomains(repo),
     });
   }
 
@@ -136,7 +137,16 @@ export class Implementer {
     } else {
       const wt = this.d.store.issue(repo, issues[0] ?? 0).worktreePath;
       if (!wt) throw new Error(`no Worktree on record for #${issues[0]}`);
-      id = this.d.runner.start({ repo, role: "implementer", kind: "issue", issues, cwd: wt, prompt, model });
+      id = this.d.runner.start({
+        repo,
+        role: "implementer",
+        kind: "issue",
+        issues,
+        cwd: wt,
+        prompt,
+        model,
+        sandboxDomains: this.sandboxDomains(repo),
+      });
     }
     return id;
   }
@@ -160,6 +170,10 @@ export class Implementer {
       this.d.store.updateIssue(repo, n, { worktreePath: null });
     }
     return true;
+  }
+
+  private sandboxDomains(repo: string): string[] {
+    return this.d.config.repos.find((r) => r.name.toLowerCase() === repo.toLowerCase())?.sandboxDomains ?? [];
   }
 
   private async failAll(repo: string, issues: number[], comment: string, sessionId: number) {

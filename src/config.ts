@@ -25,6 +25,8 @@ const repoSchema = z.strictObject({
   name: z.string().regex(/^[\w.-]+\/[\w.-]+$/, "must be owner/repo"),
   /** Shell command run once in each new Worktree, e.g. `bun install`. */
   setup: z.string().min(1).optional(),
+  /** Network domains the Implementer's sandboxed shell commands may reach (REQ-001-25). */
+  sandboxDomains: z.array(z.string().min(1)).default(["registry.npmjs.org", "pypi.org", "files.pythonhosted.org"]),
   roles: z
     .strictObject({ planner: roleOverrideSchema, implementer: roleOverrideSchema, reviewer: roleOverrideSchema })
     .partial()

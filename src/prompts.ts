@@ -38,6 +38,8 @@ const READ_ONLY = [
   "Bash(git show:*)",
   "Bash(git diff:*)",
   "Bash(git status:*)",
+  "WebSearch",
+  "WebFetch",
 ];
 
 /** Sessions don't wait for routine permission prompts (REQ-001-25). */
@@ -49,6 +51,7 @@ export function rolePermissions(role: Role, sessionDir: string): Permissions {
   return {
     permissionMode: "dontAsk",
     allowedTools: [...READ_ONLY, `Write(${result})`, `Edit(${result})`],
-    sandbox: false,
+    // REQ-001-26: even read-only git can print any file (`git diff --no-index`), so their shell runs sandboxed too.
+    sandbox: true,
   };
 }

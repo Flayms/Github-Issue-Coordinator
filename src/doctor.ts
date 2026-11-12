@@ -3,7 +3,9 @@
  * Setup check: `bun run doctor`. Verifies everything the Coordinator needs before its first start
  * (docs/setup.md) and prints what is missing. Read-only: it changes nothing.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { accessSync, constants, existsSync, readFileSync } from "node:fs";
+import { userInfo } from "node:os";
+import { dirname } from "node:path";
 import { loadConfig } from "./config.ts";
 import { AppAuth, createAppJwt } from "./github/app-auth.ts";
 import { API, baseHeaders } from "./github/http.ts";
@@ -36,6 +38,39 @@ for (const [bin, arg] of [
     r.ok ? r.out.split("\n")[0] : "not found",
   );
 }
+// The Implementer's sandbox runs a helper inside bubblewrap that needs its own user namespace;
+// Ubuntu's bwrap-userns-restrict AppArmor profile forbids that (docs/setup.md, step 1).
+const nested = run([
+  "bwrap",
+  "--ro-bind",
+  "/",
+  "/",
+  "--unshare-user",
+  "--dev",
+  "/dev",
+  "--proc",
+  "/proc",
+  "unshare",
+  "--user",
+  "--map-root-user",
+  "true",
+]);
+report(
+  nested.ok ? "ok" : "fail",
+  "sandbox can nest user namespaces",
+  nested.ok ? "" : `${nested.out} (Ubuntu AppArmor; see docs/setup.md step 1)`,
+);
+
+// Both files define the profile `bwrap`; without the disable link, Ubuntu's wins again at boot.
+if (existsSync("/etc/apparmor.d/bwrap-userns-restrict") && existsSync("/etc/apparmor.d/bwrap")) {
+  const disabled = existsSync("/etc/apparmor.d/disable/bwrap-userns-restrict");
+  report(
+    disabled ? "ok" : "fail",
+    "bwrap AppArmor change survives a reboot",
+    disabled ? "" : "Ubuntu's bwrap-userns-restrict is not disabled (see docs/setup.md step 1)",
+  );
+}
+
 const auth = run(["claude", "auth", "status"]);
 try {
   const s = JSON.parse(auth.out) as { loggedIn?: boolean; subscriptionType?: string };
@@ -63,8 +98,21 @@ if (config) {
     report(owner.id === config.owner.id ? "ok" : "fail", "Owner id matches the login", `GitHub says ${owner.id}`);
 
   const keyPath = config.github.privateKeyPath;
-  if (!existsSync(keyPath)) report("fail", "GitHub App private key", `${keyPath} not found`);
-  else {
+  let readable = true;
+  try {
+    accessSync(keyPath, constants.R_OK);
+  } catch (e) {
+    readable = false;
+    const denied = (e as NodeJS.ErrnoException).code === "EACCES";
+    report(
+      "fail",
+      "GitHub App private key",
+      denied || !existsSync(dirname(keyPath))
+        ? `${keyPath} is not readable by ${userInfo().username}; run doctor as the Coordinator's user (sudo -iu agent …)`
+        : `${keyPath} not found`,
+    );
+  }
+  if (readable) {
     const key = readFileSync(keyPath, "utf8");
     const app = await fetch(`${API}/app`, {
       headers: { ...baseHeaders, authorization: `Bearer ${createAppJwt(config.github.appId, key, new Date())}` },

@@ -26,5 +26,6 @@ export default defineConfig({
     implementer: { model: "sonnet" },
     reviewer: { model: "opus" },
   },
+  // sandboxDomains: what the Implementer's shell commands may reach (default: npm and PyPI registries).
   repos: [{ name: "your-login/your-repo", setup: "bun install", roles: { reviewer: { model: "sonnet" } } }],
 });
