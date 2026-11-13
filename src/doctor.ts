@@ -29,14 +29,13 @@ for (const [bin, arg] of [
   ["claude", "--version"],
   ["tmux", "-V"],
   ["git", "--version"],
+  // Claude Code's sandbox needs both; without them the Implementer runs no commands (failIfUnavailable).
   ["bwrap", "--version"],
+  ["socat", "-V"],
 ] as const) {
   const r = run([bin, arg]);
-  report(
-    r.ok ? "ok" : bin === "bwrap" ? "warn" : "fail",
-    `${bin} installed`,
-    r.ok ? r.out.split("\n")[0] : "not found",
-  );
+  const line = r.out.split("\n").find((l) => /version/i.test(l)) ?? r.out.split("\n")[0];
+  report(r.ok ? "ok" : "fail", `${bin} installed`, r.ok ? line : "not found");
 }
 // The Implementer's sandbox runs a helper inside bubblewrap that needs its own user namespace;
 // Ubuntu's bwrap-userns-restrict AppArmor profile forbids that (docs/setup.md, step 1).

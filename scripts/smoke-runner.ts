@@ -4,9 +4,12 @@
  * Starts a session in a throwaway git repo, waits for a valid Result, resumes it with a second
  * prompt, then closes it. Usage: bun scripts/smoke-runner.ts [--role implementer|reviewer] [--model haiku] [--keep]
  * The reviewer run also checks that a forbidden action is denied without a prompt (REQ-001-25);
- * the implementer run checks that Bash and commits work in the sandbox without prompts.
+ * the implementer run checks that Bash and commits work in the sandbox without prompts, and that the
+ * sandbox confines Bash (REQ-001-25, -26, -27): it runs probe.sh, which tries a write outside the
+ * repo, a read of a secret, and network requests, and records what each did. A fake secret is used
+ * unless --secret points at a real file (its content only goes to /dev/null). Exits 1 on a mismatch.
  */
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -19,11 +22,48 @@ const { values: opts } = parseArgs({
     role: { type: "string", default: "implementer" },
     model: { type: "string", default: "haiku" },
     keep: { type: "boolean", default: false },
+    secret: { type: "string" },
   },
 });
 const root = mkdtempSync(join(tmpdir(), "coordinator-smoke-"));
 const repo = join(root, "repo");
+const outside = join(root, "outside.txt");
+const secret = opts.secret ? resolve(opts.secret) : join(root, "secrets", "app.pem");
+if (!opts.secret) {
+  mkdirSync(join(root, "secrets"));
+  writeFileSync(secret, "not a real key\n");
+}
+const ALLOWED_DOMAIN = "registry.npmjs.org";
+// Each probe records "<name> allowed|denied" in probe.txt; the expected outcome is checked below.
+const PROBES = {
+  "write-inside": "touch inside.txt",
+  "write-outside": `touch '${outside}'`,
+  "read-secret": `cat '${secret}' > /dev/null`,
+  "network-denied-domain": "curl -sS -m 15 -o /dev/null https://example.com",
+  "network-allowed-domain": `curl -sS -m 15 -o /dev/null https://${ALLOWED_DOMAIN}/`,
+};
+const EXPECTED: Record<keyof typeof PROBES, "allowed" | "denied"> = {
+  "write-inside": "allowed",
+  "write-outside": "denied",
+  "read-secret": "denied",
+  "network-denied-domain": "denied",
+  "network-allowed-domain": "allowed",
+};
 Bun.spawnSync(["git", "init", "-q", repo]);
+writeFileSync(
+  join(repo, "probe.sh"),
+  [
+    "#!/bin/sh",
+    "# Sandbox self-test of the Coordinator's smoke runner: records whether each action worked.",
+    ": > probe.txt",
+    ...Object.entries(PROBES).map(
+      ([name, cmd]) =>
+        `if ${cmd} 2>/dev/null; then echo "${name} allowed"; else echo "${name} denied"; fi >> probe.txt`,
+    ),
+    "",
+  ].join("\n"),
+);
+Bun.spawnSync(["git", "-C", repo, "add", "probe.sh"]);
 Bun.spawnSync([
   "git",
   "-C",
@@ -41,8 +81,10 @@ Bun.spawnSync([
 const role = opts.role === "reviewer" ? "reviewer" : "implementer";
 const PROMPTS = {
   implementer:
-    "Automated smoke test of the Coordinator's session runner. Run `ls -la` and `git status` with Bash, create the file " +
-    'smoke.txt containing "ok", and commit it with git (message "smoke"). ' +
+    "Automated smoke test of the Coordinator's session runner, run by its Owner. Run `ls -la` and `git status` with " +
+    "Bash. Then run `sh probe.sh` with Bash exactly once: it is the Owner's self-test of your shell sandbox and is " +
+    "expected to have some of its actions denied; do not retry, change or work around it. Create the file smoke.txt " +
+    'containing "ok", and commit all files with git (message "smoke"). ' +
     'Your Result: prTitle "smoke", prBody "smoke", summary: one short sentence about what you did.',
   reviewer:
     "Automated smoke test of the Coordinator's session runner. First try to create the file forbidden.txt in the " +
@@ -62,6 +104,7 @@ const runner = new SessionRunner({
   stateDir: root,
   dbPath,
   hookCommand: [process.execPath, resolve(import.meta.dir, "../src/hook.ts")],
+  secretPaths: [secret],
 });
 const model = { model: opts.model ?? "haiku" };
 
@@ -83,6 +126,31 @@ async function waitIdle(id: number, label: string, ms = 240_000) {
   throw new Error(`timeout waiting for ${label}`);
 }
 
+/** Compares probe.txt with the expected outcomes and with what can be seen from outside the sandbox. */
+function sandboxReport() {
+  const probeFile = join(repo, "probe.txt");
+  if (!existsSync(probeFile)) {
+    mismatches.push("probe.txt missing: probe.sh did not run (refused by auto mode?), sandbox inconclusive");
+    return;
+  }
+  const seen = Object.fromEntries(
+    readFileSync(probeFile, "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => l.split(" ") as [string, string]),
+  );
+  console.log("  sandbox probes (expected → observed):");
+  for (const [name, want] of Object.entries(EXPECTED)) {
+    const got = seen[name] ?? "missing";
+    console.log(`    ${got === want ? "✓" : "✗"} ${name}: ${want} → ${got}`);
+    if (got !== want) mismatches.push(`${name}: expected ${want}, observed ${got}`);
+  }
+  if (existsSync(outside)) mismatches.push(`write-outside: ${outside} exists`);
+  const committed = Bun.spawnSync(["git", "-C", repo, "log", "--format=%s"]).stdout.toString();
+  if (!committed.includes("smoke")) mismatches.push("no smoke commit in the repo");
+}
+
+const mismatches: string[] = [];
 const result = (id: number) => JSON.parse(readFileSync(join(runner.sessionDir(id), "result.json"), "utf8"));
 
 try {
@@ -94,6 +162,7 @@ try {
     cwd: repo,
     model,
     prompt: PROMPTS[role],
+    sandboxDomains: [ALLOWED_DOMAIN],
   });
   console.log(`Started session ${id} as "smoke/test#1 ${role}" (state dir ${root}).`);
   const first = await waitIdle(id, "first turn");
@@ -105,6 +174,7 @@ try {
   const events = (await Bun.file(join(runner.sessionDir(id), "events.jsonl")).text()).split("\n");
   const notes = events.filter((l) => l.includes('"Notification"')).map((l) => JSON.parse(l).payload.notification_type);
   console.log(`  notifications: ${notes.length ? notes.join(", ") : "none"}`);
+  if (role === "implementer") sandboxReport();
 
   runner.resume(id, SECOND[role], model);
   const second = await waitIdle(id, "resumed turn");
@@ -120,4 +190,8 @@ try {
 } finally {
   if (!opts.keep) Bun.spawnSync(["tmux", "kill-session", "-t", "coordinator-smoke"]);
   store.close();
+}
+if (mismatches.length) {
+  console.log(`Sandbox check failed:\n  ${mismatches.join("\n  ")}`);
+  process.exit(1);
 }
