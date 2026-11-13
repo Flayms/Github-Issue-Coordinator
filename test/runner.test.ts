@@ -202,6 +202,18 @@ describe("session runner", () => {
     }
   });
 
+  test("REQ-001-30 an Implementer's shell commands may write only to its Worktree and session folder", () => {
+    const impl = startImplementer();
+    const cmd = tmux.windows.get(`s${impl}`)?.command ?? "";
+    expect(tmux.windows.get(`s${impl}`)?.cwd).toBe("/work/app-5");
+    // The sandbox makes the working directory and every --add-dir writable, nothing else.
+    expect(cmd).toContain(`'--add-dir' '${join(dir, "sessions", String(impl))}'`);
+    expect(cmd.match(/'--add-dir'/g)).toHaveLength(1);
+    const settings = JSON.parse(readFileSync(join(dir, "sessions", String(impl), "settings.json"), "utf8"));
+    expect(settings.sandbox.filesystem.allowWrite).toBeUndefined();
+    expect(settings.permissions.additionalDirectories).toBeUndefined();
+  });
+
   test("REQ-001-25 a resumed session keeps its Role's permissions", () => {
     const id = startImplementer();
     store.setClaudeSessionId(id, "sess-abc");
