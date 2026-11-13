@@ -26,7 +26,7 @@ flowchart LR
 | `src/config.ts`                | Load and validate `config.ts`; resolve a Role's model and effort per repository                                                                  | T2 done  |
 | `src/labels.ts`                | The `agent:*` labels that carry state on GitHub                                                                                                  | T3 done  |
 | `src/github/app-auth.ts`       | GitHub App JWT; installation token per repository owner, cached until near expiry                                                                | T3 done  |
-| `src/github/client.ts`         | REST client: ETag polling, comments, timeline label actor, labels, PRs (incl. mergeability), Reviews, checks                                     | T3 done  |
+| `src/github/client.ts`         | REST client: ETag polling, comments, timeline label actor, labels, PRs (incl. mergeability, draft status via GraphQL), Reviews, checks           | T3 done  |
 | `src/store.ts`                 | `bun:sqlite`: sessions (Role, issues, Claude session id, state) and per-issue bookkeeping                                                        | T4 done  |
 | `src/state.ts`                 | Pure: issue state from labels; actions from labels, store and live tmux windows                                                                  | T4 done  |
 | `src/scheduler.ts`             | Pure: which queued work starts, which idle sessions close (Slots, priority, pause, live limit)                                                   | T5 done  |

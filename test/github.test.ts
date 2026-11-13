@@ -173,7 +173,7 @@ describe("GitHub client", () => {
     expect(created).toEqual(AGENT_LABELS.map((l) => l.name).filter((n) => n !== "agent:approved"));
   });
 
-  test("posts and edits comments, creates and updates PRs", async () => {
+  test("REQ-001-31 posts and edits comments, creates PRs as drafts and updates them", async () => {
     const { gh, requests } = client({
       "POST /repos/octo/app/issues/5/comments": { status: 201, body: { id: 77 } },
       "PATCH /repos/octo/app/issues/comments/77": { body: { id: 77 } },
@@ -187,7 +187,7 @@ describe("GitHub client", () => {
     expect(apiRequests(requests).map((r) => r.body)).toEqual([
       { body: "Assessment" },
       { body: "Assessment v2" },
-      { title: "T", body: "B", head: "agent/5-x", base: "main" },
+      { title: "T", body: "B", head: "agent/5-x", base: "main", draft: true },
       { body: "B2" },
     ]);
   });
@@ -211,17 +211,62 @@ describe("GitHub client", () => {
     for (const mergeable of [true, false, null]) {
       const { gh } = client({
         "GET /repos/octo/app/pulls/9": {
-          body: { number: 9, state: "open", head: { sha: "abc", ref: "agent/5-x" }, base: { ref: "main" }, mergeable },
+          body: {
+            number: 9,
+            node_id: "PR_9",
+            state: "open",
+            draft: true,
+            head: { sha: "abc", ref: "agent/5-x" },
+            base: { ref: "main" },
+            mergeable,
+          },
         },
       });
       expect(await gh.getPull("octo/app", 9)).toEqual({
         number: 9,
+        nodeId: "PR_9",
+        draft: true,
         headSha: "abc",
         headRef: "agent/5-x",
         baseRef: "main",
         mergeable,
       });
     }
+  });
+
+  const pullAs = (draft: boolean) => ({
+    body: { number: 9, node_id: "PR_9", draft, head: { sha: "abc", ref: "b" }, base: { ref: "main" }, mergeable: true },
+  });
+
+  test("REQ-001-31 marks a draft PR ready for review and converts a ready PR to draft through GraphQL", async () => {
+    for (const [from, to, mutation] of [
+      [true, false, "markPullRequestReadyForReview"],
+      [false, true, "convertPullRequestToDraft"],
+    ] as const) {
+      const { gh, requests } = client({
+        "GET /repos/octo/app/pulls/9": pullAs(from),
+        "POST /graphql": { body: { data: {} } },
+      });
+      await gh.setDraft("octo/app", 9, to);
+      const call = apiRequests(requests).find((r) => r.url.pathname === "/graphql");
+      const body = call?.body as { query: string; variables: unknown };
+      expect(body.query).toContain(mutation);
+      expect(body.variables).toEqual({ id: "PR_9" });
+    }
+  });
+
+  test("REQ-001-31 changing the draft status is skipped when the PR already has it", async () => {
+    const { gh, requests } = client({ "GET /repos/octo/app/pulls/9": pullAs(true) });
+    await gh.setDraft("octo/app", 9, true);
+    expect(apiRequests(requests).some((r) => r.url.pathname === "/graphql")).toBe(false);
+  });
+
+  test("REQ-001-31 a GraphQL error is thrown", async () => {
+    const { gh } = client({
+      "GET /repos/octo/app/pulls/9": pullAs(true),
+      "POST /graphql": { body: { errors: [{ message: "Resource not accessible by integration" }] } },
+    });
+    await expect(gh.setDraft("octo/app", 9, false)).rejects.toThrow("Resource not accessible by integration");
   });
 
   test("REQ-001-12 lists PR reviews with their author and state", async () => {

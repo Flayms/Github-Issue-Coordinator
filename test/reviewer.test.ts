@@ -40,6 +40,9 @@ class FakeGitHub {
     this.calls.push(["createComment", issue, body]);
     return 1;
   }
+  async setDraft(_r: string, pr: number, draft: boolean) {
+    this.calls.push(["setDraft", pr, draft]);
+  }
   async createReview(_r: string, pr: number, review: { commitId: string; body: string; comments: ReviewComment[] }) {
     if (this.rejectInline && review.comments.length)
       throw new GitHubError(422, "POST", "/reviews", "Line could not be resolved");
@@ -199,6 +202,20 @@ describe("Reviewer run", () => {
     expect(pending).toContain("Crashes on empty input");
     expect(pending).toContain("src/a.ts:3");
     expect(pending).not.toContain("Rename");
+  });
+
+  test("REQ-001-31 a Review without blocking findings marks the PR ready for review", async () => {
+    const id = await reviewer.start("octo/app", 9, [item(5)], "h1");
+    finish(id, [finding(false)]);
+    await reviewer.sync(id);
+    expect(gh.of("setDraft")).toEqual([["setDraft", 9, false]]);
+  });
+
+  test("REQ-001-31 a Review with blocking findings leaves the PR a draft", async () => {
+    const id = await reviewer.start("octo/app", 9, [item(5)], "h1");
+    finish(id, [finding(true)]);
+    await reviewer.sync(id);
+    expect(gh.of("setDraft")).toEqual([]);
   });
 
   test("findings GitHub cannot place inline are posted in the review body instead", async () => {

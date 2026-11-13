@@ -7,9 +7,9 @@ A self-hosted Bun daemon that polls GitHub and runs Claude Code agents. They tri
 1. **You open an issue.** Only issues you authored are considered; comments, labels and reviews by anyone else are ignored.
 2. **The Planner assesses it** and posts an Assessment comment: proposed approach, questions, and Coordination notes ("do together with #N", "blocked by #N"). Label: `agent:proposed`, `agent:needs-refinement` or `agent:wontfix-proposed`. Reply with feedback to revise the plan; the comment is edited in place.
 3. **You approve** with `/approve [notes]` or the `agent:approved` label. Nothing said inside a session counts as approval.
-4. **The Implementer works on it** in its own Worktree and branch (`agent/<issue>-<slug>`); bundled issues share one. The Coordinator pushes and opens a PR that closes the issues.
-5. **The Reviewer reviews the PR** once its checks pass and it has no merge conflicts, as one review with inline comments (never an approval). Blocking findings, failing checks and merge conflicts go back to the Implementer, up to `maxFeedbackRounds` times, then the PR is labelled `agent:failed`.
-6. **You merge.** The Worktree and sessions are cleaned up.
+4. **The Implementer works on it** in its own Worktree and branch (`agent/<issue>-<slug>`); bundled issues share one. The Coordinator pushes and opens a **draft** PR that closes the issues, so it can't be merged before its Review.
+5. **The Reviewer reviews the PR** once its checks pass and it has no merge conflicts, as one review with inline comments (never an approval). A Review without blocking findings marks the PR ready for review (`agent:reviewed`). Blocking findings, failing checks and merge conflicts go back to the Implementer, up to `maxFeedbackRounds` times, then the PR is labelled `agent:failed`. Any new commit pushed after a Review turns the PR back into a draft until that commit is reviewed; a failed PR stays a draft.
+6. **You merge** once the PR has left draft (or click "Ready for review" yourself to override). The Worktree and sessions are cleaned up.
 
 Agents never get GitHub credentials; the Coordinator does every GitHub write as its own GitHub App.
 
