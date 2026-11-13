@@ -203,7 +203,7 @@ describe("Planner pass", () => {
     expect(store.session(id)?.needsSync).toBe(false);
   });
 
-  test("REQ-001-28 the Assessment's note names the session's model and the Planner Role", async () => {
+  test("REQ-001-29 the Assessment's note names the session's model and the Planner Role", async () => {
     const id = await planner.startPass("octo/app", "/c", [item(5)], { issues: [], pulls: [] });
     store.setModelId(id, "claude-opus-5-5");
     gh.calls = [];

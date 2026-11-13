@@ -30,7 +30,7 @@ export interface SessionRecord {
   needsSync: boolean;
   /** The turn ended on the subscription usage limit (REQ-001-17). */
   usageLimited: boolean;
-  /** The model the session runs, e.g. `claude-opus-5-5`, reported by the hooks (REQ-001-28). */
+  /** The model the session runs, e.g. `claude-opus-5-5`, reported by the hooks (REQ-001-29). */
   modelId: string | null;
 }
 
@@ -43,6 +43,11 @@ export interface WorktreeRecord {
   feedbackRounds: number;
   pendingFeedback: string | null;
   failedChecksSha: string | null;
+  /** Head commit whose merge conflicts already triggered a Feedback round (REQ-001-28). */
+  conflictSha: string | null;
+  /** The PR head commit last seen, and when it was first seen, for the checks grace period (REQ-001-10). */
+  headSha: string | null;
+  headSeenAt: string | null;
 }
 
 export interface IssueRecord {
@@ -70,6 +75,11 @@ export interface IssueRecord {
   lastHandledReviewId: number;
   /** Head commit whose failed checks already triggered a Feedback round (REQ-001-13). */
   failedChecksSha: string | null;
+  /** Head commit whose merge conflicts already triggered a Feedback round (REQ-001-28). */
+  conflictSha: string | null;
+  /** The PR head commit last seen, and when it was first seen (REQ-001-10 grace period). */
+  headSha: string | null;
+  headSeenAt: string | null;
   /** 1 while a Feedback round runs; its next sync returns the issue to agent:pr-open. */
   inFeedbackRound: number;
 }
@@ -108,6 +118,9 @@ CREATE TABLE IF NOT EXISTS issues (
   pending_feedback TEXT,
   last_handled_review_id INTEGER NOT NULL DEFAULT 0,
   failed_checks_sha TEXT,
+  conflict_sha TEXT,
+  head_sha TEXT,
+  head_seen_at TEXT,
   in_feedback_round INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (repo, number)
 );
@@ -167,6 +180,9 @@ const ISSUE_COLUMNS = {
   pendingFeedback: "pending_feedback",
   lastHandledReviewId: "last_handled_review_id",
   failedChecksSha: "failed_checks_sha",
+  conflictSha: "conflict_sha",
+  headSha: "head_sha",
+  headSeenAt: "head_seen_at",
   inFeedbackRound: "in_feedback_round",
 } as const satisfies Record<Exclude<keyof IssueRecord, "repo" | "number">, string>;
 
@@ -184,10 +200,22 @@ export class Store {
     this.migrate();
   }
 
-  /** Adds columns introduced after a database was created. */
+  /** Adds columns introduced after a store was created; CREATE TABLE IF NOT EXISTS leaves old tables as they are. */
   private migrate(): void {
-    const cols = this.db.query<{ name: string }, []>("PRAGMA table_info(sessions)").all();
-    if (!cols.some((c) => c.name === "model_id")) this.db.exec("ALTER TABLE sessions ADD COLUMN model_id TEXT");
+    const added: Record<string, Record<string, string>> = {
+      issues: { conflict_sha: "TEXT", head_sha: "TEXT", head_seen_at: "TEXT" },
+      sessions: { model_id: "TEXT" },
+    };
+    for (const [table, cols] of Object.entries(added)) {
+      const have = new Set(
+        this.db
+          .query<{ name: string }, []>(`PRAGMA table_info(${table})`)
+          .all()
+          .map((c) => c.name),
+      );
+      for (const [col, type] of Object.entries(cols))
+        if (!have.has(col)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
+    }
   }
 
   clock(): Date {
@@ -301,6 +329,9 @@ export class Store {
       pendingFeedback: null,
       lastHandledReviewId: 0,
       failedChecksSha: null,
+      conflictSha: null,
+      headSha: null,
+      headSeenAt: null,
       inFeedbackRound: 0,
     };
     if (row) {
@@ -343,6 +374,9 @@ export class Store {
           feedbackRounds: r.feedbackRounds,
           pendingFeedback: r.pendingFeedback,
           failedChecksSha: r.failedChecksSha,
+          conflictSha: r.conflictSha,
+          headSha: r.headSha,
+          headSeenAt: r.headSeenAt,
         });
     }
     return [...byPath.values()];

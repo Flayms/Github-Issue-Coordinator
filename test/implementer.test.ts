@@ -52,6 +52,7 @@ class FakeGitHub {
 }
 
 class FakeWorktrees {
+  async fetchBase() {}
   created: [string, number[], string][] = [];
   pushed: string[] = [];
   removed: string[] = [];
@@ -189,7 +190,7 @@ describe("Implementer run", () => {
     expect(prompt).toContain("agent/5-x");
   });
 
-  test("REQ-001-09 / REQ-001-28 when the turn ends, pushes the branch and opens a PR with the agent note that closes every issue", async () => {
+  test("REQ-001-09 / REQ-001-29 when the turn ends, pushes the branch and opens a PR with the agent note that closes every issue", async () => {
     const id = await impl.start("octo/app", [item(5), item(6)]);
     store.setModelId(id, "claude-sonnet-5-5");
     gh.calls = [];

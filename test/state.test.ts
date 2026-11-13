@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Item } from "../src/github/client.ts";
+import type { ChecksState, Item } from "../src/github/client.ts";
 import { deriveActions, issueState, type Snapshot } from "../src/state.ts";
 import type { SessionRecord, WorktreeRecord } from "../src/store.ts";
 
@@ -236,6 +236,9 @@ describe("deriveActions", () => {
             feedbackRounds: 0,
             pendingFeedback: null,
             failedChecksSha: null,
+            conflictSha: null,
+            headSha: null,
+            headSeenAt: null,
           },
           {
             issues: [7],
@@ -245,6 +248,9 @@ describe("deriveActions", () => {
             feedbackRounds: 0,
             pendingFeedback: null,
             failedChecksSha: null,
+            conflictSha: null,
+            headSha: null,
+            headSeenAt: null,
           },
           {
             issues: [8],
@@ -254,6 +260,9 @@ describe("deriveActions", () => {
             feedbackRounds: 0,
             pendingFeedback: null,
             failedChecksSha: null,
+            conflictSha: null,
+            headSha: null,
+            headSeenAt: null,
           },
         ],
       }),
@@ -273,9 +282,23 @@ describe("deriveActions", () => {
       feedbackRounds: 0,
       pendingFeedback: null,
       failedChecksSha: null,
+      conflictSha: null,
+      headSha: null,
+      headSeenAt: null,
       ...extra,
     },
   ];
+  /** An hour before NOW_ISO: well past the checks grace period. */
+  const SEEN = "2026-11-11T11:00:00.000Z";
+  const pullOf = (headSha: string, checks: ChecksState, extra: Partial<Pull> = {}): Pull => ({
+    headSha,
+    checks,
+    failed: [],
+    mergeable: true,
+    headSeenAt: SEEN,
+    ...extra,
+  });
+  type Pull = NonNullable<Snapshot["pulls"]> extends ReadonlyMap<number, infer P> ? P : never;
 
   test("REQ-001-10 an agent PR whose head is unreviewed and whose checks passed (or has none) gets a Review", () => {
     for (const checks of ["success", "none"] as const) {
@@ -283,7 +306,7 @@ describe("deriveActions", () => {
         snap({
           items: [issue(5, ["agent:pr-open"]), pr(9)],
           worktrees: wt(),
-          pulls: new Map([[9, { headSha: "h1", checks }]]),
+          pulls: new Map([[9, pullOf("h1", checks)]]),
         }),
       );
       expect(actions).toEqual([{ type: "review", repo: "octo/app", pr: 9, issues: [5], headSha: "h1" }]);
@@ -298,7 +321,7 @@ describe("deriveActions", () => {
       ["success", "h1"],
     ] as const) {
       const actions = deriveActions(
-        snap({ items, worktrees: wt(reviewed), pulls: new Map([[9, { headSha: "h1", checks }]]) }),
+        snap({ items, worktrees: wt(reviewed), pulls: new Map([[9, pullOf("h1", checks)]]) }),
       );
       expect(actions.filter((a) => a.type === "review")).toEqual([]);
     }
@@ -309,7 +332,7 @@ describe("deriveActions", () => {
       snap({
         items: [issue(5, ["agent:pr-open"]), pr(9)],
         worktrees: wt(),
-        pulls: new Map([[9, { headSha: "h1", checks: "success" as const }]]),
+        pulls: new Map([[9, pullOf("h1", "success")]]),
         sessions: [session({ role: "implementer", issues: [5], state: "idle" })],
         liveSessionIds: new Set([1]),
       }),
@@ -319,7 +342,7 @@ describe("deriveActions", () => {
 
   test("REQ-001-07 / REQ-001-10 no Review while the Implementer is running or a Reviewer session is open", () => {
     const items = [issue(5, ["agent:pr-open"]), pr(9)];
-    const pulls = new Map([[9, { headSha: "h1", checks: "success" as const }]]);
+    const pulls = new Map([[9, pullOf("h1", "success")]]);
     for (const s of [
       session({ role: "implementer", issues: [5] }),
       session({ role: "reviewer", issues: [5], state: "idle" }),
@@ -332,8 +355,8 @@ describe("deriveActions", () => {
   });
 
   const prItems = () => [issue(5, ["agent:pr-open"]), pr(9)];
-  const passing = new Map([[9, { headSha: "h2", checks: "success" as const, failed: [] }]]);
-  const failing = new Map([[9, { headSha: "h2", checks: "failure" as const, failed: ["test: 2 failed"] }]]);
+  const passing = new Map([[9, pullOf("h2", "success")]]);
+  const failing = new Map([[9, pullOf("h2", "failure", { failed: ["test: 2 failed"] })]]);
   const fb = (comments: { id: number; body: string }[], changesRequested: { id: number; body: string }[] = []) =>
     new Map([[9, { comments: comments.map((x) => c(x.id, x.body)), changesRequested }]]);
 
@@ -353,6 +376,7 @@ describe("deriveActions", () => {
         upToCommentId: 0,
         upToReviewId: 0,
         checksFailed: false,
+        conflicted: false,
       },
     ]);
   });
@@ -370,6 +394,54 @@ describe("deriveActions", () => {
     expect(
       deriveActions(snap({ items: prItems(), worktrees: wt(null, { failedChecksSha: "h2" }), pulls: failing })),
     ).toEqual([]);
+  });
+
+  const conflicting = new Map([[9, pullOf("h2", "none", { mergeable: false, baseRef: "main" })]]);
+
+  test("REQ-001-28 a PR with merge conflicts starts a counted Feedback round to merge the default branch, once per head", () => {
+    expect(deriveActions(snap({ items: prItems(), worktrees: wt(), pulls: conflicting }))).toEqual([
+      expect.objectContaining({
+        type: "feedback",
+        pr: 9,
+        counted: true,
+        conflicted: true,
+        checksFailed: false,
+        headSha: "h2",
+        text: expect.stringContaining("git merge origin/main"),
+      }),
+    ]);
+    expect(
+      deriveActions(snap({ items: prItems(), worktrees: wt(null, { conflictSha: "h2" }), pulls: conflicting })),
+    ).toEqual([]);
+  });
+
+  test("REQ-001-28 no Review while the PR has conflicts or GitHub is still computing whether it has", () => {
+    for (const mergeable of [false, null]) {
+      const pulls = new Map([[9, pullOf("h2", "success", { mergeable })]]);
+      const actions = deriveActions(snap({ items: prItems(), worktrees: wt(null, { conflictSha: "h2" }), pulls }));
+      expect(actions.filter((a) => a.type === "review")).toEqual([]);
+    }
+  });
+
+  test("REQ-001-28 after maxFeedbackRounds a PR that still has conflicts is labelled agent:failed", () => {
+    const actions = deriveActions(
+      snap({ items: prItems(), worktrees: wt(null, { feedbackRounds: 2 }), pulls: conflicting, maxFeedbackRounds: 2 }),
+    );
+    expect(actions).toEqual([expect.objectContaining({ type: "fail", issues: [5], pr: 9 })]);
+  });
+
+  test("REQ-001-10 no checks count as passed only once the grace period since the head appeared is over", () => {
+    const at = (headSeenAt: string) =>
+      deriveActions(
+        snap({
+          items: prItems(),
+          worktrees: wt(),
+          pulls: new Map([[9, pullOf("h2", "none", { headSeenAt })]]),
+          checksGraceSeconds: 120,
+        }),
+      ).filter((a) => a.type === "review");
+    expect(at("2026-11-11T11:59:00.000Z")).toEqual([]);
+    expect(at("2026-11-11T11:58:00.000Z")).toEqual([expect.objectContaining({ type: "review", headSha: "h2" })]);
   });
 
   test("REQ-001-11 after maxFeedbackRounds automatic rounds the PR is labelled agent:failed instead", () => {
@@ -420,6 +492,7 @@ describe("deriveActions", () => {
         upToCommentId: 32,
         upToReviewId: 7,
         checksFailed: false,
+        conflicted: false,
       },
     ]);
   });

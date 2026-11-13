@@ -24,7 +24,7 @@ export interface ImplementerDeps {
   runner: Pick<SessionRunner, "start" | "resume" | "close" | "sessionDir">;
   worktrees: Pick<
     Worktrees,
-    "create" | "push" | "commitsAhead" | "currentBranch" | "defaultBranch" | "remove" | "hasRoom"
+    "create" | "push" | "commitsAhead" | "currentBranch" | "defaultBranch" | "remove" | "hasRoom" | "fetchBase"
   >;
 }
 
@@ -119,6 +119,13 @@ export class Implementer {
    * REQ-001-11/12/13: resume the Implementer in its Worktree with the feedback; a session that
    * can't be resumed is replaced by a fresh one in the same Worktree.
    */
+  /** Fetches the default branch into the issue's Worktree before a merge-conflict round (REQ-001-28). */
+  async fetchBase(repo: string, issues: number[]): Promise<void> {
+    const wt = this.d.store.issue(repo, issues[0] ?? 0).worktreePath;
+    if (!wt) throw new Error(`no Worktree on record for #${issues[0]}`);
+    await this.d.worktrees.fetchBase(repo, wt);
+  }
+
   async feedbackRound(repo: string, pr: number, issues: number[], text: string): Promise<number> {
     for (const n of issues) {
       for (const l of ["agent:pr-open", "agent:reviewed"]) await this.d.gh.removeLabel(repo, n, l);

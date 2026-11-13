@@ -1,5 +1,5 @@
 /**
- * The note every comment, PR and review by the Coordinator starts with (AGENTS.md, REQ-001-28).
+ * The note every comment, PR and review by the Coordinator starts with (AGENTS.md, REQ-001-29).
  */
 import { type Config, type Role, roleSettings } from "./config.ts";
 import type { SessionRecord } from "./store.ts";

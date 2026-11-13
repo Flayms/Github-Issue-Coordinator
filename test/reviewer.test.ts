@@ -156,7 +156,7 @@ describe("Reviewer run", () => {
     ]);
   });
 
-  test("REQ-001-10 / REQ-001-23 / REQ-001-28 posts one COMMENT review with inline findings, then closes the session and its checkout", async () => {
+  test("REQ-001-10 / REQ-001-23 / REQ-001-29 posts one COMMENT review with inline findings, then closes the session and its checkout", async () => {
     const id = await reviewer.start("octo/app", 9, [item(5)], "h1");
     store.setModelId(id, "claude-opus-5-5");
     gh.calls = [];

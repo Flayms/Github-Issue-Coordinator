@@ -81,8 +81,10 @@ class FakeGitHub {
   }
   heads = new Map<number, string>();
   checkState: "none" | "pending" | "success" | "failure" = "success";
+  mergeable: boolean | null = true;
   async getPull(_r: string, pr: number) {
-    return { number: pr, headSha: this.heads.get(pr) ?? "h1", headRef: "agent/5-x", baseRef: "main" };
+    const headSha = this.heads.get(pr) ?? "h1";
+    return { number: pr, headSha, headRef: "agent/5-x", baseRef: "main", mergeable: this.mergeable };
   }
   async checks() {
     return { state: this.checkState, failed: this.checkState === "failure" ? ["test"] : [] };
@@ -98,6 +100,12 @@ class FakeGitHub {
 
 class FakeWorktrees {
   removed: string[] = [];
+  fetched: string[] = [];
+  onFetch = () => {};
+  async fetchBase(_repo: string, path: string) {
+    this.onFetch();
+    this.fetched.push(path);
+  }
   hasRoom() {
     return true;
   }
@@ -409,7 +417,7 @@ describe("reconcile loop", () => {
     expect(gh.calls).toEqual([]);
   });
 
-  test("REQ-001-28 the Coordinator gives up in its own name and names the failed session's Role", async () => {
+  test("REQ-001-29 the Coordinator gives up in its own name and names the failed session's Role", async () => {
     implementerDone();
     gh.createPullFailures = 10;
     for (let i = 0; i < 3; i++) await coordinator.tick();
@@ -479,6 +487,41 @@ describe("reconcile loop", () => {
     await coordinator.tick();
     expect(runner.resumed).toHaveLength(1);
     expect(store.issue("octo/app", 5).feedbackRounds).toBe(1);
+  });
+
+  test("REQ-001-28 merge conflicts fetch the default branch, then start a counted round, once per head", async () => {
+    const id = prOpen({ reviewedHeadSha: null });
+    gh.mergeable = false;
+    gh.checkState = "none"; // GitHub runs no checks on a conflicted PR
+    let resumedBeforeFetch = -1;
+    worktrees.onFetch = () => {
+      resumedBeforeFetch = runner.resumed.length;
+    };
+    await coordinator.tick();
+    expect(worktrees.fetched).toEqual(["/wt/5"]);
+    expect(resumedBeforeFetch).toBe(0);
+    expect(runner.resumed).toEqual([[id, expect.stringContaining("git merge origin/main")]]);
+    expect(runner.started).toEqual([]); // no Review while conflicted
+    expect(store.issue("octo/app", 5)).toMatchObject({ feedbackRounds: 1, conflictSha: "h1" });
+    store.patchSession(id, { state: "idle" });
+    gh.changed = true;
+    now = new Date(now.getTime() + 10 * 60_000);
+    await coordinator.tick();
+    expect(runner.resumed).toHaveLength(1);
+    expect(runner.started).toEqual([]);
+  });
+
+  test("REQ-001-10 a new head without checks is reviewed only after the grace period", async () => {
+    prOpen({ reviewedHeadSha: null });
+    gh.checkState = "none";
+    await coordinator.tick();
+    expect(runner.started).toEqual([]);
+    now = new Date(now.getTime() + 60_000);
+    await coordinator.tick();
+    expect(runner.started).toEqual([]);
+    now = new Date(now.getTime() + 61_000);
+    await coordinator.tick();
+    expect(runner.started).toEqual([expect.objectContaining({ role: "reviewer", issues: [5] })]);
   });
 
   test("REQ-001-12 the Owner's /agent comment and changes-requested review run uncounted rounds; others are ignored", async () => {

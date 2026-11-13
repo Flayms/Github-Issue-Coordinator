@@ -8,6 +8,8 @@ export default defineConfig({
   // The Coordinator's GitHub App (REQ-001-15). Keep the private key outside this repo.
   github: { appId: 0, privateKeyPath: "/home/agent/.config/coordinator/app.pem" },
   pollIntervalSec: 60,
+  // A PR head without check runs is reviewed only this long after it appeared, so CI can register first.
+  checksGraceSeconds: 120,
   stateDir: "state", // store, session files and clones (outside the managed repos)
   // All optional; these are the defaults. maxLiveSessions counts running and idle sessions.
   limits: {

@@ -36,12 +36,12 @@ describe("hook", () => {
     expect(store.session(id)?.claudeSessionId).toBe("abc");
   });
 
-  test("REQ-001-28 SessionStart records the model the session runs", () => {
+  test("REQ-001-29 SessionStart records the model the session runs", () => {
     hook("SessionStart", { model: "claude-opus-5-5" });
     expect(store.session(id)?.modelId).toBe("claude-opus-5-5");
   });
 
-  test("REQ-001-28 without a model in SessionStart, Stop takes it from the transcript", () => {
+  test("REQ-001-29 without a model in SessionStart, Stop takes it from the transcript", () => {
     hook("SessionStart");
     const transcript = join(dir, "t.jsonl");
     writeFileSync(

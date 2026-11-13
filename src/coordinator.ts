@@ -5,14 +5,14 @@
  */
 import { type Config, type Role, roleSettings } from "./config.ts";
 import type { Clones } from "./git.ts";
-import type { Actor, ChecksState, Comment, GitHubClient, Item } from "./github/client.ts";
+import type { Actor, Comment, GitHubClient, Item } from "./github/client.ts";
 import { Implementer, type ImplementerDeps } from "./implementer.ts";
 import { agentNote, ROLE_NAMES } from "./note.ts";
 import { bodyHash, Planner } from "./planner.ts";
 import { Reviewer, type ReviewerDeps } from "./reviewer.ts";
 import type { SessionRunner } from "./runner.ts";
 import { type LiveSession, schedule, type Work } from "./scheduler.ts";
-import { type Action, deriveActions, type IssueFeedback, issueState } from "./state.ts";
+import { type Action, deriveActions, type IssueFeedback, issueState, type PullState } from "./state.ts";
 import type { IssueRecord, SessionRecord, Store, WorktreeRecord } from "./store.ts";
 
 /** How long to wait after a usage limit before trying again; the reset time's format is still unknown. */
@@ -99,6 +99,7 @@ export class Coordinator {
             pulls: await this.pulls(repo, view, worktrees),
             prFeedback: view.prFeedback,
             maxFeedbackRounds: this.d.config.limits.maxFeedbackRounds,
+            checksGraceSeconds: this.d.config.checksGraceSeconds,
           });
           for (const a of actions) await this.handle(a, view, queue, jobs);
           this.queueUsageLimited(repo, queue, jobs);
@@ -212,12 +213,15 @@ export class Coordinator {
         const sessionId = own && own.state !== "closed" ? own.id : undefined;
         const key = `${a.repo} PR #${a.pr} feedback`;
         this.add(queue, jobs, { key, kind: "feedback", role: "implementer", queuedAt: now, sessionId }, async () => {
+          // REQ-001-28: before the round is recorded, so a failed fetch is retried on the next tick.
+          if (a.conflicted) await this.implementer.fetchBase(a.repo, a.issues);
           for (const n of a.issues) {
             const rec = this.d.store.issue(a.repo, n);
             this.d.store.updateIssue(a.repo, n, {
               pendingFeedback: null,
               feedbackRounds: rec.feedbackRounds + (a.counted ? 1 : 0),
               failedChecksSha: a.checksFailed ? a.headSha : rec.failedChecksSha,
+              conflictSha: a.conflicted ? a.headSha : rec.conflictSha,
             });
           }
           const pr = this.d.store.issue(a.repo, a.pr);
@@ -387,16 +391,29 @@ export class Coordinator {
   }
 
   /**
-   * Head and checks of open agent PRs. Read on every tick: a check finishing does not change the
-   * issue list, so the ETag poll would not notice it (REQ-001-10).
+   * Head, checks and mergeability of open agent PRs. Read on every tick: a check finishing does not
+   * change the issue list, so the ETag poll would not notice it (REQ-001-10, REQ-001-28). Records when
+   * each head was first seen, for the checks grace period.
    */
   private async pulls(repo: string, view: RepoView, worktrees: WorktreeRecord[]) {
-    const out = new Map<number, { headSha: string; checks: ChecksState; failed: string[] }>();
+    const out = new Map<number, PullState>();
     for (const w of worktrees) {
       if (w.prNumber === null || !view.items.some((i) => i.number === w.prNumber)) continue;
       const pull = await this.d.gh.getPull(repo, w.prNumber);
       const checks = await this.d.gh.checks(repo, pull.headSha);
-      out.set(w.prNumber, { headSha: pull.headSha, checks: checks.state, failed: checks.failed });
+      let headSeenAt = w.headSeenAt;
+      if (w.headSha !== pull.headSha || !headSeenAt) {
+        headSeenAt = this.now().toISOString();
+        for (const n of w.issues) this.d.store.updateIssue(repo, n, { headSha: pull.headSha, headSeenAt });
+      }
+      out.set(w.prNumber, {
+        headSha: pull.headSha,
+        checks: checks.state,
+        failed: checks.failed,
+        mergeable: pull.mergeable,
+        headSeenAt,
+        baseRef: pull.baseRef,
+      });
     }
     return out;
   }
