@@ -24,7 +24,16 @@ export interface ImplementerDeps {
   runner: Pick<SessionRunner, "start" | "resume" | "close" | "sessionDir">;
   worktrees: Pick<
     Worktrees,
-    "create" | "push" | "commitsAhead" | "currentBranch" | "defaultBranch" | "remove" | "hasRoom" | "fetchBase"
+    | "create"
+    | "push"
+    | "commitsAhead"
+    | "currentBranch"
+    | "defaultBranch"
+    | "remove"
+    | "hasRoom"
+    | "fetchBase"
+    | "fetchBranch"
+    | "hasCommit"
   >;
 }
 
@@ -89,6 +98,28 @@ export class Implementer {
       return;
     }
     const branch = this.d.worktrees.currentBranch(wt);
+    if (first.prNumber !== null) {
+      // REQ-001-31: the branch gained commits on GitHub (e.g. the Owner pushed): a push would be refused.
+      const remote = await this.d.worktrees.fetchBranch(s.repo, wt, branch);
+      if (remote && !this.d.worktrees.hasCommit(wt, remote)) {
+        if (remote === first.divergedSha) {
+          await this.failAll(
+            s.repo,
+            s.issues,
+            `${note}\n\nThe branch \`${branch}\` was changed on GitHub outside the Worktree (head ${remote}), and the Implementer did not merge it when asked, so its commits can't be pushed. Merge or reset the branch by hand.`,
+            sessionId,
+          );
+          return;
+        }
+        await this.feedbackRound(
+          s.repo,
+          first.prNumber,
+          s.issues,
+          "Your last commits were not pushed: GitHub refused them because the branch was changed outside your Worktree.",
+        );
+        return;
+      }
+    }
     await this.d.worktrees.push(s.repo, wt, branch);
     const body = [note, result.prBody, s.issues.map((n) => `Closes #${n}`).join("\n")].join("\n\n");
     if (first.prNumber === null) {
@@ -127,13 +158,14 @@ export class Implementer {
   }
 
   async feedbackRound(repo: string, pr: number, issues: number[], text: string): Promise<number> {
+    const merge = await this.branchChanges(repo, issues);
     for (const n of issues) {
       for (const l of ["agent:pr-open", "agent:reviewed"]) await this.d.gh.removeLabel(repo, n, l);
       await this.d.gh.addLabels(repo, n, ["agent:in-progress"]);
       this.d.store.updateIssue(repo, n, { inFeedbackRound: 1 });
     }
     await this.d.gh.removeLabel(repo, pr, "agent:reviewed");
-    const prompt = `## Feedback round on PR #${pr}\n\n${text}\n\nAddress this with new commits on the same branch, then update your Result (prTitle and prBody describe the whole PR).`;
+    const prompt = `## Feedback round on PR #${pr}\n\n${[text, merge].filter(Boolean).join("\n\n")}\n\nAddress this with new commits on the same branch, then update your Result (prTitle and prBody describe the whole PR).`;
     const model = roleSettings(this.d.config, repo, "implementer");
     const own = this.d.store.latestSession(repo, issues[0] ?? 0, "implementer");
     let id: number;
@@ -158,6 +190,29 @@ export class Implementer {
   }
 
   /**
+   * REQ-001-31: fetches the PR branch and, if GitHub has commits the Worktree lacks, records its
+   * head and returns the instruction to merge it. A failed fetch is not fatal: the next sync checks again.
+   */
+  private async branchChanges(repo: string, issues: number[]): Promise<string | undefined> {
+    const wt = this.d.store.issue(repo, issues[0] ?? 0).worktreePath;
+    if (!wt) return undefined;
+    try {
+      const branch = this.d.worktrees.currentBranch(wt);
+      const remote = await this.d.worktrees.fetchBranch(repo, wt, branch);
+      if (!remote || this.d.worktrees.hasCommit(wt, remote)) return undefined;
+      for (const n of issues) this.d.store.updateIssue(repo, n, { divergedSha: remote });
+      return (
+        `The branch \`${branch}\` on GitHub has commits your Worktree lacks (someone pushed to it, e.g. the Owner). ` +
+        `The Coordinator has fetched them into \`origin/${branch}\`. First run \`git merge origin/${branch}\` ` +
+        "(merge, do not rebase: the push must stay a fast-forward), resolve any conflicts keeping the intent of both sides, " +
+        "and say in your summary what the merged commits changed."
+      );
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
    * REQ-001-14: remove the Worktree, close the sessions and clear the agent labels. Returns false
    * (and changes nothing) while a session is busy, e.g. the Owner is chatting with it (REQ-001-19).
    */
@@ -173,7 +228,20 @@ export class Implementer {
     this.d.worktrees.remove(worktreePath);
     for (const n of issues) {
       for (const l of CLEARED_ON_CLEANUP) await this.d.gh.removeLabel(repo, n, l);
-      this.d.store.updateIssue(repo, n, { worktreePath: null });
+      // The PR and its rounds belong to this run; a later run of the issue opens a new PR.
+      this.d.store.updateIssue(repo, n, {
+        worktreePath: null,
+        prNumber: null,
+        feedbackRounds: 0,
+        inFeedbackRound: 0,
+        pendingFeedback: null,
+        reviewedHeadSha: null,
+        failedChecksSha: null,
+        conflictSha: null,
+        divergedSha: null,
+        headSha: null,
+        headSeenAt: null,
+      });
     }
     return true;
   }

@@ -113,6 +113,12 @@ class FakeWorktrees {
     return { path: `/wt/${issues[0]}`, branch: `agent/${issues[0]}-x` };
   }
   async push() {}
+  async fetchBranch() {
+    return null;
+  }
+  hasCommit() {
+    return true;
+  }
   commitsAhead() {
     return 1;
   }

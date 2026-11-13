@@ -167,6 +167,22 @@ describe("store", () => {
     }
   });
 
+  test("REQ-001-31 a store created before the diverged-branch column existed is migrated", () => {
+    const dir = mkdtempSync(join(tmpdir(), "store-"));
+    try {
+      const path = join(dir, "state.db");
+      const old = new Database(path, { create: true });
+      old.exec("CREATE TABLE issues (repo TEXT NOT NULL, number INTEGER NOT NULL, PRIMARY KEY (repo, number))");
+      old.close();
+      const s = new Store(path);
+      s.updateIssue("octo/app", 5, { divergedSha: "o1" });
+      expect(s.issue("octo/app", 5).divergedSha).toBe("o1");
+      s.close();
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
   test("keeps per-issue bookkeeping, merging partial updates", () => {
     const s = new Store(":memory:");
     expect(s.issue("octo/app", 5)).toEqual({
@@ -189,6 +205,7 @@ describe("store", () => {
       headSha: null,
       headSeenAt: null,
       inFeedbackRound: 0,
+      divergedSha: null,
     });
     s.updateIssue("octo/app", 5, { assessmentCommentId: 77, lastHandledCommentId: 12 });
     s.updateIssue("octo/app", 5, { feedbackRounds: 1 });

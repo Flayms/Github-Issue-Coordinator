@@ -26,6 +26,8 @@ Agents never get GitHub credentials; the Coordinator does every GitHub write as 
 
 `agent:planning`, `agent:proposed`, `agent:needs-refinement`, `agent:wontfix-proposed`, `agent:approved`, `agent:blocked`, `agent:in-progress`, `agent:pr-open`, `agent:reviewing`, `agent:reviewed`, `agent:failed`. The Coordinator creates them in each repository.
 
+`agent:failed` means the Coordinator gave up; its comment on the issue says why, and it does not retry by itself. To start over, close the PR: the Coordinator removes the Worktree and the agent labels, so the issue is planned again and can be re-approved (delete the old branch on GitHub too). Prefer `/agent <text>` over pushing to an agent branch yourself; if you do push, the Implementer is asked to merge your commits before its next push.
+
 ## Setup
 
 See [docs/setup.md](docs/setup.md): a Linux user with Claude Code logged in, a GitHub App, a ruleset per repository, `config.ts`, and the systemd service. In short:
