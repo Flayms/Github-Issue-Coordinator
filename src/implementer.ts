@@ -7,7 +7,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Config, roleSettings } from "./config.ts";
 import type { GitHubClient, Item } from "./github/client.ts";
-import { agentNote } from "./note.ts";
+import { sessionNote } from "./note.ts";
 import { loadPrompt, renderPrompt } from "./prompts.ts";
 import { type ImplementerResult, validateResult } from "./results.ts";
 import type { SessionRunner } from "./runner.ts";
@@ -61,8 +61,7 @@ export class Implementer {
     if (s?.role !== "implementer") return;
     const path = join(this.d.runner.sessionDir(sessionId), "result.json");
     const check = validateResult("implementer", existsSync(path) ? readFileSync(path, "utf8") : undefined, s.issues);
-    const model = roleSettings(this.d.config, s.repo, "implementer").model;
-    const note = agentNote(model, this.d.config.owner.login);
+    const note = sessionNote(this.d.config, s);
     const first = this.d.store.issue(s.repo, s.issues[0] ?? 0);
     this.d.store.patchSession(sessionId, { needsSync: false });
 

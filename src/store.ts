@@ -30,6 +30,8 @@ export interface SessionRecord {
   needsSync: boolean;
   /** The turn ended on the subscription usage limit (REQ-001-17). */
   usageLimited: boolean;
+  /** The model the session runs, e.g. `claude-opus-5-5`, reported by the hooks (REQ-001-29). */
+  modelId: string | null;
 }
 
 /** A Worktree on record: its issues (a Bundle shares one), PR and last reviewed head. */
@@ -97,7 +99,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   coordinator_prompt_pending INTEGER NOT NULL DEFAULT 0,
   result_failures INTEGER NOT NULL DEFAULT 0,
   needs_sync INTEGER NOT NULL DEFAULT 0,
-  usage_limited INTEGER NOT NULL DEFAULT 0
+  usage_limited INTEGER NOT NULL DEFAULT 0,
+  model_id TEXT
 );
 CREATE TABLE IF NOT EXISTS issues (
   repo TEXT NOT NULL,
@@ -142,6 +145,7 @@ interface SessionRow {
   result_failures: number;
   needs_sync: number;
   usage_limited: number;
+  model_id: string | null;
 }
 
 const toSession = (r: SessionRow): SessionRecord => ({
@@ -159,6 +163,7 @@ const toSession = (r: SessionRow): SessionRecord => ({
   resultFailures: r.result_failures,
   needsSync: r.needs_sync === 1,
   usageLimited: r.usage_limited === 1,
+  modelId: r.model_id ?? null,
 });
 
 const ISSUE_COLUMNS = {
@@ -197,15 +202,20 @@ export class Store {
 
   /** Adds columns introduced after a store was created; CREATE TABLE IF NOT EXISTS leaves old tables as they are. */
   private migrate(): void {
-    const added: Record<string, string> = { conflict_sha: "TEXT", head_sha: "TEXT", head_seen_at: "TEXT" };
-    const have = new Set(
-      this.db
-        .query<{ name: string }, []>("PRAGMA table_info(issues)")
-        .all()
-        .map((c) => c.name),
-    );
-    for (const [col, type] of Object.entries(added))
-      if (!have.has(col)) this.db.exec(`ALTER TABLE issues ADD COLUMN ${col} ${type}`);
+    const added: Record<string, Record<string, string>> = {
+      issues: { conflict_sha: "TEXT", head_sha: "TEXT", head_seen_at: "TEXT" },
+      sessions: { model_id: "TEXT" },
+    };
+    for (const [table, cols] of Object.entries(added)) {
+      const have = new Set(
+        this.db
+          .query<{ name: string }, []>(`PRAGMA table_info(${table})`)
+          .all()
+          .map((c) => c.name),
+      );
+      for (const [col, type] of Object.entries(cols))
+        if (!have.has(col)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
+    }
   }
 
   clock(): Date {
@@ -261,6 +271,10 @@ export class Store {
 
   setClaudeSessionId(id: number, claudeSessionId: string): void {
     this.db.query("UPDATE sessions SET claude_session_id = ? WHERE id = ?").run(claudeSessionId, id);
+  }
+
+  setModelId(id: number, modelId: string): void {
+    this.db.query("UPDATE sessions SET model_id = ? WHERE id = ?").run(modelId, id);
   }
 
   setState(id: number, state: SessionState): void {

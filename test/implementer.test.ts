@@ -190,8 +190,9 @@ describe("Implementer run", () => {
     expect(prompt).toContain("agent/5-x");
   });
 
-  test("REQ-001-09 when the turn ends, pushes the branch and opens a PR with the agent note that closes every issue", async () => {
+  test("REQ-001-09 / REQ-001-29 when the turn ends, pushes the branch and opens a PR with the agent note that closes every issue", async () => {
     const id = await impl.start("octo/app", [item(5), item(6)]);
+    store.setModelId(id, "claude-sonnet-5-5");
     gh.calls = [];
     wt.ahead = 2;
     finish(id);
@@ -201,7 +202,7 @@ describe("Implementer run", () => {
     expect(pr.title).toBe("Dark mode");
     expect(pr.head).toBe("agent/5-x");
     expect(pr.base).toBe("main");
-    expect(pr.body).toStartWith("> [!Note]\n> 🤖 Claude (sonnet) writing on behalf of octo");
+    expect(pr.body).toStartWith("> [!Note]\n> 🤖 Claude Sonnet 5.5 (Implementer) writing on behalf of octo\n");
     expect(pr.body).toContain("Adds a toggle.");
     expect(pr.body).toContain("Closes #5\nCloses #6");
     expect(gh.of("addLabels")).toEqual([

@@ -7,7 +7,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Config, roleSettings } from "./config.ts";
 import type { GitHubClient, Item } from "./github/client.ts";
-import { agentNote } from "./note.ts";
+import { sessionNote } from "./note.ts";
 import { loadPrompt, renderPrompt } from "./prompts.ts";
 import { type PlannerResult, validateResult } from "./results.ts";
 import type { SessionRunner } from "./runner.ts";
@@ -28,8 +28,8 @@ const BODY_LIMIT = 4_000;
 
 export const bodyHash = (body: string): string => createHash("sha256").update(body).digest("hex");
 
-export function renderAssessment(a: Assessment, by: { owner: string; model: string }): string {
-  const parts = [agentNote(by.model, by.owner), `## Assessment: ${VERDICT_TITLES[a.verdict]}`, a.approach];
+export function renderAssessment(a: Assessment, note: string): string {
+  const parts = [note, `## Assessment: ${VERDICT_TITLES[a.verdict]}`, a.approach];
   if (a.questions.length) parts.push(`**Questions**\n\n${a.questions.map((q) => `- ${q}`).join("\n")}`);
   const notes = [
     ...a.bundleWith.map((n) => `- Do together with #${n}`),
@@ -133,7 +133,7 @@ export class Planner {
     if (s?.role !== "planner") return;
     const path = join(this.d.runner.sessionDir(sessionId), "result.json");
     const check = validateResult("planner", existsSync(path) ? readFileSync(path, "utf8") : undefined, s.issues);
-    const model = roleSettings(this.d.config, s.repo, "planner").model;
+    const note = sessionNote(this.d.config, s);
 
     if (!check.ok) {
       if (s.resultFailures >= 3) {
@@ -143,7 +143,7 @@ export class Planner {
           await this.d.gh.createComment(
             s.repo,
             n,
-            `${agentNote(model, this.d.config.owner.login)}\n\nThe Planner could not produce a valid Assessment: ${check.problem}`,
+            `${note}\n\nThe Planner could not produce a valid Assessment: ${check.problem}`,
           );
         }
         this.d.runner.close(sessionId);
@@ -156,7 +156,7 @@ export class Planner {
       const rec = this.d.store.issue(s.repo, a.issue);
       const json = JSON.stringify(a);
       if (rec.assessment === json && rec.assessmentCommentId !== null) continue; // nothing changed
-      const body = renderAssessment(a, { owner: this.d.config.owner.login, model });
+      const body = renderAssessment(a, note);
       let commentId = rec.assessmentCommentId;
       if (commentId === null) commentId = await this.d.gh.createComment(s.repo, a.issue, body);
       else await this.d.gh.updateComment(s.repo, commentId, body);

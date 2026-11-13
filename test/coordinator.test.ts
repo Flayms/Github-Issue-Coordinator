@@ -417,6 +417,16 @@ describe("reconcile loop", () => {
     expect(gh.calls).toEqual([]);
   });
 
+  test("REQ-001-29 the Coordinator gives up in its own name and names the failed session's Role", async () => {
+    implementerDone();
+    gh.createPullFailures = 10;
+    for (let i = 0; i < 3; i++) await coordinator.tick();
+    const comment = gh.calls.find((c) => c[0] === "createComment" && c[1] === 5)?.[2] as string;
+    expect(comment).toStartWith("> [!Note]\n> 🤖 Coordinator writing on behalf of ");
+    expect(comment).toContain("Implementer session");
+    expect(comment).not.toContain("Claude (");
+  });
+
   test("REQ-001-10 / REQ-001-23 an agent PR is reviewed once its checks pass, then the Reviewer closes", async () => {
     gh.items = [item(5, ["agent:pr-open"]), item(70, [], { isPullRequest: true, author: { login: "bot", id: 1 } })];
     store.updateIssue("octo/app", 5, { worktreePath: "/wt/5", prNumber: 70 });

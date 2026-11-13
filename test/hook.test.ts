@@ -36,6 +36,26 @@ describe("hook", () => {
     expect(store.session(id)?.claudeSessionId).toBe("abc");
   });
 
+  test("REQ-001-29 SessionStart records the model the session runs", () => {
+    hook("SessionStart", { model: "claude-opus-5-5" });
+    expect(store.session(id)?.modelId).toBe("claude-opus-5-5");
+  });
+
+  test("REQ-001-29 without a model in SessionStart, Stop takes it from the transcript", () => {
+    hook("SessionStart");
+    const transcript = join(dir, "t.jsonl");
+    writeFileSync(
+      transcript,
+      [
+        JSON.stringify({ type: "user", message: { content: "hi" } }),
+        JSON.stringify({ type: "assistant", message: { model: "claude-sonnet-5-5", content: [] } }),
+      ].join("\n"),
+    );
+    writeResult(validResult);
+    hook("Stop", { transcript_path: transcript });
+    expect(store.session(id)?.modelId).toBe("claude-sonnet-5-5");
+  });
+
   test("REQ-001-19 the Coordinator's own prompt is not counted as the Owner's", () => {
     hook("UserPromptSubmit");
     expect(store.session(id)).toMatchObject({

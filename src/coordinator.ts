@@ -7,7 +7,7 @@ import { type Config, type Role, roleSettings } from "./config.ts";
 import type { Clones } from "./git.ts";
 import type { Actor, Comment, GitHubClient, Item } from "./github/client.ts";
 import { Implementer, type ImplementerDeps } from "./implementer.ts";
-import { agentNote } from "./note.ts";
+import { agentNote, ROLE_NAMES } from "./note.ts";
 import { bodyHash, Planner } from "./planner.ts";
 import { Reviewer, type ReviewerDeps } from "./reviewer.ts";
 import type { SessionRunner } from "./runner.ts";
@@ -513,18 +513,15 @@ export class Coordinator {
 
   /** Labels the issues agent:failed with the reason and closes the session (REQ-001-16, REQ-001-21). */
   private async fail(repo: string, issues: number[], reason: string, session?: SessionRecord, pr?: number) {
-    const model = session ? roleSettings(this.d.config, repo, session.role).model : "coordinator";
+    const note = agentNote({ owner: this.d.config.owner.login });
+    const by = session ? ` (${ROLE_NAMES[session.role]} session)` : "";
     for (const n of issues) {
       for (const l of IN_FLIGHT_LABELS) await this.d.gh.removeLabel(repo, n, l);
       if (pr !== undefined)
         for (const l of ["agent:pr-open", "agent:reviewed"]) await this.d.gh.removeLabel(repo, n, l);
       await this.d.gh.addLabels(repo, n, ["agent:failed"]);
       this.d.store.updateIssue(repo, n, { pendingFeedback: null });
-      await this.d.gh.createComment(
-        repo,
-        n,
-        `${agentNote(model, this.d.config.owner.login)}\n\nThe Coordinator gave up on this issue: ${reason}.`,
-      );
+      await this.d.gh.createComment(repo, n, `${note}\n\nThe Coordinator gave up on this issue${by}: ${reason}.`);
     }
     if (session) {
       try {

@@ -3,7 +3,7 @@
  * Claude Code hook for Coordinator sessions, configured per session through `--settings`.
  * Usage: bun src/hook.ts <event> <dbPath> <sessionId> <sessionDir>   (payload JSON on stdin)
  *
- * - SessionStart: records Claude's session id (needed to resume).
+ * - SessionStart: records Claude's session id (needed to resume) and the model it runs (REQ-001-29).
  * - UserPromptSubmit: marks the session running; a prompt after the Coordinator's own is the Owner's (REQ-001-19).
  * - Stop: validates the Result and blocks the stop while it is invalid, up to 3 times (REQ-001-21);
  *   otherwise marks the session idle and queues a sync (REQ-001-19). A turn cut off by the usage
@@ -36,6 +36,7 @@ export function handleHook({ event, payload, store, sessionId, sessionDir }: Hoo
   switch (event) {
     case "SessionStart":
       if (typeof payload.session_id === "string") store.setClaudeSessionId(sessionId, payload.session_id);
+      if (typeof payload.model === "string" && payload.model) store.setModelId(sessionId, payload.model);
       return {};
 
     case "UserPromptSubmit":
@@ -45,6 +46,10 @@ export function handleHook({ event, payload, store, sessionId, sessionDir }: Hoo
       return {};
 
     case "Stop": {
+      if (!session.modelId) {
+        const model = transcriptModel(payload.transcript_path);
+        if (model) store.setModelId(sessionId, model);
+      }
       if (usageLimitText(payload.transcript_path)) {
         store.patchSession(sessionId, { state: "idle", usageLimited: true });
         return {};
@@ -73,6 +78,24 @@ export function handleHook({ event, payload, store, sessionId, sessionDir }: Hoo
 
 /** The store's clock, so tests can control time. */
 const nowOf = (store: Store): number => store.clock().getTime();
+
+/** The model of the transcript's first assistant entry; a fallback if SessionStart named none (REQ-001-29). */
+export function transcriptModel(transcriptPath: unknown): string | undefined {
+  if (typeof transcriptPath !== "string" || !existsSync(transcriptPath)) return undefined;
+  for (const line of readFileSync(transcriptPath, "utf8").split("\n")) {
+    let entry: { type?: string; isApiErrorMessage?: boolean; message?: { model?: unknown } };
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (entry.type !== "assistant" || entry.isApiErrorMessage) continue;
+    const model = entry.message?.model;
+    // Synthetic replies use the model "<synthetic>".
+    if (typeof model === "string" && model.startsWith("claude")) return model;
+  }
+  return undefined;
+}
 
 /**
  * The text of the transcript's last entry if it is an API error about a limit. Unverified shape:
