@@ -210,6 +210,14 @@ export class Store {
       .map(toSession);
   }
 
+  /** Sessions, open or closed, whose last turn still has to be synced to GitHub (REQ-001-19, REQ-001-27). */
+  sessionsToSync(repo: string): SessionRecord[] {
+    return this.db
+      .query<SessionRow, [string]>("SELECT * FROM sessions WHERE repo = ? AND needs_sync = 1 ORDER BY id")
+      .all(repo)
+      .map(toSession);
+  }
+
   /** The most recent session of a Role that covered the issue, open or closed. */
   latestSession(repo: string, issue: number, role: Role): SessionRecord | undefined {
     const row = this.db

@@ -66,7 +66,13 @@ class FakeGitHub {
   async updateComment(_r: string, id: number, body: string) {
     this.calls.push(["updateComment", id, body]);
   }
+  /** How many createPull calls fail before one succeeds (REQ-001-27). */
+  createPullFailures = 0;
   async createPull(_r: string, pr: { title: string; body: string; head: string; base: string }) {
+    if (this.createPullFailures > 0) {
+      this.createPullFailures--;
+      throw new Error("GitHub POST /repos/octo/app/pulls failed with 403: Resource not accessible by integration");
+    }
     this.calls.push(["createPull", pr.title]);
     return 70;
   }
@@ -345,6 +351,62 @@ describe("reconcile loop", () => {
     expect(worktrees.removed).toEqual(["/wt/5"]);
     expect(store.session(id)?.state).toBe("closed");
     expect(store.issue("octo/app", 5).worktreePath).toBeNull();
+  });
+
+  /** An Implementer that finished its first turn with commits, awaiting the sync that opens its PR. */
+  const implementerDone = () => {
+    // PR #70 is what createPull returns; listing it keeps it open once created.
+    gh.items = [item(5, ["agent:in-progress"]), item(70, [], { isPullRequest: true, author: { login: "bot", id: 1 } })];
+    gh.checkState = "pending"; // keep the Reviewer out
+    store.updateIssue("octo/app", 5, { worktreePath: "/wt/5" });
+    const id = store.createSession({ repo: "octo/app", role: "implementer", kind: "issue", issues: [5] });
+    store.setClaudeSessionId(id, "claude-impl");
+    mkdirSync(runner.sessionDir(id), { recursive: true });
+    writeFileSync(
+      join(runner.sessionDir(id), "result.json"),
+      JSON.stringify({ prTitle: "T", prBody: "B", summary: "S" }),
+    );
+    store.patchSession(id, { state: "idle", needsSync: true });
+    runner.live.add(id);
+    return id;
+  };
+
+  test("REQ-001-27 a failed sync is retried on the next tick", async () => {
+    const id = implementerDone();
+    gh.createPullFailures = 1;
+    await coordinator.tick();
+    expect(gh.calls).not.toContainEqual(["createPull", "T"]);
+    expect(store.session(id)?.needsSync).toBe(true);
+
+    await coordinator.tick();
+    expect(gh.calls).toContainEqual(["createPull", "T"]);
+    expect(gh.items[0]?.labels).toEqual(["agent:pr-open"]);
+    expect(store.session(id)?.needsSync).toBe(false);
+  });
+
+  test("REQ-001-27 a failed sync is retried after its session was closed, without failing the issue", async () => {
+    const id = implementerDone();
+    gh.createPullFailures = 1;
+    await coordinator.tick();
+    runner.close(id); // e.g. closed as idle (REQ-001-20)
+    await coordinator.tick();
+    expect(gh.calls).toContainEqual(["createPull", "T"]);
+    expect(gh.items[0]?.labels).toEqual(["agent:pr-open"]);
+    expect(gh.calls).not.toContainEqual(["addLabels", 5, ["agent:failed"]]);
+  });
+
+  test("REQ-001-27 after 3 failed syncs in a row the issue is labelled agent:failed with the error", async () => {
+    implementerDone();
+    gh.createPullFailures = 10;
+    await coordinator.tick();
+    await coordinator.tick();
+    expect(gh.calls).not.toContainEqual(["addLabels", 5, ["agent:failed"]]);
+    await coordinator.tick();
+    expect(gh.items[0]?.labels).toEqual(["agent:failed"]);
+    expect(gh.calls).toContainEqual(["createComment", 5, expect.stringContaining("403: Resource not accessible")]);
+    gh.calls = [];
+    await coordinator.tick();
+    expect(gh.calls).toEqual([]);
   });
 
   test("REQ-001-10 / REQ-001-23 an agent PR is reviewed once its checks pass, then the Reviewer closes", async () => {

@@ -144,6 +144,13 @@ The Owner (the single human user) wants GitHub issues across their public and pr
 - **Then** the Coordinator does not inject any prompt into it or close it
 - **And** after any turn ends (Coordinator- or Owner-initiated), the Coordinator syncs the Result to GitHub: the Planner's turns edit the Assessment, and the Implementer's turns push new commits and update the PR body
 
+### REQ-001-27 A failed sync is retried, then reported
+
+- **Given** a turn that ended, whose Result could not be synced to GitHub (e.g. creating the PR was refused)
+- **When** the Coordinator reconciles again
+- **Then** it retries the sync, with the session open or closed
+- **And** after 3 failed attempts in a row it labels the issues `agent:failed` with a comment naming the last error, instead of leaving them in flight
+
 ### REQ-001-20 Idle sessions are closed
 
 - **Given** a session that has been idle longer than `idleTimeoutMin`, or more live sessions (running and idle together) than `maxLiveSessions`
@@ -243,3 +250,4 @@ Partial rows: the REQ is only covered for the parts built so far (noted in brack
 | REQ-001-24 | `session runner > REQ-001-24 a wake keeps the existing Result file`; `deriveActions > REQ-001-24 …`; `reconcile loop > REQ-001-24 /wake on a PR resumes its closed Implementer session …`                                                                                                                                                                                                                                                                                                           | pass                                                                                            |
 | REQ-001-25 | `permissions > REQ-001-25 …` (2 tests, incl. WebSearch/WebFetch for Planner and Reviewer); `config > REQ-001-25 sandbox network domains default to the common package registries …`; `session runner > REQ-001-25 …` (2 tests: modes, sandbox and network per Role, kept on resume); manual: smoke runs 2026-11-11 (reviewer write denied; implementer Bash/commit, sandbox was silently off then), 2026-11-12 (`claude -p --permission-mode dontAsk --allowedTools WebSearch …`: search succeeded) | partial (sandboxed Bash blocked by Ubuntu AppArmor until docs/setup.md step 1 is applied): pass |
 | REQ-001-26 | `session runner > REQ-001-26 every Role is denied reading the Coordinator's secrets, with file tools and in shell commands`                                                                                                                                                                                                                                                                                                                                                                         | partial (not yet observed in a live sandboxed session): pass                                    |
+| REQ-001-27 | `reconcile loop > REQ-001-27 a failed sync is retried on the next tick`, `… retried after its session was closed, without failing the issue`, `… after 3 failed syncs in a row the issue is labelled agent:failed with the error`                                                                                                                                                                                                                                                                   | pass                                                                                            |
