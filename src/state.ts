@@ -44,6 +44,8 @@ export interface Snapshot {
   items: Item[];
   /** Open (running or idle) sessions of this repository, from the store. */
   sessions: SessionRecord[];
+  /** Closed sessions whose last turn still has to be synced; their issues are not orphaned (REQ-001-27). */
+  pendingSync?: SessionRecord[];
   /** Store ids of the sessions whose tmux window is alive. */
   liveSessionIds: ReadonlySet<number>;
   /** Per issue: comments newer than the last handled one, and whether the body changed since the Planner saw it. */
@@ -120,9 +122,11 @@ export function deriveActions(s: Snapshot): Action[] {
   }
 
   // REQ-001-07 / REQ-001-16: an in-flight label needs its session; never start a second one.
+  // REQ-001-27: a closed session whose sync is still being retried counts as its session.
+  const owners = [...s.sessions, ...(s.pendingSync ?? [])];
   for (const i of issues) {
     const role = IN_FLIGHT[issueState(i.labels)];
-    if (role && !s.sessions.some((x) => x.role === role && x.issues.includes(i.number)))
+    if (role && !owners.some((x) => x.role === role && x.issues.includes(i.number)))
       actions.push({ type: "fail", repo: s.repo, issues: [i.number], reason: `no ${role} session to resume` });
   }
 
