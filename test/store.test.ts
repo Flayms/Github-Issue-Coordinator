@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -104,6 +105,9 @@ describe("store", () => {
         feedbackRounds: 0,
         pendingFeedback: null,
         failedChecksSha: null,
+        conflictSha: null,
+        headSha: null,
+        headSeenAt: null,
       },
       {
         worktreePath: "/wt/7",
@@ -113,8 +117,29 @@ describe("store", () => {
         feedbackRounds: 0,
         pendingFeedback: null,
         failedChecksSha: null,
+        conflictSha: null,
+        headSha: null,
+        headSeenAt: null,
       },
     ]);
+  });
+
+  test("REQ-001-28 a store created before the merge-conflict columns existed is migrated", () => {
+    const dir = mkdtempSync(join(tmpdir(), "store-"));
+    try {
+      const path = join(dir, "state.db");
+      const old = new Database(path, { create: true });
+      old.exec(`CREATE TABLE issues (repo TEXT NOT NULL, number INTEGER NOT NULL, worktree_path TEXT,
+        failed_checks_sha TEXT, PRIMARY KEY (repo, number))`);
+      old.exec("INSERT INTO issues (repo, number, worktree_path) VALUES ('octo/app', 5, '/wt/5')");
+      old.close();
+      const s = new Store(path);
+      s.updateIssue("octo/app", 5, { conflictSha: "h1", headSha: "h1", headSeenAt: "2026-11-13T10:00:00.000Z" });
+      expect(s.issue("octo/app", 5)).toMatchObject({ worktreePath: "/wt/5", conflictSha: "h1", headSha: "h1" });
+      s.close();
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
   });
 
   test("keeps per-issue bookkeeping, merging partial updates", () => {
@@ -135,6 +160,9 @@ describe("store", () => {
       pendingFeedback: null,
       lastHandledReviewId: 0,
       failedChecksSha: null,
+      conflictSha: null,
+      headSha: null,
+      headSeenAt: null,
       inFeedbackRound: 0,
     });
     s.updateIssue("octo/app", 5, { assessmentCommentId: 77, lastHandledCommentId: 12 });

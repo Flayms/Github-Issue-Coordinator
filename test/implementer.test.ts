@@ -52,6 +52,7 @@ class FakeGitHub {
 }
 
 class FakeWorktrees {
+  async fetchBase() {}
   created: [string, number[], string][] = [];
   pushed: string[] = [];
   removed: string[] = [];

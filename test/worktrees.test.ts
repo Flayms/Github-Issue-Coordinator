@@ -69,6 +69,16 @@ describe("worktrees", () => {
     expect(readFileSync(join(b.path, "work.txt"), "utf8")).toBe("in progress");
   });
 
+  test("REQ-001-28 fetches the default branch into a Worktree for a merge-conflict round", async () => {
+    const w = make();
+    const wt = await w.create("octo/app", [5], "x");
+    writeFileSync(join(origin, "README.md"), "v2");
+    git(origin, "commit", "-qam", "v2");
+    await w.fetchBase("octo/app", wt.path);
+    expect(git(wt.path, "rev-parse", "origin/main")).toBe(git(origin, "rev-parse", "main"));
+    expect(readFileSync(join(wt.path, ".git", "config"), "utf8")).not.toContain("tok-123");
+  });
+
   test("a failing setup command is an error", async () => {
     expect(make("exit 3").create("octo/app", [5], "x")).rejects.toThrow("setup");
   });

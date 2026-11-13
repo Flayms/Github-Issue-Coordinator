@@ -102,6 +102,15 @@ export class Worktrees {
     git(path, [...gitAuthArgs(await this.o.token(repo)), "push", "-q", "origin", `${branch}:refs/heads/${branch}`]);
   }
 
+  /**
+   * Fetches the default branch into a Worktree, so the Implementer can merge it to resolve merge
+   * conflicts; its sandbox has no credentials to fetch itself (REQ-001-28, REQ-001-15).
+   */
+  async fetchBase(repo: string, path: string): Promise<void> {
+    const base = this.defaultBranch(path);
+    git(path, [...gitAuthArgs(await this.o.token(repo)), "fetch", "-q", "origin", base]);
+  }
+
   currentBranch(path: string): string {
     return git(path, ["rev-parse", "--abbrev-ref", "HEAD"]);
   }
