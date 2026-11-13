@@ -65,13 +65,13 @@ export default {
 
 ## Tasks
 
-- [x] T0 Spike on the server (`spikes/t0/`, 2026-11-10, Claude Code 2.1.322). Results are in the spec's Assumptions and `known-pitfalls.md`. (REQ-001-17–22)
+- [x] T0 Spike on the server (2026-11-10, Claude Code 2.1.322; spike code removed in #8). Results are in the spec's Assumptions and `known-pitfalls.md`. (REQ-001-17–22)
   - (a) pass: a detached tmux session shows up on the phone, once the folder trust dialog is answered.
   - (b) pass: resuming keeps the session id, the memory of earlier turns and the same phone conversation.
   - (c) pass: hooks fire, including for messages sent from the phone, and a `Stop` hook can block with a reason.
   - (d) pass: `--model sonnet` ran `claude-sonnet-5-5`, and `--effort` exists. A value for `--effort` wasn't tested.
   - (e) open: the usage-limit signal can't be triggered on demand. The runner must log unknown `Stop`/`Notification` payloads so the shape can be captured when it happens.
-- [x] T1 Project tooling: `package.json`, Biome (code and Markdown; `spikes/` excluded), `tsc --noEmit` (TypeScript 7), `bun test`; AGENTS.md commands updated.
+- [x] T1 Project tooling: `package.json`, Biome (code and Markdown), `tsc --noEmit` (TypeScript 7), `bun test`; AGENTS.md commands updated.
 - [x] T2 Config loading and validation (`src/config.ts`, zod; `config.example.ts`; `roleSettings` resolves model/effort with repo overrides, prompts follow in T7). (REQ-001-01, REQ-001-08, REQ-001-22)
 - [x] T3 GitHub App auth and client with ETag polling, timeline actor lookup, label helpers and PR review posting (`src/github/`; installation looked up per repo owner, so the config only holds the App id and key path; `git push` with the token follows in T10/T11). (REQ-001-01, REQ-001-04, REQ-001-10, REQ-001-15)
 - [x] T4 Store (`src/store.ts`: sessions, per-issue bookkeeping) and the state derivation as a pure function (`src/state.ts`: issue state from labels, Planner trigger, no double pickup, restart recovery; later tasks add their triggers there). (REQ-001-07, REQ-001-16)

@@ -16,5 +16,5 @@
     "types": ["bun"]
   },
   "include": ["src", "test", "scripts", "config.example.ts"],
-  "exclude": ["node_modules", "spikes"]
+  "exclude": ["node_modules"]
 }

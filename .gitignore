@@ -1,7 +1,4 @@
 node_modules/
-# Spike reports contain account details (e.g. the email from `claude auth status`)
-spikes/*/reports/
-
 # Local Coordinator config (copy from config.example.ts)
 /config.ts
 /state/
