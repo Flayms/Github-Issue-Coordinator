@@ -49,6 +49,9 @@ export interface Review {
 
 export interface Pull {
   number: number;
+  /** GraphQL node id, needed to change the draft status (REQ-001-31). */
+  nodeId: string;
+  draft: boolean;
   headSha: string;
   headRef: string;
   baseRef: string;
@@ -147,8 +150,26 @@ export class GitHubClient {
     await this.request(repo, "PATCH", `/repos/${repo}/issues/comments/${commentId}`, { body });
   }
 
+  /** Opens a PR as a draft; it leaves draft once reviewed (REQ-001-31). */
   async createPull(repo: string, pr: { title: string; body: string; head: string; base: string }): Promise<number> {
-    return (await this.request<{ number: number }>(repo, "POST", `/repos/${repo}/pulls`, pr)).number;
+    return (await this.request<{ number: number }>(repo, "POST", `/repos/${repo}/pulls`, { ...pr, draft: true }))
+      .number;
+  }
+
+  /**
+   * Converts a PR to draft or marks it ready for review (REQ-001-31). REST can't change the draft
+   * status, so this goes through GraphQL. Does nothing when the PR already has that status.
+   */
+  async setDraft(repo: string, pr: number, draft: boolean): Promise<void> {
+    const pull = await this.getPull(repo, pr);
+    if (pull.draft === draft) return;
+    const mutation = draft ? "convertPullRequestToDraft" : "markPullRequestReadyForReview";
+    const res = await this.request<{ errors?: { message: string }[] }>(repo, "POST", "/graphql", {
+      query: `mutation($id: ID!) { ${mutation}(input: { pullRequestId: $id }) { clientMutationId } }`,
+      variables: { id: pull.nodeId },
+    });
+    if (res.errors?.length)
+      throw new GitHubError(200, "POST", "/graphql", `${mutation}: ${res.errors.map((e) => e.message).join("; ")}`);
   }
 
   async updatePull(repo: string, pr: number, patch: { title?: string; body?: string }): Promise<void> {
@@ -175,11 +196,13 @@ export class GitHubClient {
     return raw.map((r) => ({ id: r.id, state: r.state, body: r.body ?? "", author: actor(r.user) }));
   }
 
-  /** A PR's head commit, branches and mergeability (REQ-001-10, REQ-001-28). */
+  /** A PR's head commit, branches, mergeability and draft status (REQ-001-10, REQ-001-28, REQ-001-31). */
   async getPull(repo: string, pr: number): Promise<Pull> {
     const r = await this.request<RawPull>(repo, "GET", `/repos/${repo}/pulls/${pr}`);
     return {
       number: r.number,
+      nodeId: r.node_id,
+      draft: r.draft ?? false,
       headSha: r.head.sha,
       headRef: r.head.ref,
       baseRef: r.base.ref,
@@ -303,6 +326,8 @@ interface RawTimelineEvent {
 
 interface RawPull {
   number: number;
+  node_id: string;
+  draft?: boolean;
   head: { sha: string; ref: string };
   base: { ref: string };
   mergeable?: boolean | null;

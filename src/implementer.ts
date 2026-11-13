@@ -1,6 +1,7 @@
 /**
  * Implementer run (REQ-001-06, REQ-001-09): a fresh session in a new Worktree per issue or Bundle;
- * after every turn the Coordinator pushes and opens or updates the PR (REQ-001-19). Cleanup once
+ * after every turn the Coordinator pushes and opens or updates the PR (REQ-001-19), which stays a
+ * draft until its head is reviewed (REQ-001-31). Cleanup once
  * the PR is merged or closed (REQ-001-14).
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -20,11 +21,11 @@ const CLEARED_ON_CLEANUP = ["agent:in-progress", "agent:pr-open", "agent:reviewi
 export interface ImplementerDeps {
   config: Config;
   store: Store;
-  gh: Pick<GitHubClient, "addLabels" | "removeLabel" | "createComment" | "createPull" | "updatePull">;
+  gh: Pick<GitHubClient, "addLabels" | "removeLabel" | "createComment" | "createPull" | "updatePull" | "setDraft">;
   runner: Pick<SessionRunner, "start" | "resume" | "close" | "sessionDir">;
   worktrees: Pick<
     Worktrees,
-    "create" | "push" | "commitsAhead" | "currentBranch" | "defaultBranch" | "remove" | "hasRoom" | "fetchBase"
+    "create" | "push" | "commitsAhead" | "currentBranch" | "defaultBranch" | "remove" | "hasRoom" | "fetchBase" | "head"
   >;
 }
 
@@ -105,6 +106,9 @@ export class Implementer {
       }
     } else {
       await this.d.gh.updatePull(s.repo, first.prNumber, { title: result.prTitle, body });
+      // REQ-001-31: a reviewed PR goes back to draft once a head it was not reviewed at is pushed.
+      if (first.reviewedHeadSha !== null && this.d.worktrees.head(wt) !== first.reviewedHeadSha)
+        await this.d.gh.setDraft(s.repo, first.prNumber, true);
       if (first.inFeedbackRound) {
         for (const n of s.issues) {
           this.d.store.updateIssue(s.repo, n, { inFeedbackRound: 0 });

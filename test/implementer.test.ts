@@ -46,6 +46,9 @@ class FakeGitHub {
   async updatePull(_r: string, pr: number, patch: { title?: string; body?: string }) {
     this.calls.push(["updatePull", pr, patch]);
   }
+  async setDraft(_r: string, pr: number, draft: boolean) {
+    this.calls.push(["setDraft", pr, draft]);
+  }
   of(name: string) {
     return this.calls.filter((c) => c[0] === name);
   }
@@ -58,6 +61,10 @@ class FakeWorktrees {
   removed: string[] = [];
   ahead = 0;
   room = true;
+  headSha = "h1";
+  head() {
+    return this.headSha;
+  }
   hasRoom() {
     return this.room;
   }
@@ -301,6 +308,25 @@ describe("Implementer run", () => {
     expect(gh.of("updatePull")).toHaveLength(1);
     expect(gh.of("addLabels")).toEqual([["addLabels", 5, ["agent:pr-open"]]]);
     expect(gh.of("removeLabel")).toEqual([["removeLabel", 5, "agent:in-progress"]]);
+  });
+
+  test("REQ-001-31 a push of a new head after the PR was reviewed converts it back to draft", async () => {
+    const id = await withPr();
+    store.updateIssue("octo/app", 5, { reviewedHeadSha: "h1" });
+    await impl.feedbackRound("octo/app", 77, [5], "/agent add a test");
+    gh.calls = [];
+    wt.headSha = "h2";
+    finish(id);
+    await impl.sync(id);
+    expect(gh.of("setDraft")).toEqual([["setDraft", 77, true]]);
+  });
+
+  test("REQ-001-31 a turn that pushes nothing new leaves a reviewed PR ready", async () => {
+    const id = await withPr();
+    store.updateIssue("octo/app", 5, { reviewedHeadSha: "h1" });
+    finish(id, { prTitle: "Dark mode", prBody: "Adds a toggle.", summary: "Answered a question" });
+    await impl.sync(id);
+    expect(gh.of("setDraft")).toEqual([]);
   });
 
   test("REQ-001-14 cleanup removes the Worktree, closes the sessions and clears the agent labels", async () => {

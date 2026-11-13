@@ -1,7 +1,7 @@
 /**
  * Reviewer run (REQ-001-10): a fresh read-only session on a checkout of the PR head; its findings
  * are posted as one COMMENT review. The session is closed right after (REQ-001-23). Blocking
- * findings are kept for a Feedback round (REQ-001-11).
+ * findings are kept for a Feedback round (REQ-001-11); without them the PR leaves draft (REQ-001-31).
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -20,7 +20,7 @@ type Finding = ReviewerResult["findings"][number];
 export interface ReviewerDeps {
   config: Config;
   store: Store;
-  gh: Pick<GitHubClient, "addLabels" | "removeLabel" | "createComment" | "createReview">;
+  gh: Pick<GitHubClient, "addLabels" | "removeLabel" | "createComment" | "createReview" | "setDraft">;
   runner: Pick<SessionRunner, "start" | "close" | "sessionDir">;
   worktrees: Pick<Worktrees, "reviewCheckout" | "reviewPath" | "head" | "remove">;
 }
@@ -116,7 +116,11 @@ export class Reviewer {
       await this.d.gh.removeLabel(s.repo, n, "agent:reviewing");
       await this.d.gh.addLabels(s.repo, n, [blocking.length ? "agent:pr-open" : "agent:reviewed"]);
     }
-    if (!blocking.length) await this.d.gh.addLabels(s.repo, pr, ["agent:reviewed"]);
+    if (!blocking.length) {
+      await this.d.gh.addLabels(s.repo, pr, ["agent:reviewed"]);
+      // REQ-001-31: only a reviewed head without blocking findings leaves draft.
+      await this.d.gh.setDraft(s.repo, pr, false);
+    }
     this.finish(sessionId, checkout);
   }
 

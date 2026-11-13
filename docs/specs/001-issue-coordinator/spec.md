@@ -73,7 +73,7 @@ The Owner (the single human user) wants GitHub issues across their public and pr
 - **When** the Implementer starts
 - **Then** it runs as a fresh session in a new Worktree on branch `agent/<issue>-<slug>`, created from the default branch
 - **And** its context is limited to the issue, the approved Assessment, the approval notes and the Coordination notes
-- **And** when it finishes, the Coordinator pushes the branch and opens a PR containing the agent note (REQ-001-29) and `Closes #<issue>`
+- **And** when it finishes, the Coordinator pushes the branch and opens a draft PR (REQ-001-31) containing the agent note (REQ-001-29) and `Closes #<issue>`
 - **And** the label changes from `agent:in-progress` to `agent:pr-open`
 
 ### REQ-001-10 Review run
@@ -227,6 +227,19 @@ The Owner (the single human user) wants GitHub issues across their public and pr
 - **Then** the write succeeds inside its Worktree (including commits to the Worktree's own git history), its session folder and the sandbox's temporary folder
 - **And** a write anywhere else is denied
 
+### REQ-001-31 Agent PRs stay drafts until reviewed
+
+- **Given** an agent PR
+- **When** the Coordinator opens it
+- **Then** it is a draft, so it can't be merged before its Review
+- **When** a Review of its head has no blocking findings
+- **Then** it is marked ready for review
+- **When** a later turn (a Feedback round or the Owner's chat) pushes a head that was not reviewed
+- **Then** it goes back to draft until that head has a Review without blocking findings
+- **When** it is labelled `agent:failed`
+- **Then** it is (or goes back to) a draft
+- **And** the Owner can still mark it ready for review by hand
+
 ## Out of scope
 
 - Webhooks (polling only for now; webhooks may later be added only to trigger a poll sooner).
@@ -280,3 +293,4 @@ Partial rows: the REQ is only covered for the parts built so far (noted in brack
 | REQ-001-27 | `reconcile loop > REQ-001-27 a failed sync is retried on the next tick`, `… retried after its session was closed, without failing the issue`, `… after 3 failed syncs in a row the issue is labelled agent:failed with the error`                                                                                                                                                                                                                                                                                                        | pass                                                                                                                |
 | REQ-001-29 | `agent note > REQ-001-29 …` (model name and note variants); `hook > REQ-001-29 …` (model from SessionStart, transcript fallback); `store > REQ-001-29 …`; `Assessment comment > REQ-001-29 …`; `Implementer run > REQ-001-09 / REQ-001-29 …`; `Reviewer run > REQ-001-29 …`; `reconcile loop > REQ-001-29 …`                                                                                                                                                                                                                             | pass                                                                                                                |
 | REQ-001-30 | `session runner > REQ-001-30 an Implementer's shell commands may write only to its Worktree and session folder`; live: issue #1's session's effective write allowlist was its Worktree, session folder and temporary folders; a later turn (2026-11-13) saw `touch ../probe-outside` fail with "Read-only file system" while writes to `$TMPDIR` and commits (stored in the Worktree's own `.git`, empty `alternates`) succeeded; manual: `bun scripts/smoke-runner.ts` probes writes inside and outside the repo plus a commit          | partial (smoke probes still to be recorded): pass                                                                   |
+| REQ-001-31 | `GitHub client > REQ-001-31 …` (4 tests); `Reviewer run > REQ-001-31 …` (2 tests: ready / still draft); `Implementer run > REQ-001-31 …` (2 tests: new head → draft, nothing new → stays ready); `reconcile loop > REQ-001-31 …`, `REQ-001-10 / REQ-001-23 …` (ready), `REQ-001-11 past maxFeedbackRounds …` (draft)                                                                                                                                                                                                                     | pass                                                                                                                |

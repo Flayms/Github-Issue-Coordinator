@@ -37,6 +37,7 @@ export interface CoordinatorDeps {
     | "updateComment"
     | "createPull"
     | "updatePull"
+    | "setDraft"
     | "getPull"
     | "checks"
     | "createReview"
@@ -530,7 +531,13 @@ export class Coordinator {
         this.d.store.patchSession(session.id, { state: "closed" });
       }
     }
-    if (pr !== undefined) await this.d.gh.addLabels(repo, pr, ["agent:failed"]);
+    if (pr !== undefined) {
+      await this.d.gh.addLabels(repo, pr, ["agent:failed"]);
+      // REQ-001-31: a failed PR stays (or goes back to) draft; giving up must not fail on this.
+      await this.d.gh
+        .setDraft(repo, pr, true)
+        .catch((e) => this.log(`${repo}: PR #${pr} not converted to draft: ${e}`));
+    }
     this.log(`${repo}: ${issues.map((n) => `#${n}`).join(", ")} failed: ${reason}`);
   }
 }
