@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { type Config, roleSettings } from "./config.ts";
 import type { GitHubClient, Item } from "./github/client.ts";
 import { GitHubError } from "./github/http.ts";
-import { agentNote } from "./note.ts";
+import { sessionNote } from "./note.ts";
 import { loadPrompt, renderPrompt } from "./prompts.ts";
 import { type ReviewerResult, validateResult } from "./results.ts";
 import type { SessionRunner } from "./runner.ts";
@@ -70,7 +70,7 @@ export class Reviewer {
       existsSync(resultPath) ? readFileSync(resultPath, "utf8") : undefined,
       s.issues,
     );
-    const note = agentNote(roleSettings(this.d.config, s.repo, "reviewer").model, this.d.config.owner.login);
+    const note = sessionNote(this.d.config, s);
     this.d.store.patchSession(sessionId, { needsSync: false });
 
     if (!check.ok) {

@@ -14,7 +14,7 @@ A single Bun process (`systemd` service, dedicated `agent` Linux user) runs a **
 - **Start:** `tmux new-window -d -c <dir> -n <name> "claude --remote-control '<repo>#<n> <role>' --model <m> --settings <hooks.json> --permission-mode <…> '<prompt>'"`.
 - **Resume:** kill the idle session's window and run the same command with `--resume <session_id>` and the new prompt (keeps the conversation and the phone chat; verified in the T6 smoke test).
 - **Hooks:** they call a small Bun hook script that writes events to the store.
-  - `SessionStart` records the session id.
+  - `SessionStart` records the session id and the model it runs (`payload.model`; `Stop` falls back to the transcript's first assistant `message.model`), for the agent note (REQ-001-28).
   - `UserPromptSubmit` marks the session busy and tags the turn as Owner-initiated.
   - `Stop` validates the Result file against the Role's schema. It blocks the stop with the reason when the file is invalid (REQ-001-21). Otherwise it marks the session idle and queues a sync.
 - **Result files** live outside the repo, at `state/sessions/<id>/result.json` (next to the session's settings and hook log), so they never end up in a commit. The runner deletes the file before every Coordinator prompt, so an old Result cannot pass for a new turn.

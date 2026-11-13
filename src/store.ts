@@ -30,6 +30,8 @@ export interface SessionRecord {
   needsSync: boolean;
   /** The turn ended on the subscription usage limit (REQ-001-17). */
   usageLimited: boolean;
+  /** The model the session runs, e.g. `claude-opus-5-5`, reported by the hooks (REQ-001-28). */
+  modelId: string | null;
 }
 
 /** A Worktree on record: its issues (a Bundle shares one), PR and last reviewed head. */
@@ -87,7 +89,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   coordinator_prompt_pending INTEGER NOT NULL DEFAULT 0,
   result_failures INTEGER NOT NULL DEFAULT 0,
   needs_sync INTEGER NOT NULL DEFAULT 0,
-  usage_limited INTEGER NOT NULL DEFAULT 0
+  usage_limited INTEGER NOT NULL DEFAULT 0,
+  model_id TEXT
 );
 CREATE TABLE IF NOT EXISTS issues (
   repo TEXT NOT NULL,
@@ -129,6 +132,7 @@ interface SessionRow {
   result_failures: number;
   needs_sync: number;
   usage_limited: number;
+  model_id: string | null;
 }
 
 const toSession = (r: SessionRow): SessionRecord => ({
@@ -146,6 +150,7 @@ const toSession = (r: SessionRow): SessionRecord => ({
   resultFailures: r.result_failures,
   needsSync: r.needs_sync === 1,
   usageLimited: r.usage_limited === 1,
+  modelId: r.model_id ?? null,
 });
 
 const ISSUE_COLUMNS = {
@@ -176,6 +181,13 @@ export class Store {
     // Hook processes write concurrently with the Coordinator.
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
     this.db.exec(SCHEMA);
+    this.migrate();
+  }
+
+  /** Adds columns introduced after a database was created. */
+  private migrate(): void {
+    const cols = this.db.query<{ name: string }, []>("PRAGMA table_info(sessions)").all();
+    if (!cols.some((c) => c.name === "model_id")) this.db.exec("ALTER TABLE sessions ADD COLUMN model_id TEXT");
   }
 
   clock(): Date {
@@ -231,6 +243,10 @@ export class Store {
 
   setClaudeSessionId(id: number, claudeSessionId: string): void {
     this.db.query("UPDATE sessions SET claude_session_id = ? WHERE id = ?").run(claudeSessionId, id);
+  }
+
+  setModelId(id: number, modelId: string): void {
+    this.db.query("UPDATE sessions SET model_id = ? WHERE id = ?").run(modelId, id);
   }
 
   setState(id: number, state: SessionState): void {

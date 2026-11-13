@@ -156,8 +156,9 @@ describe("Reviewer run", () => {
     ]);
   });
 
-  test("REQ-001-10 / REQ-001-23 posts one COMMENT review with inline findings, then closes the session and its checkout", async () => {
+  test("REQ-001-10 / REQ-001-23 / REQ-001-28 posts one COMMENT review with inline findings, then closes the session and its checkout", async () => {
     const id = await reviewer.start("octo/app", 9, [item(5)], "h1");
+    store.setModelId(id, "claude-opus-5-5");
     gh.calls = [];
     finish(id, [finding(false)]);
     await reviewer.sync(id);
@@ -168,7 +169,7 @@ describe("Reviewer run", () => {
     ];
     expect(pr).toBe(9);
     expect(review.commitId).toBe("h1");
-    expect(review.body).toStartWith("> [!Note]\n> 🤖 Claude (opus) writing on behalf of octo");
+    expect(review.body).toStartWith("> [!Note]\n> 🤖 Claude Opus 5.5 (Reviewer) writing on behalf of octo\n");
     expect(review.body).toContain("Looks mostly fine");
     expect(review.comments).toEqual([{ path: "src/a.ts", line: 3, body: "**high**: Rename" }]);
     expect(runner.closed).toEqual([id]);

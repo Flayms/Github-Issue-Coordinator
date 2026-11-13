@@ -118,11 +118,8 @@ const finishTurn = (id: number, result: unknown) => {
 
 describe("Assessment comment", () => {
   test("REQ-001-02 shows the agent note, verdict, approach, questions and Coordination notes", () => {
-    const text = renderAssessment(entry(5, { questions: ["Which API?"], bundleWith: [6], blockedBy: [7] }), {
-      owner: "octo",
-      model: "opus",
-    });
-    expect(text).toStartWith("> [!Note]\n> 🤖 Claude (opus) writing on behalf of octo\n");
+    const text = renderAssessment(entry(5, { questions: ["Which API?"], bundleWith: [6], blockedBy: [7] }), "NOTE");
+    expect(text).toStartWith("NOTE\n");
     expect(text).toContain("## Assessment: proposed");
     expect(text).toContain("Approach for 5");
     expect(text).toContain("- Which API?");
@@ -132,7 +129,7 @@ describe("Assessment comment", () => {
   });
 
   test("leaves out empty sections", () => {
-    const text = renderAssessment(entry(5, { verdict: "wontfix-proposed" }), { owner: "octo", model: "opus" });
+    const text = renderAssessment(entry(5, { verdict: "wontfix-proposed" }), "NOTE");
     expect(text).toContain("## Assessment: won't fix (proposed)");
     expect(text).not.toContain("Questions");
     expect(text).not.toContain("Coordination");
@@ -204,6 +201,17 @@ describe("Planner pass", () => {
     expect(JSON.parse(store.issue("octo/app", 6).assessment ?? "{}").verdict).toBe("needs-refinement");
     expect(runner.closed).toEqual([id]);
     expect(store.session(id)?.needsSync).toBe(false);
+  });
+
+  test("REQ-001-28 the Assessment's note names the session's model and the Planner Role", async () => {
+    const id = await planner.startPass("octo/app", "/c", [item(5)], { issues: [], pulls: [] });
+    store.setModelId(id, "claude-opus-5-5");
+    gh.calls = [];
+    finishTurn(id, [entry(5)]);
+    await planner.sync(id);
+    expect(gh.of("createComment")[0]?.[3]).toStartWith(
+      "> [!Note]\n> 🤖 Claude Opus 5.5 (Planner) writing on behalf of octo\n",
+    );
   });
 
   test("REQ-001-21 a session that gave up on its Result labels its issues agent:failed", async () => {

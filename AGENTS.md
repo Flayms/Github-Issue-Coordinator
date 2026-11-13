@@ -61,5 +61,5 @@ For issues and pull requests you create put the following note at the top of the
 
 ```md
 > [!Note]
-> 🤖 {Model e.g. Claude Opus 5.5} writing on behalf of {Human}
+> 🤖 {Model e.g. Claude Opus 5.5} ({Role, e.g. Implementer}) writing on behalf of {Human}
 ```

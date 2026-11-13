@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -33,9 +34,34 @@ describe("store", () => {
           resultFailures: 0,
           needsSync: false,
           usageLimited: false,
+          modelId: null,
         },
       ]);
       b.close();
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  test("REQ-001-28 keeps the session's model id, also in a database created before it existed", () => {
+    const dir = mkdtempSync(join(tmpdir(), "store-"));
+    try {
+      const path = join(dir, "state.db");
+      const old = new Database(path, { create: true });
+      old.exec(
+        `CREATE TABLE sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, repo TEXT NOT NULL, role TEXT NOT NULL,
+         kind TEXT NOT NULL, issues TEXT NOT NULL, claude_session_id TEXT, state TEXT NOT NULL,
+         resume_attempts INTEGER NOT NULL DEFAULT 0, last_activity_at TEXT NOT NULL, owner_messaged_at TEXT,
+         coordinator_prompt_pending INTEGER NOT NULL DEFAULT 0, result_failures INTEGER NOT NULL DEFAULT 0,
+         needs_sync INTEGER NOT NULL DEFAULT 0, usage_limited INTEGER NOT NULL DEFAULT 0)`,
+      );
+      old.close();
+      const s = new Store(path);
+      const id = s.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [5] });
+      expect(s.session(id)?.modelId).toBeNull();
+      s.setModelId(id, "claude-opus-5-5");
+      expect(s.session(id)?.modelId).toBe("claude-opus-5-5");
+      s.close();
     } finally {
       rmSync(dir, { recursive: true });
     }

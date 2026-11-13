@@ -73,7 +73,7 @@ The Owner (the single human user) wants GitHub issues across their public and pr
 - **When** the Implementer starts
 - **Then** it runs as a fresh session in a new Worktree on branch `agent/<issue>-<slug>`, created from the default branch
 - **And** its context is limited to the issue, the approved Assessment, the approval notes and the Coordination notes
-- **And** when it finishes, the Coordinator pushes the branch and opens a PR containing the AGENTS.md note header and `Closes #<issue>`
+- **And** when it finishes, the Coordinator pushes the branch and opens a PR containing the agent note (REQ-001-28) and `Closes #<issue>`
 - **And** the label changes from `agent:in-progress` to `agent:pr-open`
 
 ### REQ-001-10 Review run
@@ -201,6 +201,16 @@ The Owner (the single human user) wants GitHub issues across their public and pr
 - **When** it tries to read the GitHub App's private key or Claude Code's login credentials, with a file tool or a shell command
 - **Then** the read is denied
 
+### REQ-001-28 Agent note names the model and the Role
+
+- **Given** a comment, PR or review the Coordinator posts on behalf of the Owner
+- **When** it was written by a Role's session
+- **Then** it starts with `> [!Note]` followed by `> 🤖 Claude <Model> (<Role>) writing on behalf of <Owner>`, e.g. `Claude Opus 5.5 (Planner)`
+- **And** `<Model>` is the family and version of the model the session actually ran (e.g. `Opus 5.5` for `claude-opus-5-5`), and `<Role>` is `Planner`, `Implementer` or `Reviewer`
+- **And** if the model's version is unknown, it names the configured model instead (e.g. `Claude Opus`), never the Role
+- **Given** a message the Coordinator posts on its own (e.g. giving up on an issue)
+- **Then** it starts with `> [!Note]` followed by `> 🤖 Coordinator writing on behalf of <Owner>`, and names the Role of the failed session, if any, in the body
+
 ## Out of scope
 
 - Webhooks (polling only for now; webhooks may later be added only to trigger a poll sooner).
@@ -251,3 +261,4 @@ Partial rows: the REQ is only covered for the parts built so far (noted in brack
 | REQ-001-25 | `permissions > REQ-001-25 …` (2 tests, incl. WebSearch/WebFetch for Planner and Reviewer); `config > REQ-001-25 sandbox network domains default to the common package registries …`; `session runner > REQ-001-25 …` (2 tests: modes, sandbox and network per Role, kept on resume); manual: smoke runs 2026-11-11 (reviewer write denied; implementer Bash/commit, sandbox was silently off then), 2026-11-12 (`claude -p --permission-mode dontAsk --allowedTools WebSearch …`: search succeeded) | partial (sandboxed Bash blocked by Ubuntu AppArmor until docs/setup.md step 1 is applied): pass |
 | REQ-001-26 | `session runner > REQ-001-26 every Role is denied reading the Coordinator's secrets, with file tools and in shell commands`                                                                                                                                                                                                                                                                                                                                                                         | partial (not yet observed in a live sandboxed session): pass                                    |
 | REQ-001-27 | `reconcile loop > REQ-001-27 a failed sync is retried on the next tick`, `… retried after its session was closed, without failing the issue`, `… after 3 failed syncs in a row the issue is labelled agent:failed with the error`                                                                                                                                                                                                                                                                   | pass                                                                                            |
+| REQ-001-28 | `agent note > REQ-001-28 …` (model name and note variants); `hook > REQ-001-28 …` (model from SessionStart, transcript fallback); `store > REQ-001-28 …`; `Assessment comment > REQ-001-28 …`; `Implementer run > REQ-001-09 / REQ-001-28 …`; `Reviewer run > REQ-001-28 …`; `reconcile loop > REQ-001-28 …`                                                                                                                                                                                        | pass                                                                                            |
