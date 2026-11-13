@@ -12,6 +12,7 @@ Keep the docs up to date when something changes.
 | `docs/architecture.md`   | Architecture overview                                                                                             |
 | `docs/glossary.md`       | Definitions of domain terms                                                                                       |
 | `docs/known-pitfalls.md` | if you encounter problems or pitfalls add them here, either to avoid them in the future or for us to fix later on |
+| `docs/prompts.md`        | Why the Role prompts look the way they do: the Planner/Implementer boundary, tools per Role, sources              |
 | `docs/specs/README.md`   | Index of feature specs with their status, conventions and template                                                |
 
 ## Project

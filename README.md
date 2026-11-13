@@ -13,6 +13,8 @@ A self-hosted Bun daemon that polls GitHub and runs Claude Code agents. They tri
 
 Agents never get GitHub credentials; the Coordinator does every GitHub write as its own GitHub App.
 
+Each Role's prompt is in `prompts/`; a repository can replace one with `.github/coordinator/<role>.md`. [docs/prompts.md](docs/prompts.md) explains what each Role decides, which tools it has, and why.
+
 ## Commands (comments by you)
 
 | Command            | Where             | Effect                                                            |
