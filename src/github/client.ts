@@ -52,6 +52,8 @@ export interface Pull {
   headSha: string;
   headRef: string;
   baseRef: string;
+  /** False when the PR has merge conflicts; null while GitHub is still computing it (REQ-001-28). */
+  mergeable: boolean | null;
 }
 
 interface RawUser {
@@ -173,10 +175,16 @@ export class GitHubClient {
     return raw.map((r) => ({ id: r.id, state: r.state, body: r.body ?? "", author: actor(r.user) }));
   }
 
-  /** A PR's head commit and branches (REQ-001-10). */
+  /** A PR's head commit, branches and mergeability (REQ-001-10, REQ-001-28). */
   async getPull(repo: string, pr: number): Promise<Pull> {
     const r = await this.request<RawPull>(repo, "GET", `/repos/${repo}/pulls/${pr}`);
-    return { number: r.number, headSha: r.head.sha, headRef: r.head.ref, baseRef: r.base.ref };
+    return {
+      number: r.number,
+      headSha: r.head.sha,
+      headRef: r.head.ref,
+      baseRef: r.base.ref,
+      mergeable: r.mergeable ?? null,
+    };
   }
 
   /** Summary of the check runs on a commit, with the names of failed ones. */
@@ -297,6 +305,7 @@ interface RawPull {
   number: number;
   head: { sha: string; ref: string };
   base: { ref: string };
+  mergeable?: boolean | null;
 }
 
 interface RawCheckRun {

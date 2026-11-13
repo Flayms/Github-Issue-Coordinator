@@ -16,17 +16,17 @@ flowchart LR
 | Module                         | Responsibility                                                                                               | Status   |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------ | -------- |
 | `src/index.ts`                 | Entry point (`bun start`): wires everything, runs the loop, checks for dialogs every 3s                      | T15 done |
-| `src/coordinator.ts`           | Reconcile loop: sync finished turns, poll, derive, schedule across repos, execute                            | T15 done |
+| `src/coordinator.ts`           | Reconcile loop: sync finished turns, poll (incl. head, checks and mergeability of agent PRs), derive, schedule across repos, execute | T15 done |
 | `src/git.ts`                   | Main clone per repo, reset to the default branch; the App token is passed per command, never stored          | T15 done |
 | `src/implementer.ts`           | Implementer start (Bundle, Worktree, limited context), push + PR after every turn, cleanup after merge/close | T11 done |
 | `src/reviewer.ts`              | Reviewer start on a PR-head checkout, one COMMENT review, labels, session closed afterwards                  | T12 done |
 | `src/note.ts`                  | The agent note heading every comment, PR and review                                                          | T11 done |
-| `src/worktrees.ts`             | Worktree per issue/Bundle (local clone + branch + setup), push, review checkouts, removal                    | T10 done |
+| `src/worktrees.ts`             | Worktree per issue/Bundle (local clone + branch + setup), push, fetch of the default branch for merge-conflict rounds, review checkouts, removal | T10 done |
 | `src/doctor.ts`                | `bun run doctor`: read-only setup check (tools, login, config, GitHub App, repo access)                      | T14      |
 | `src/config.ts`                | Load and validate `config.ts`; resolve a Role's model and effort per repository                              | T2 done  |
 | `src/labels.ts`                | The `agent:*` labels that carry state on GitHub                                                              | T3 done  |
 | `src/github/app-auth.ts`       | GitHub App JWT; installation token per repository owner, cached until near expiry                            | T3 done  |
-| `src/github/client.ts`         | REST client: ETag polling, comments, timeline label actor, labels, PRs, Reviews, checks                      | T3 done  |
+| `src/github/client.ts`         | REST client: ETag polling, comments, timeline label actor, labels, PRs (incl. mergeability), Reviews, checks | T3 done  |
 | `src/store.ts`                 | `bun:sqlite`: sessions (Role, issues, Claude session id, state) and per-issue bookkeeping                    | T4 done  |
 | `src/state.ts`                 | Pure: issue state from labels; actions from labels, store and live tmux windows                              | T4 done  |
 | `src/scheduler.ts`             | Pure: which queued work starts, which idle sessions close (Slots, priority, pause, live limit)               | T5 done  |

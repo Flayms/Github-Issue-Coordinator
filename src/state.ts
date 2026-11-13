@@ -56,11 +56,25 @@ export interface Snapshot {
   labelActors?: ReadonlyMap<number, Actor | undefined>;
   /** Worktrees on record for this repository, with the PR they belong to. */
   worktrees?: WorktreeRecord[];
-  /** Head commit and checks of open agent PRs. */
-  pulls?: ReadonlyMap<number, { headSha: string; checks: ChecksState; failed?: string[] }>;
+  /** Head commit, checks and mergeability of open agent PRs. */
+  pulls?: ReadonlyMap<number, PullState>;
   /** Per agent PR: the Owner's comments since the last handled one, and changes-requested reviews by the Owner. */
   prFeedback?: ReadonlyMap<number, { comments: Comment[]; changesRequested: { id: number; body: string }[] }>;
   maxFeedbackRounds?: number;
+  /** How long after a head appeared "no checks" still means CI may not have registered yet (REQ-001-10). */
+  checksGraceSeconds?: number;
+}
+
+export interface PullState {
+  headSha: string;
+  checks: ChecksState;
+  failed?: string[];
+  /** GitHub's `mergeable`: false means merge conflicts, null that GitHub is still computing it (REQ-001-28). */
+  mergeable: boolean | null;
+  /** When the Coordinator first saw this head commit (ISO). */
+  headSeenAt: string;
+  /** The PR's base branch, normally the default branch. */
+  baseRef?: string;
 }
 
 export interface IssueFeedback {
@@ -102,6 +116,8 @@ export type Action =
       upToCommentId: number;
       upToReviewId: number;
       checksFailed: boolean;
+      /** A merge-conflict round (REQ-001-28): the default branch has to be fetched into the Worktree first. */
+      conflicted: boolean;
     }
   | { type: "wake"; repo: string; issue: number; upToCommentId: number; recordNumber: number };
 
@@ -214,11 +230,14 @@ export function deriveActions(s: Snapshot): Action[] {
       ...(f?.changesRequested ?? []).map((r) => r.body.trim() || "The Owner requested changes in a review."),
     ].filter(Boolean);
     const checksFailed = pull.checks === "failure" && pull.headSha !== w.failedChecksSha;
+    // REQ-001-28: GitHub runs no checks on a conflicted PR, so conflicts need their own round.
+    const conflicted = pull.mergeable === false && pull.headSha !== w.conflictSha;
     const auto = [
       ...(w.pendingFeedback ? [w.pendingFeedback] : []),
       ...(checksFailed
         ? [`Failing checks on ${pull.headSha}:\n\n${(pull.failed ?? []).map((x) => `- ${x}`).join("\n")}`]
         : []),
+      ...(conflicted ? [conflictText(pull.baseRef)] : []),
     ];
     const upToCommentId = Math.max(0, ...comments.map((x) => x.id));
     const upToReviewId = Math.max(0, ...(f?.changesRequested ?? []).map((r) => r.id));
@@ -244,6 +263,7 @@ export function deriveActions(s: Snapshot): Action[] {
           upToCommentId,
           upToReviewId,
           checksFailed,
+          conflicted,
         });
     } else if (comments.some((x) => isWake(x.body))) {
       actions.push({ type: "wake", repo: s.repo, issue: w.issues[0] ?? 0, upToCommentId, recordNumber: w.prNumber });
@@ -264,11 +284,16 @@ export function deriveActions(s: Snapshot): Action[] {
       });
   }
 
-  // REQ-001-10: an unreviewed head whose checks passed gets a Review, unless an agent is still on it (REQ-001-07).
+  // REQ-001-10: an unreviewed, mergeable head whose checks passed gets a Review, unless an agent is still on it
+  // (REQ-001-07). "No checks" counts only after a grace period, since CI registers its runs a little after a push.
+  const now = Date.parse(s.now ?? new Date().toISOString());
+  const graceMs = (s.checksGraceSeconds ?? 120) * 1000;
   for (const w of s.worktrees ?? []) {
     const pull = w.prNumber !== null && open.has(w.prNumber) ? s.pulls?.get(w.prNumber) : undefined;
     if (!pull || w.prNumber === null || pull.headSha === w.reviewedHeadSha || withFeedback.has(w.prNumber)) continue;
+    if (pull.mergeable !== true) continue; // REQ-001-28
     if (pull.checks !== "success" && pull.checks !== "none") continue;
+    if (pull.checks === "none" && now - Date.parse(pull.headSeenAt) < graceMs) continue;
     const busy = s.sessions.some(
       (x) =>
         x.issues.some((n) => w.issues.includes(n)) &&
@@ -295,6 +320,11 @@ export function deriveActions(s: Snapshot): Action[] {
 
   return actions;
 }
+
+const conflictText = (base = "HEAD"): string =>
+  `This PR has merge conflicts with \`${base}\`. The Coordinator has fetched \`origin/${base}\` into your Worktree. ` +
+  `Run \`git merge origin/${base}\` (merge, do not rebase: the push must stay a fast-forward), resolve the conflicts, ` +
+  "run the tests and commit the merge.";
 
 function coordination(assessment: string | null, key: "blockedBy" | "bundleWith"): number[] {
   if (!assessment) return [];

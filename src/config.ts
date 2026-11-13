@@ -63,6 +63,8 @@ const configSchema = z
         .default({ name: "Claude", email: "noreply@anthropic.com" }),
     }),
     pollIntervalSec: positiveInt.default(60),
+    /** How long after a push a PR without check runs waits before its Review, so CI can register (REQ-001-10). */
+    checksGraceSeconds: z.number().int().nonnegative().default(120),
     /** Store, session files and clones; relative paths are resolved against the working directory. */
     stateDir: z.string().min(1).default("state"),
     limits: limitsSchema.prefault({}),
