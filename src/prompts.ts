@@ -38,6 +38,9 @@ const READ_ONLY = [
   "Bash(git show:*)",
   "Bash(git diff:*)",
   "Bash(git status:*)",
+  "Bash(git grep:*)",
+  "Bash(git blame:*)",
+  "Bash(git ls-files:*)",
   "WebSearch",
   "WebFetch",
 ];
