@@ -202,7 +202,7 @@ describe("session runner", () => {
     }
   });
 
-  test("REQ-001-27 an Implementer's shell commands may write only to its Worktree and session folder", () => {
+  test("REQ-001-30 an Implementer's shell commands may write only to its Worktree and session folder", () => {
     const impl = startImplementer();
     const cmd = tmux.windows.get(`s${impl}`)?.command ?? "";
     expect(tmux.windows.get(`s${impl}`)?.cwd).toBe("/work/app-5");

@@ -43,6 +43,7 @@ A single Bun process (`systemd` service, dedicated `agent` Linux user) runs a **
 export default {
   owner: { login: "…", id: 0 },
   pollIntervalSec: 60,
+  checksGraceSeconds: 120, // REQ-001-10: wait this long for CI to register before "no checks" counts
   limits: {
     maxRunning: 1,
     maxPlanners: 1,
