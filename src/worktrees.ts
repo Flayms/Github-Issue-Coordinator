@@ -111,6 +111,22 @@ export class Worktrees {
     git(path, [...gitAuthArgs(await this.o.token(repo)), "fetch", "-q", "origin", base]);
   }
 
+  /**
+   * Fetches the Worktree's branch from GitHub into `origin/<branch>` and returns its head, or null
+   * if GitHub has no such branch yet. Someone else (e.g. the Owner) may have pushed to it (REQ-001-31).
+   */
+  async fetchBranch(repo: string, path: string, branch: string): Promise<string | null> {
+    const auth = gitAuthArgs(await this.o.token(repo));
+    if (!git(path, [...auth, "ls-remote", "--heads", "origin", `refs/heads/${branch}`])) return null;
+    git(path, [...auth, "fetch", "-q", "origin", `+refs/heads/${branch}:refs/remotes/origin/${branch}`]);
+    return git(path, ["rev-parse", `refs/remotes/origin/${branch}`]);
+  }
+
+  /** Whether the Worktree's HEAD contains a commit, i.e. pushing it would be a fast-forward from there. */
+  hasCommit(path: string, sha: string): boolean {
+    return Bun.spawnSync(["git", "merge-base", "--is-ancestor", sha, "HEAD"], { cwd: path }).exitCode === 0;
+  }
+
   currentBranch(path: string): string {
     return git(path, ["rev-parse", "--abbrev-ref", "HEAD"]);
   }

@@ -53,6 +53,17 @@ class FakeGitHub {
 
 class FakeWorktrees {
   async fetchBase() {}
+  /** The PR branch's head on GitHub (null: no such branch) and whether the Worktree has it. */
+  remote: string | null = null;
+  hasRemote = true;
+  fetchedBranches: string[] = [];
+  async fetchBranch(_repo: string, _path: string, branch: string) {
+    this.fetchedBranches.push(branch);
+    return this.remote;
+  }
+  hasCommit() {
+    return this.hasRemote;
+  }
   created: [string, number[], string][] = [];
   pushed: string[] = [];
   removed: string[] = [];
@@ -264,6 +275,59 @@ describe("Implementer run", () => {
     return id;
   };
 
+  test("REQ-001-31 a branch that gained commits on GitHub starts a round to merge them instead of a doomed push", async () => {
+    const id = await withPr();
+    wt.pushed = [];
+    wt.remote = "owner-sha";
+    wt.hasRemote = false;
+    finish(id, { prTitle: "Dark mode", prBody: "Adds a toggle.", summary: "Merged main" });
+    await impl.sync(id);
+    expect(wt.fetchedBranches).toContain("agent/5-x");
+    expect(wt.pushed).toEqual([]);
+    expect(gh.of("updatePull")).toEqual([]);
+    expect(runner.resumed).toEqual([[id, expect.stringContaining("git merge origin/agent/5-x")]]);
+    expect(gh.of("addLabels")).toEqual([["addLabels", 5, ["agent:in-progress"]]]);
+    expect(store.issue("octo/app", 5)).toMatchObject({ divergedSha: "owner-sha", inFeedbackRound: 1 });
+    expect(store.issue("octo/app", 5).feedbackRounds).toBe(0); // not counted toward maxFeedbackRounds
+
+    // The Implementer merged the branch: the next sync pushes as usual.
+    gh.calls = [];
+    wt.hasRemote = true;
+    finish(id);
+    await impl.sync(id);
+    expect(wt.pushed).toEqual(["agent/5-x"]);
+    expect(gh.of("addLabels")).toEqual([["addLabels", 5, ["agent:pr-open"]]]);
+  });
+
+  test("REQ-001-31 if the Implementer still lacks the same commits after its round, the issue fails at once", async () => {
+    const id = await withPr();
+    wt.pushed = [];
+    wt.remote = "owner-sha";
+    wt.hasRemote = false;
+    finish(id);
+    await impl.sync(id);
+    gh.calls = [];
+    finish(id);
+    await impl.sync(id);
+    expect(wt.pushed).toEqual([]);
+    expect(runner.resumed).toHaveLength(1);
+    expect(gh.of("addLabels")).toEqual([["addLabels", 5, ["agent:failed"]]]);
+    expect(gh.of("createComment")[0]?.[2]).toContain("changed on GitHub outside the Worktree");
+  });
+
+  test("REQ-001-31 a Feedback round first fetches the PR branch and asks to merge commits the Worktree lacks", async () => {
+    const id = await withPr();
+    wt.remote = "owner-sha";
+    wt.hasRemote = false;
+    await impl.feedbackRound("octo/app", 77, [5], "Blocking: crash on empty input");
+    expect(wt.fetchedBranches).toEqual(["agent/5-x"]);
+    const prompt = runner.resumed[0]?.[1] ?? "";
+    expect(prompt).toContain("git merge origin/agent/5-x");
+    expect(prompt).toContain("crash on empty input");
+    expect(store.issue("octo/app", 5).divergedSha).toBe("owner-sha");
+    expect(runner.resumed[0]?.[0]).toBe(id);
+  });
+
   test("REQ-001-11 a Feedback round resumes the Implementer session in its Worktree with the feedback", async () => {
     const id = await withPr();
     await impl.feedbackRound("octo/app", 77, [5], "Blocking: crash on empty input");
@@ -317,6 +381,25 @@ describe("Implementer run", () => {
         .map((c) => c[2]),
     ).toEqual(["agent:in-progress", "agent:pr-open", "agent:reviewing", "agent:reviewed", "agent:failed"]);
     expect(store.issue("octo/app", 5).worktreePath).toBeNull();
+  });
+
+  test("REQ-001-14 cleanup forgets the closed PR, so a later run of the issue opens a new one", async () => {
+    const id = await withPr();
+    store.updateIssue("octo/app", 5, { feedbackRounds: 2, divergedSha: "o1", conflictSha: "h1" });
+    store.patchSession(id, { state: "idle" });
+    expect(await impl.cleanup("octo/app", [5], "/wt/5")).toBe(true);
+    expect(store.issue("octo/app", 5)).toMatchObject({
+      prNumber: null,
+      feedbackRounds: 0,
+      divergedSha: null,
+      conflictSha: null,
+    });
+    gh.calls = [];
+    const fresh = await impl.start("octo/app", [item(5)]);
+    finish(fresh);
+    await impl.sync(fresh);
+    expect(gh.of("createPull")).toHaveLength(1);
+    expect(gh.of("updatePull")).toEqual([]);
   });
 
   test("REQ-001-19 cleanup waits while the Owner is chatting with the session", async () => {

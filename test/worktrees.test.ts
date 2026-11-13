@@ -79,6 +79,37 @@ describe("worktrees", () => {
     expect(readFileSync(join(wt.path, ".git", "config"), "utf8")).not.toContain("tok-123");
   });
 
+  test("REQ-001-31 fetches a PR branch that gained commits on GitHub, so the Worktree can merge them", async () => {
+    const w = make();
+    const wt = await w.create("octo/app", [5], "x");
+    expect(await w.fetchBranch("octo/app", wt.path, wt.branch)).toBeNull(); // not pushed yet
+    writeFileSync(join(wt.path, "a.txt"), "agent");
+    git(wt.path, "add", "-A");
+    git(wt.path, "commit", "-qm", "agent work");
+    await w.push("octo/app", wt.path, wt.branch);
+    // Someone else (e.g. the Owner) pushes to the same branch from another clone.
+    const other = join(dir, "other");
+    git(dir, "clone", "-q", "-b", wt.branch, origin, other);
+    writeFileSync(join(other, "b.txt"), "owner");
+    git(other, "add", "-A");
+    git(other, "commit", "-qm", "owner work");
+    git(other, "push", "-q", "origin", wt.branch);
+    writeFileSync(join(wt.path, "c.txt"), "agent again");
+    git(wt.path, "add", "-A");
+    git(wt.path, "commit", "-qm", "more agent work");
+
+    await expect(w.push("octo/app", wt.path, wt.branch)).rejects.toThrow("fetch first");
+    const remote = await w.fetchBranch("octo/app", wt.path, wt.branch);
+    expect(remote).toBe(git(other, "rev-parse", "HEAD"));
+    expect(w.hasCommit(wt.path, remote as string)).toBe(false);
+    expect(readFileSync(join(wt.path, ".git", "config"), "utf8")).not.toContain("tok-123");
+
+    git(wt.path, "merge", "-q", "--no-edit", `origin/${wt.branch}`);
+    expect(w.hasCommit(wt.path, remote as string)).toBe(true);
+    await w.push("octo/app", wt.path, wt.branch);
+    expect(git(origin, "rev-parse", wt.branch)).toBe(git(wt.path, "rev-parse", "HEAD"));
+  });
+
   test("a failing setup command is an error", async () => {
     expect(make("exit 3").create("octo/app", [5], "x")).rejects.toThrow("setup");
   });

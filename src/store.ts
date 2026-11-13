@@ -82,6 +82,8 @@ export interface IssueRecord {
   headSeenAt: string | null;
   /** 1 while a Feedback round runs; its next sync returns the issue to agent:pr-open. */
   inFeedbackRound: number;
+  /** Head of the PR branch on GitHub that the Implementer was last asked to merge (REQ-001-31). */
+  divergedSha: string | null;
 }
 
 const SCHEMA = `
@@ -122,6 +124,7 @@ CREATE TABLE IF NOT EXISTS issues (
   head_sha TEXT,
   head_seen_at TEXT,
   in_feedback_round INTEGER NOT NULL DEFAULT 0,
+  diverged_sha TEXT,
   PRIMARY KEY (repo, number)
 );
 CREATE TABLE IF NOT EXISTS meta (
@@ -184,6 +187,7 @@ const ISSUE_COLUMNS = {
   headSha: "head_sha",
   headSeenAt: "head_seen_at",
   inFeedbackRound: "in_feedback_round",
+  divergedSha: "diverged_sha",
 } as const satisfies Record<Exclude<keyof IssueRecord, "repo" | "number">, string>;
 
 export class Store {
@@ -203,7 +207,7 @@ export class Store {
   /** Adds columns introduced after a store was created; CREATE TABLE IF NOT EXISTS leaves old tables as they are. */
   private migrate(): void {
     const added: Record<string, Record<string, string>> = {
-      issues: { conflict_sha: "TEXT", head_sha: "TEXT", head_seen_at: "TEXT" },
+      issues: { conflict_sha: "TEXT", head_sha: "TEXT", head_seen_at: "TEXT", diverged_sha: "TEXT" },
       sessions: { model_id: "TEXT" },
     };
     for (const [table, cols] of Object.entries(added)) {
@@ -333,6 +337,7 @@ export class Store {
       headSha: null,
       headSeenAt: null,
       inFeedbackRound: 0,
+      divergedSha: null,
     };
     if (row) {
       for (const [key, col] of Object.entries(ISSUE_COLUMNS))
