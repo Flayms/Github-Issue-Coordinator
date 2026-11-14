@@ -7,6 +7,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Config, roleSettings } from "./config.ts";
 import type { GitHubClient, Item } from "./github/client.ts";
+import { GitHubError } from "./github/http.ts";
 import { sessionNote } from "./note.ts";
 import { loadPrompt, renderPrompt } from "./prompts.ts";
 import { type PlannerResult, validateResult } from "./results.ts";
@@ -157,9 +158,7 @@ export class Planner {
       const json = JSON.stringify(a);
       if (rec.assessment === json && rec.assessmentCommentId !== null) continue; // nothing changed
       const body = renderAssessment(a, note);
-      let commentId = rec.assessmentCommentId;
-      if (commentId === null) commentId = await this.d.gh.createComment(s.repo, a.issue, body);
-      else await this.d.gh.updateComment(s.repo, commentId, body);
+      const commentId = await this.postAssessment(s.repo, a.issue, rec.assessmentCommentId, body);
       this.d.store.updateIssue(s.repo, a.issue, { assessment: json, assessmentCommentId: commentId });
 
       const target = `agent:${a.verdict}`;
@@ -169,6 +168,19 @@ export class Planner {
     }
     this.d.store.patchSession(sessionId, { needsSync: false });
     if (s.kind === "batch") this.d.runner.close(sessionId);
+  }
+
+  /** Edits the Assessment comment in place (REQ-001-03), or posts it anew if there is none or the Owner deleted it (REQ-001-32). */
+  private async postAssessment(repo: string, issue: number, commentId: number | null, body: string): Promise<number> {
+    if (commentId !== null) {
+      try {
+        await this.d.gh.updateComment(repo, commentId, body);
+        return commentId;
+      } catch (e) {
+        if (!(e instanceof GitHubError && e.status === 404)) throw e;
+      }
+    }
+    return this.d.gh.createComment(repo, issue, body);
   }
 }
 
