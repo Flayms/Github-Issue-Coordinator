@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseConfig } from "../src/config.ts";
 import type { Comment, Item } from "../src/github/client.ts";
+import { GitHubError } from "../src/github/http.ts";
 import { bodyHash, isCommand, Planner, renderAssessment, renderContext } from "../src/planner.ts";
 import type { PlannerResult } from "../src/results.ts";
 import type { StartOptions } from "../src/runner.ts";
@@ -49,6 +50,7 @@ const entry = (issue: number, extra: Partial<PlannerResult[number]> = {}): Plann
 class FakeGitHub {
   calls: unknown[][] = [];
   private nextId = 100;
+  deleted = new Set<number>();
   async addLabels(repo: string, issue: number, labels: string[]) {
     this.calls.push(["addLabels", repo, issue, labels]);
   }
@@ -61,6 +63,7 @@ class FakeGitHub {
   }
   async updateComment(repo: string, id: number, body: string) {
     this.calls.push(["updateComment", repo, id, body]);
+    if (this.deleted.has(id)) throw new GitHubError(404, "PATCH", `/repos/${repo}/issues/comments/${id}`, "Not Found");
   }
   of(name: string) {
     return this.calls.filter((c) => c[0] === name);
@@ -270,6 +273,21 @@ describe("plan revision", () => {
     ]);
     expect(gh.of("addLabels")).toEqual([["addLabels", "octo/app", 5, ["agent:wontfix-proposed"]]]);
     expect(runner.closed).not.toContain(own);
+  });
+
+  test("REQ-001-32 a deleted Assessment comment is posted again and edited from then on", async () => {
+    await assessed();
+    gh.deleted.add(100); // the Owner deleted the Assessment comment
+    const own = await planner.revise("octo/app", "/c", item(5), { comments: [comment(300, "a")], bodyChanged: false });
+    finishTurn(own, [entry(5, { approach: "v2" })]);
+    await planner.sync(own);
+    expect(gh.of("createComment")).toEqual([["createComment", "octo/app", 5, expect.stringContaining("v2")]]);
+    expect(store.issue("octo/app", 5).assessmentCommentId).toBe(101);
+    expect(gh.of("addLabels")).toEqual([["addLabels", "octo/app", 5, ["agent:proposed"]]]);
+    gh.calls = [];
+    finishTurn(own, [entry(5, { approach: "v3" })]);
+    await planner.sync(own);
+    expect(gh.of("updateComment")).toEqual([["updateComment", "octo/app", 101, expect.stringContaining("v3")]]);
   });
 
   test("REQ-001-19 a turn the Owner started is synced too, and an unchanged Result touches nothing on GitHub", async () => {

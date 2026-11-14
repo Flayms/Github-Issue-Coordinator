@@ -240,6 +240,13 @@ The Owner (the single human user) wants GitHub issues across their public and pr
 - **Then** it is (or goes back to) a draft
 - **And** the Owner can still mark it ready for review by hand
 
+### REQ-001-32 The Owner may delete an Assessment comment
+
+- **Given** an issue whose Assessment comment the Owner deleted on GitHub
+- **When** the Planner's Result for it is synced
+- **Then** the Coordinator posts the Assessment as a new comment and edits that one from then on
+- **And** the sync does not fail
+
 ## Out of scope
 
 - Webhooks (polling only for now; webhooks may later be added only to trigger a poll sooner).
@@ -294,3 +301,4 @@ Partial rows: the REQ is only covered for the parts built so far (noted in brack
 | REQ-001-29 | `agent note > REQ-001-29 …` (model name and note variants); `hook > REQ-001-29 …` (model from SessionStart, transcript fallback); `store > REQ-001-29 …`; `Assessment comment > REQ-001-29 …`; `Implementer run > REQ-001-09 / REQ-001-29 …`; `Reviewer run > REQ-001-29 …`; `reconcile loop > REQ-001-29 …`                                                                                                                                                                                                                             | pass                                                                                                                |
 | REQ-001-30 | `session runner > REQ-001-30 an Implementer's shell commands may write only to its Worktree and session folder`; live: issue #1's session's effective write allowlist was its Worktree, session folder and temporary folders; a later turn (2026-11-13) saw `touch ../probe-outside` fail with "Read-only file system" while writes to `$TMPDIR` and commits (stored in the Worktree's own `.git`, empty `alternates`) succeeded; manual: `bun scripts/smoke-runner.ts` probes writes inside and outside the repo plus a commit          | partial (smoke probes still to be recorded): pass                                                                   |
 | REQ-001-31 | `GitHub client > REQ-001-31 …` (4 tests); `Reviewer run > REQ-001-31 …` (2 tests: ready / still draft); `Implementer run > REQ-001-31 …` (2 tests: new head → draft, nothing new → stays ready); `reconcile loop > REQ-001-31 …`, `REQ-001-10 / REQ-001-23 …` (ready), `REQ-001-11 past maxFeedbackRounds …` (draft)                                                                                                                                                                                                                     | pass                                                                                                                |
+| REQ-001-32 | `plan revision > REQ-001-32 a deleted Assessment comment is posted again and edited from then on`                                                                                                                                                                                                                                                                                                                                                                                                                                        | pass                                                                                                                |
