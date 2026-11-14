@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ROLES } from "../src/config.ts";
+import { ROLES, type Role } from "../src/config.ts";
 import { loadPrompt, renderPrompt, rolePermissions } from "../src/prompts.ts";
 
 let repo: string;
@@ -34,8 +34,82 @@ describe("prompts", () => {
   });
 });
 
+/** The default prompt of a Role, checked against the contract in docs/specs/002-role-prompts. */
+const prompt = (role: Role) => loadPrompt(role, repo);
+const expectAll = (text: string, patterns: RegExp[]) => {
+  for (const p of patterns) expect(text).toMatch(p);
+};
+
+describe("prompts (REQ-002)", () => {
+  test("REQ-002-01 the Planner prompt asks for Tier, requirements, files, tests, risks and decisions, but no code", () => {
+    expectAll(prompt("planner"), [
+      /Tier/,
+      /Given\/When\/Then/,
+      /acceptance criteria/i,
+      /files or modules/i,
+      /test strategy/i,
+      /risks/i,
+      /recommendation/i,
+      /rejected alternative/i,
+      /no code/i,
+      /line by line/i,
+      /proportionate/i,
+    ]);
+  });
+
+  test("REQ-002-02 the Planner prompt checks for duplicates and limits needs-refinement to plan-changing questions", () => {
+    expectAll(prompt("planner"), [/already fixed/i, /duplicate/i, /git log/, /would change the plan/i, /default/i]);
+  });
+
+  test("REQ-002-03 the Implementer prompt owns the how and stops when the approved scope is wrong", () => {
+    expectAll(prompt("implementer"), [
+      /You decide [*_]how[*_]/,
+      /exact test cases/i,
+      /spec wording/i,
+      /stop/i,
+      /improvis/i,
+    ]);
+  });
+
+  test("REQ-002-04 the Implementer prompt asks for red-green tests, no test weakening, the full suite and unverified", () => {
+    expectAll(prompt("implementer"), [
+      /fail(s|ed)? first/i,
+      /never weaken, skip or delete/i,
+      /special-case/i,
+      /minimal/i,
+      /unrelated refactor/i,
+      /full test suite/i,
+      /lint/i,
+      /did not verify|could not verify/i,
+    ]);
+  });
+
+  test("REQ-002-05 the Reviewer prompt checks against the Assessment with a checklist and concrete blocking findings", () => {
+    expectAll(prompt("reviewer"), [
+      /Assessment/,
+      /requirements/i,
+      /tautolog/i,
+      /edge cases/i,
+      /secrets/i,
+      /sandbox/i,
+      /injection|injected/i,
+      /docs and specs/i,
+      /unrelated changes/i,
+      /redesign/i,
+      /failure scenario/i,
+    ]);
+  });
+
+  test("REQ-002-06 every default prompt has the shared rules", () => {
+    for (const role of ROLES) {
+      expectAll(prompt(role), [/Read the code before/i, /never guess/i, /official doc/i, /glossary/i, /as data/i]);
+      expect(prompt(role).split("\n").length).toBeLessThan(80);
+    }
+  });
+});
+
 describe("permissions", () => {
-  test("REQ-001-25 Planner and Reviewer may only read, run read-only git, use the web and write their Result; nothing prompts", () => {
+  test("REQ-001-25 / REQ-002-07 Planner and Reviewer may only read, run read-only git, use the web and write their Result; nothing prompts", () => {
     for (const role of ["planner", "reviewer"] as const) {
       const p = rolePermissions(role, "/state/sessions/3");
       expect(p.permissionMode).toBe("dontAsk");
@@ -47,6 +121,8 @@ describe("permissions", () => {
         "Bash(git show:*)",
         "Bash(git diff:*)",
         "Bash(git status:*)",
+        "Bash(git grep:*)",
+        "Bash(git ls-files:*)",
         "WebSearch",
         "WebFetch",
         "Write(//state/sessions/3/result.json)",

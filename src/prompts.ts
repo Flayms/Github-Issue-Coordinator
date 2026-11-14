@@ -38,6 +38,9 @@ const READ_ONLY = [
   "Bash(git show:*)",
   "Bash(git diff:*)",
   "Bash(git status:*)",
+  // REQ-002-07: list and search tracked files (`git grep --no-index` reads any file too; the sandbox covers it, REQ-001-26).
+  "Bash(git grep:*)",
+  "Bash(git ls-files:*)",
   "WebSearch",
   "WebFetch",
 ];
