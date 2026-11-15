@@ -54,6 +54,7 @@ export function rolePermissions(role: Role, sessionDir: string): Permissions {
     permissionMode: "dontAsk",
     allowedTools: [...READ_ONLY, `Write(${result})`, `Edit(${result})`],
     // REQ-001-26: even read-only git can print any file (`git diff --no-index`), so their shell runs sandboxed too.
+    // REQ-001-25: and write one (`git log --output=<file>`), so the sandbox denies writes to their cwd (src/runner.ts).
     sandbox: true,
   };
 }
