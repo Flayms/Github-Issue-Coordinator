@@ -77,7 +77,7 @@ export interface IssueRecord {
   approvedAt: string | null;
   /** Notes from `/approve [notes]`, passed to the Implementer. */
   approvalNotes: string | null;
-  /** Blocking Review findings (or other feedback) waiting for a Feedback round (REQ-001-11). */
+  /** Review findings (or other feedback) waiting for a Feedback round (REQ-001-11). */
   pendingFeedback: string | null;
   /** Reviews up to this id have been handled (REQ-001-12; kept on the PR's own record). */
   lastHandledReviewId: number;
@@ -90,6 +90,10 @@ export interface IssueRecord {
   headSeenAt: string | null;
   /** 1 while a Feedback round runs; its next sync returns the issue to agent:pr-open. */
   inFeedbackRound: number;
+  /** The latest Review's findings (JSON), until the Implementer has answered them (REQ-001-35). */
+  reviewFindings: string | null;
+  /** Earlier Review findings with the Implementer's answers, for a re-review (REQ-001-36). */
+  reviewHistory: string | null;
 }
 
 const SCHEMA = `
@@ -131,6 +135,8 @@ CREATE TABLE IF NOT EXISTS issues (
   head_sha TEXT,
   head_seen_at TEXT,
   in_feedback_round INTEGER NOT NULL DEFAULT 0,
+  review_findings TEXT,
+  review_history TEXT,
   PRIMARY KEY (repo, number)
 );
 CREATE TABLE IF NOT EXISTS split_offs (
@@ -202,6 +208,8 @@ const ISSUE_COLUMNS = {
   headSha: "head_sha",
   headSeenAt: "head_seen_at",
   inFeedbackRound: "in_feedback_round",
+  reviewFindings: "review_findings",
+  reviewHistory: "review_history",
 } as const satisfies Record<Exclude<keyof IssueRecord, "repo" | "number">, string>;
 
 export class Store {
@@ -221,7 +229,13 @@ export class Store {
   /** Adds columns introduced after a store was created; CREATE TABLE IF NOT EXISTS leaves old tables as they are. */
   private migrate(): void {
     const added: Record<string, Record<string, string>> = {
-      issues: { conflict_sha: "TEXT", head_sha: "TEXT", head_seen_at: "TEXT" },
+      issues: {
+        conflict_sha: "TEXT",
+        head_sha: "TEXT",
+        head_seen_at: "TEXT",
+        review_findings: "TEXT",
+        review_history: "TEXT",
+      },
       sessions: { model_id: "TEXT", title: "TEXT" },
     };
     for (const [table, cols] of Object.entries(added)) {
@@ -358,6 +372,8 @@ export class Store {
       headSha: null,
       headSeenAt: null,
       inFeedbackRound: 0,
+      reviewFindings: null,
+      reviewHistory: null,
     };
     if (row) {
       for (const [key, col] of Object.entries(ISSUE_COLUMNS))

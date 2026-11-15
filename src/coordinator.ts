@@ -525,7 +525,7 @@ export class Coordinator {
       if (pr !== undefined)
         for (const l of ["agent:pr-open", "agent:reviewed"]) await this.d.gh.removeLabel(repo, n, l);
       await this.d.gh.addLabels(repo, n, ["agent:failed"]);
-      this.d.store.updateIssue(repo, n, { pendingFeedback: null });
+      this.d.store.updateIssue(repo, n, { pendingFeedback: null, reviewFindings: null });
       await this.d.gh.createComment(repo, n, `${note}\n\nThe Coordinator gave up on this issue${by}: ${reason}.`);
     }
     if (session) {

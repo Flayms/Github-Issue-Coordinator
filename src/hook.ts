@@ -12,7 +12,7 @@
  */
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { resultInstructions, validateResult } from "./results.ts";
+import { findingsToAnswer, resultInstructions, validateResult } from "./results.ts";
 import { Store } from "./store.ts";
 
 export const MAX_RESULT_FAILURES = 3;
@@ -56,7 +56,9 @@ export function handleHook({ event, payload, store, sessionId, sessionDir }: Hoo
       }
       const resultPath = join(sessionDir, "result.json");
       const text = existsSync(resultPath) ? readFileSync(resultPath, "utf8") : undefined;
-      const check = validateResult(session.role, text, session.issues);
+      const findings =
+        session.role === "implementer" ? findingsToAnswer(store.issue(session.repo, session.issues[0] ?? 0)) : 0;
+      const check = validateResult(session.role, text, session.issues, findings);
       if (check.ok) {
         store.patchSession(sessionId, { state: "idle", needsSync: true, resultFailures: 0 });
         return {};

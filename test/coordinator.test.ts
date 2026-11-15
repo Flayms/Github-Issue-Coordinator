@@ -150,8 +150,9 @@ class FakeWorktrees {
   reviewPath(_repo: string, pr: number) {
     return `/reviews/${pr}`;
   }
+  headSha = "h1";
   head() {
-    return "h1";
+    return this.headSha;
   }
 }
 
@@ -471,7 +472,7 @@ describe("reconcile loop", () => {
     expect(comment).not.toContain("Claude (");
   });
 
-  test("REQ-001-31 an agent PR is a draft until a Review without blocking findings", async () => {
+  test("REQ-001-31 an agent PR is a draft until a Review without findings", async () => {
     gh.items = [item(5, ["agent:pr-open"]), item(70, [], { isPullRequest: true, author: { login: "bot", id: 1 } })];
     store.updateIssue("octo/app", 5, { worktreePath: "/wt/5", prNumber: 70 });
     await coordinator.tick();
@@ -479,7 +480,7 @@ describe("reconcile loop", () => {
       join(runner.sessionDir(1), "result.json"),
       JSON.stringify({
         summary: "Crashes",
-        findings: [{ path: "a.ts", line: 1, severity: "high", blocking: true, body: "crash" }],
+        findings: [{ path: "a.ts", line: 1, severity: "medium", body: "crash" }],
       }),
     );
     store.patchSession(1, { state: "idle", needsSync: true });
@@ -522,7 +523,7 @@ describe("reconcile loop", () => {
     return id;
   };
 
-  test("REQ-001-11 blocking findings resume the Implementer in a counted Feedback round", async () => {
+  test("REQ-001-11 Review findings resume the Implementer in a counted Feedback round", async () => {
     const id = prOpen({ pendingFeedback: "Blocking: crash" });
     await coordinator.tick();
     expect(runner.resumed).toEqual([[id, expect.stringContaining("Blocking: crash")]]);
@@ -530,14 +531,61 @@ describe("reconcile loop", () => {
     expect(gh.items[0]?.labels).toEqual(["agent:in-progress"]);
   });
 
+  test("REQ-001-11 / REQ-001-35 / REQ-001-36 a medium finding is fixed in a round, answered on the PR and shown to the re-review", async () => {
+    const impl = prOpen({ reviewedHeadSha: null });
+    await coordinator.tick();
+    const review = runner.started.at(-1);
+    expect(review?.role).toBe("reviewer");
+    const reviewId = impl + 1;
+    const finding = { path: "a.ts", line: 1, severity: "medium", body: "No test for empty input" };
+    writeFileSync(
+      join(runner.sessionDir(reviewId), "result.json"),
+      JSON.stringify({ summary: "S", findings: [finding] }),
+    );
+    store.patchSession(reviewId, { state: "idle", needsSync: true });
+    await coordinator.tick();
+    await coordinator.tick();
+    expect(runner.resumed).toEqual([
+      [impl, expect.stringContaining("1. **medium** `a.ts:1`: No test for empty input")],
+    ]);
+
+    worktrees.headSha = "h2";
+    gh.heads.set(70, "h2");
+    mkdirSync(runner.sessionDir(impl), { recursive: true });
+    writeFileSync(
+      join(runner.sessionDir(impl), "result.json"),
+      JSON.stringify({
+        prTitle: "T",
+        prBody: "B",
+        summary: "Added the test",
+        responses: [{ finding: 1, answer: "fixed", reason: "Added a test for empty input" }],
+      }),
+    );
+    store.patchSession(impl, { state: "idle", needsSync: true });
+    gh.changed = true;
+    await coordinator.tick();
+    await coordinator.tick();
+    const answers = gh.calls.filter((c) => c[0] === "createComment" && c[1] === 70);
+    expect(answers).toEqual([
+      ["createComment", 70, expect.stringContaining("**Fixed**: Added a test for empty input")],
+    ]);
+    const reReview = runner.started.at(-1);
+    expect(reReview?.role).toBe("reviewer");
+    expect(reReview).not.toBe(review);
+    expect(reReview?.prompt).toContain("No test for empty input");
+    expect(reReview?.prompt).toContain("**Fixed**: Added a test for empty input");
+  });
+
   test("REQ-001-11 past maxFeedbackRounds the PR and its issue are labelled agent:failed", async () => {
-    prOpen({ pendingFeedback: "Blocking: crash", feedbackRounds: 2 });
+    prOpen({ pendingFeedback: "Blocking: crash", reviewFindings: "[]", feedbackRounds: 2 });
     await coordinator.tick();
     expect(runner.resumed).toEqual([]);
     expect(gh.calls).toContainEqual(["addLabels", 5, ["agent:failed"]]);
     expect(gh.calls).toContainEqual(["addLabels", 70, ["agent:failed"]]);
     expect(gh.calls).toContainEqual(["setDraft", 70, true]); // REQ-001-31
     expect(store.issue("octo/app", 5).pendingFeedback).toBeNull();
+    // REQ-001-35: a later Owner round must not have to answer findings its prompt doesn't list.
+    expect(store.issue("octo/app", 5).reviewFindings).toBeNull();
   });
 
   test("REQ-001-13 failing checks start a round with their output, once per head", async () => {

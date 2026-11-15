@@ -9,7 +9,7 @@ export const AGENT_LABELS = [
   { name: "agent:in-progress", color: "5319e7", description: "Implementer is working on this" },
   { name: "agent:pr-open", color: "006b75", description: "Agent PR is open" },
   { name: "agent:reviewing", color: "d4c5f9", description: "Reviewer is reviewing this PR" },
-  { name: "agent:reviewed", color: "0e8a16", description: "Review found nothing blocking" },
+  { name: "agent:reviewed", color: "0e8a16", description: "Review found nothing to fix" },
   { name: "agent:failed", color: "e11d21", description: "The agent gave up; needs the Owner" },
 ] as const;
 
