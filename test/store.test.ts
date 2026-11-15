@@ -36,6 +36,7 @@ describe("store", () => {
           usageLimited: false,
           modelId: null,
           title: null,
+          startedAt: "2026-11-10T10:00:00.000Z",
         },
       ]);
       b.close();
@@ -62,6 +63,34 @@ describe("store", () => {
       expect(s.session(id)?.modelId).toBeNull();
       s.setModelId(id, "claude-opus-5-5");
       expect(s.session(id)?.modelId).toBe("claude-opus-5-5");
+      s.close();
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  test("REQ-003-01 keeps when a session started, also in a database created before", () => {
+    const dir = mkdtempSync(join(tmpdir(), "store-"));
+    try {
+      const path = join(dir, "state.db");
+      const old = new Database(path, { create: true });
+      old.exec(
+        `CREATE TABLE sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, repo TEXT NOT NULL, role TEXT NOT NULL,
+         kind TEXT NOT NULL, issues TEXT NOT NULL, claude_session_id TEXT, state TEXT NOT NULL,
+         resume_attempts INTEGER NOT NULL DEFAULT 0, last_activity_at TEXT NOT NULL, owner_messaged_at TEXT,
+         coordinator_prompt_pending INTEGER NOT NULL DEFAULT 0, result_failures INTEGER NOT NULL DEFAULT 0,
+         needs_sync INTEGER NOT NULL DEFAULT 0, usage_limited INTEGER NOT NULL DEFAULT 0, model_id TEXT, title TEXT)`,
+      );
+      old.exec(
+        `INSERT INTO sessions (repo, role, kind, issues, state, last_activity_at)
+         VALUES ('octo/app', 'reviewer', 'issue', '[4]', 'idle', '2026-11-10T10:00:00Z')`,
+      );
+      old.close();
+      const s = new Store(path, at("2026-11-12T08:00:00Z"));
+      expect(s.session(1)?.startedAt).toBeNull();
+      const id = s.createSession({ repo: "octo/app", role: "implementer", kind: "issue", issues: [5] });
+      s.patchSession(id, { state: "idle" });
+      expect(s.session(id)?.startedAt).toBe("2026-11-12T08:00:00.000Z");
       s.close();
     } finally {
       rmSync(dir, { recursive: true });

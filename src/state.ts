@@ -379,7 +379,8 @@ const conflictText = (base = "HEAD"): string =>
   `Run \`git merge origin/${base}\` (merge, do not rebase: the push must stay a fast-forward), resolve the conflicts, ` +
   "run the tests and commit the merge.";
 
-function coordination(assessment: string | null, key: "blockedBy" | "bundleWith"): number[] {
+/** Issue numbers an Assessment's Coordination notes list under `blockedBy` or `bundleWith`. */
+export function coordination(assessment: string | null, key: "blockedBy" | "bundleWith"): number[] {
   if (!assessment) return [];
   try {
     const list = (JSON.parse(assessment) as Record<string, unknown>)[key];

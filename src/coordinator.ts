@@ -11,8 +11,16 @@ import { agentNote, ROLE_NAMES } from "./note.ts";
 import { bodyHash, Planner } from "./planner.ts";
 import { Reviewer, type ReviewerDeps } from "./reviewer.ts";
 import type { SessionRunner } from "./runner.ts";
-import { type LiveSession, schedule, type Work } from "./scheduler.ts";
-import { type Action, deriveActions, type IssueFeedback, inScope, issueState, type PullState } from "./state.ts";
+import { type LiveSession, type Queued, schedule, type WaitReason, type Work } from "./scheduler.ts";
+import {
+  type Action,
+  coordination,
+  deriveActions,
+  type IssueFeedback,
+  inScope,
+  issueState,
+  type PullState,
+} from "./state.ts";
 import type { IssueRecord, SessionRecord, Store, WorktreeRecord } from "./store.ts";
 
 /** How long to wait after a usage limit before trying again; the reset time's format is still unknown. */
@@ -51,6 +59,37 @@ export interface CoordinatorDeps {
   log?: (message: string) => void;
 }
 
+/** What the last tick saw and decided, for the dashboard (spec 003). Published in one piece at the end of a tick. */
+export interface TickSnapshot {
+  finishedAt: string;
+  /** Usage-limit pause (REQ-001-17), if one is on record. */
+  pausedUntil: string | null;
+  repos: RepoSnapshot[];
+  /** Open sessions; `live` says whether their tmux window is alive. */
+  sessions: (SessionRecord & { live: boolean })[];
+  /** Queued work in the scheduler's order, with why it waits (REQ-003-04). */
+  queue: Queued[];
+}
+
+export interface RepoSnapshot {
+  repo: string;
+  /** Why polling the repository failed in this tick. */
+  error: string | null;
+  /** In-scope open issues (REQ-001-01), with the open issues they are blocked by (REQ-001-05). */
+  issues: { number: number; title: string; labels: string[]; blockedBy: number[] }[];
+  /** Open agent PRs. */
+  pulls: {
+    number: number;
+    title: string;
+    labels: string[];
+    issues: number[];
+    feedbackRounds: number;
+    state: PullState | null;
+  }[];
+}
+
+type Job = () => Promise<WaitReason | undefined>;
+
 interface RepoView {
   items: Item[];
   feedback: Map<number, IssueFeedback>;
@@ -67,6 +106,7 @@ export class Coordinator {
   private readonly syncFailures = new Map<number, number>();
   private readonly now: () => Date;
   private readonly log: (m: string) => void;
+  private last: TickSnapshot | undefined;
 
   constructor(private readonly d: CoordinatorDeps) {
     this.planner = new Planner(d);
@@ -76,16 +116,26 @@ export class Coordinator {
     this.log = d.log ?? ((m) => console.log(`${new Date().toISOString()} ${m}`));
   }
 
+  /** The last tick's snapshot; undefined before the first tick ended (REQ-003-06). */
+  snapshot(): TickSnapshot | undefined {
+    return this.last;
+  }
+
   async tick(): Promise<void> {
+    const errors = new Map<string, string>();
+    const pullStates = new Map<string, Map<number, PullState>>();
+    let planned: Queued[] = [];
     try {
       await this.syncTurns();
       const queue: Work[] = [];
-      const jobs = new Map<string, () => Promise<void>>();
+      const jobs = new Map<string, Job>();
       const live = this.d.runner.liveSessionIds();
       for (const { name: repo } of this.d.config.repos) {
         try {
           const view = await this.poll(repo);
           const worktrees = this.d.store.worktrees(repo);
+          const pulls = await this.pulls(repo, view, worktrees);
+          pullStates.set(repo, pulls);
           const actions = deriveActions({
             repo,
             ownerId: this.d.config.owner.id,
@@ -99,7 +149,7 @@ export class Coordinator {
             records: this.records(repo, view.items),
             now: this.now().toISOString(),
             worktrees,
-            pulls: await this.pulls(repo, view, worktrees),
+            pulls,
             prFeedback: view.prFeedback,
             maxFeedbackRounds: this.d.config.limits.maxFeedbackRounds,
             checksGraceSeconds: this.d.config.checksGraceSeconds,
@@ -107,13 +157,70 @@ export class Coordinator {
           for (const a of actions) await this.handle(a, view, queue, jobs);
           this.queueUsageLimited(repo, queue, jobs);
         } catch (e) {
-          this.log(`${repo}: ${e instanceof Error ? e.message : String(e)}`);
+          const error = e instanceof Error ? e.message : String(e);
+          errors.set(repo, error);
+          this.log(`${repo}: ${error}`);
         }
       }
-      await this.run(queue, jobs);
+      planned = await this.run(queue, jobs);
     } catch (e) {
       this.log(`tick failed: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}`);
     }
+    try {
+      this.last = this.buildSnapshot(errors, pullStates, planned);
+    } catch (e) {
+      this.log(`dashboard snapshot failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  /** Reads only memory and the store; changes nothing (REQ-003-07, REQ-003-08). */
+  private buildSnapshot(
+    errors: Map<string, string>,
+    pullStates: Map<string, Map<number, PullState>>,
+    queue: Queued[],
+  ): TickSnapshot {
+    const live = this.d.runner.liveSessionIds();
+    const repos = this.d.config.repos.map(({ name: repo }): RepoSnapshot => {
+      const items = this.views.get(repo)?.items ?? [];
+      const open = new Set(items.map((i) => i.number));
+      const splitOffs = this.d.store.splitOffNumbers(repo);
+      const issues = items
+        .filter((i) => inScope(i, this.d.config.owner.id, splitOffs))
+        .map((i) => ({
+          number: i.number,
+          title: i.title,
+          labels: [...i.labels],
+          blockedBy: coordination(this.d.store.issue(repo, i.number).assessment, "blockedBy").filter((n) =>
+            open.has(n),
+          ),
+        }));
+      const pulls = this.d.store.worktrees(repo).flatMap((w) => {
+        const pr = w.prNumber === null ? undefined : items.find((i) => i.number === w.prNumber);
+        if (!pr) return [];
+        const state = pullStates.get(repo)?.get(pr.number);
+        return [
+          {
+            number: pr.number,
+            title: pr.title,
+            labels: [...pr.labels],
+            issues: [...w.issues],
+            feedbackRounds: w.feedbackRounds,
+            state: state ? { ...state } : null,
+          },
+        ];
+      });
+      return { repo, error: errors.get(repo) ?? null, issues, pulls };
+    });
+    const sessions = this.d.config.repos.flatMap(({ name }) =>
+      this.d.store.sessions(name).map((s) => ({ ...s, live: live.has(s.id) })),
+    );
+    return {
+      finishedAt: this.now().toISOString(),
+      pausedUntil: this.d.store.pausedUntil() ?? null,
+      repos,
+      sessions,
+      queue,
+    };
   }
 
   /** REQ-001-19 / REQ-001-27: sync every turn that ended, retrying failures; REQ-001-17: a usage limit pauses new work. */
@@ -203,7 +310,7 @@ export class Coordinator {
     return view;
   }
 
-  private async handle(a: Action, view: RepoView, queue: Work[], jobs: Map<string, () => Promise<void>>) {
+  private async handle(a: Action, view: RepoView, queue: Work[], jobs: Map<string, Job>) {
     const now = this.now().toISOString();
     switch (a.type) {
       case "mark-closed":
@@ -323,7 +430,7 @@ export class Coordinator {
         this.add(queue, jobs, { key, kind: "implement", role: "implementer", queuedAt: a.approvedAt }, async () => {
           if (!this.d.worktrees.hasRoom()) {
             this.log(`${key}: waiting, maxWorktrees reached`);
-            return;
+            return { kind: "max-worktrees" };
           }
           try {
             const id = await this.implementer.start(a.repo, members);
@@ -451,7 +558,7 @@ export class Coordinator {
   }
 
   /** REQ-001-17: continue sessions cut off by the usage limit once the pause is over. */
-  private queueUsageLimited(repo: string, queue: Work[], jobs: Map<string, () => Promise<void>>) {
+  private queueUsageLimited(repo: string, queue: Work[], jobs: Map<string, Job>) {
     for (const s of this.d.store.sessions(repo).filter((x) => x.usageLimited && x.state !== "running")) {
       this.add(
         queue,
@@ -474,13 +581,19 @@ export class Coordinator {
     }
   }
 
-  private add(queue: Work[], jobs: Map<string, () => Promise<void>>, w: Work, job: () => Promise<void>) {
+  private add(
+    queue: Work[],
+    jobs: Map<string, Job>,
+    w: Work,
+    job: () => Promise<WaitReason | undefined> | Promise<void>,
+  ) {
     if (jobs.has(w.key)) return;
     queue.push(w);
-    jobs.set(w.key, job);
+    jobs.set(w.key, async () => (await job()) ?? undefined);
   }
 
-  private async run(queue: Work[], jobs: Map<string, () => Promise<void>>) {
+  /** Runs the scheduler's plan; returns the queue with the reasons work waits (REQ-003-04). */
+  private async run(queue: Work[], jobs: Map<string, Job>): Promise<Queued[]> {
     const live = this.d.runner.liveSessionIds();
     const sessions: LiveSession[] = this.d.config.repos.flatMap(({ name }) =>
       this.d.store
@@ -503,13 +616,19 @@ export class Coordinator {
         this.log(`could not close session ${id}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
+    const waits = new Map<string, WaitReason>();
     for (const w of plan.start) {
       try {
-        await jobs.get(w.key)?.();
+        const wait = await jobs.get(w.key)?.();
+        if (wait) waits.set(w.key, wait);
       } catch (e) {
         this.log(`${w.key} failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
+    return plan.queue.map((q) => {
+      const wait = q.wait ?? waits.get(q.work.key);
+      return wait ? { work: q.work, wait } : { work: q.work };
+    });
   }
 
   private toLive(s: SessionRecord): LiveSession {

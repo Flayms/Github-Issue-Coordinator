@@ -3,7 +3,8 @@
  * See docs/specs/001-issue-coordinator/plan.md ("Config sketch").
  */
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { isIP } from "node:net";
+import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 
 export const ROLES = ["planner", "implementer", "reviewer"] as const;
@@ -50,6 +51,18 @@ const limitsSchema = z
     message: "must not exceed maxLiveSessions (running sessions are live sessions)",
   });
 
+/** The read-only web dashboard (spec 003); without this block no server is started. */
+const dashboardSchema = z.strictObject({
+  host: z.string().min(1).default("127.0.0.1"),
+  port: z.number().int().min(0).max(65535).default(8080),
+  /** File holding the access token; required unless the host is loopback (REQ-003-07). */
+  tokenPath: z.string().min(1).optional(),
+});
+
+/** `localhost`, `127.0.0.0/8` or `::1`. */
+export const isLoopback = (host: string): boolean =>
+  host === "localhost" || host === "::1" || (isIP(host) === 4 && host.startsWith("127."));
+
 const configSchema = z
   .strictObject({
     owner: z.strictObject({ login: z.string().min(1), id: positiveInt }),
@@ -70,8 +83,15 @@ const configSchema = z
     limits: limitsSchema.prefault({}),
     roles: z.strictObject({ planner: roleSchema, implementer: roleSchema, reviewer: roleSchema }),
     repos: z.array(repoSchema).min(1),
+    dashboard: dashboardSchema.optional(),
   })
   .superRefine((c, ctx) => {
+    if (c.dashboard && !c.dashboard.tokenPath && !isLoopback(c.dashboard.host))
+      ctx.addIssue({
+        code: "custom",
+        path: ["dashboard", "tokenPath"],
+        message: "required when the dashboard listens on a host other than loopback",
+      });
     const seen = new Set<string>();
     c.repos.forEach((r, i) => {
       const key = r.name.toLowerCase();
@@ -120,4 +140,14 @@ export function roleSettings(config: Config, repo: string, role: Role): RoleSett
   const r = config.repos.find((x) => x.name.toLowerCase() === repo.toLowerCase());
   if (!r) throw new Error(`repository ${repo} is not configured`);
   return { ...config.roles[role], ...r.roles?.[role] };
+}
+
+/** What every agent session is denied reading (REQ-001-26, REQ-003-10): the App key's and the dashboard token's folders, and Claude's login. */
+export function secretPaths(config: Config, home: string): string[] {
+  const tokenPath = config.dashboard?.tokenPath;
+  return [
+    dirname(resolve(config.github.privateKeyPath)),
+    join(home, ".claude", ".credentials.json"),
+    ...(tokenPath ? [dirname(resolve(tokenPath))] : []),
+  ];
 }
