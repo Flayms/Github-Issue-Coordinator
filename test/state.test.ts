@@ -472,7 +472,7 @@ describe("deriveActions", () => {
     ]);
   });
 
-  test("REQ-001-37 an agent:in-progress issue with Review findings on record and no Implementer session gets its round, not agent:failed", () => {
+  test("REQ-001-39 an agent:in-progress issue with Review findings on record and no Implementer session gets its round, not agent:failed", () => {
     const actions = deriveActions(
       snap({
         items: [issue(5, ["agent:in-progress"]), pr(9)],
@@ -483,7 +483,7 @@ describe("deriveActions", () => {
     expect(actions).toEqual([expect.objectContaining({ type: "feedback", pr: 9, issues: [5], counted: true })]);
   });
 
-  test("REQ-001-37 / REQ-001-11 past maxFeedbackRounds such an issue fails once, for the round limit", () => {
+  test("REQ-001-39 / REQ-001-11 past maxFeedbackRounds such an issue fails once, for the round limit", () => {
     const actions = deriveActions(
       snap({
         items: [issue(5, ["agent:in-progress"]), pr(9)],
@@ -503,7 +503,7 @@ describe("deriveActions", () => {
     ]);
   });
 
-  test("REQ-001-07 / REQ-001-37 an agent:in-progress issue without Review findings on record and no session still fails", () => {
+  test("REQ-001-07 / REQ-001-39 an agent:in-progress issue without Review findings on record and no session still fails", () => {
     const actions = deriveActions(
       snap({ items: [issue(5, ["agent:in-progress"]), pr(9)], worktrees: wt("h2"), pulls: passing }),
     );

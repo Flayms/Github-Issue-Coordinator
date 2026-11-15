@@ -145,7 +145,7 @@ export function deriveActions(s: Snapshot): Action[] {
 
   // REQ-001-07 / REQ-001-16: an in-flight label needs its session; never start a second one.
   // REQ-001-27: a closed session whose sync is still being retried counts as its session.
-  // REQ-001-37: an Implementer issue with Review findings on record waits for its Feedback round below.
+  // REQ-001-39: an Implementer issue with Review findings on record waits for its Feedback round below.
   const owners = [...s.sessions, ...(s.pendingSync ?? [])];
   const awaitingRound = (n: number) => (s.worktrees ?? []).some((w) => w.pendingFeedback && w.issues.includes(n));
   for (const i of issues) {

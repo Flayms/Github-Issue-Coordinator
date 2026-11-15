@@ -121,7 +121,7 @@ export class Reviewer {
     }
 
     // REQ-001-11: every posted finding is one to fix, so any finding starts a Feedback round.
-    // REQ-001-37: the next step is the Implementer's, so the issue goes straight to agent:in-progress.
+    // REQ-001-39: the next step is the Implementer's, so the issue goes straight to agent:in-progress.
     const { findings } = result;
     for (const n of s.issues) {
       this.d.store.updateIssue(s.repo, n, {

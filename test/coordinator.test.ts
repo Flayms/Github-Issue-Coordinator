@@ -576,7 +576,7 @@ describe("reconcile loop", () => {
     expect(reReview?.prompt).toContain("**Fixed**: Added a test for empty input");
   });
 
-  test("REQ-001-37 Review findings take the issue from agent:reviewing to agent:in-progress without agent:pr-open, also across a restart", async () => {
+  test("REQ-001-39 Review findings take the issue from agent:reviewing to agent:in-progress without agent:pr-open, also across a restart", async () => {
     const impl = prOpen({ reviewedHeadSha: null });
     await coordinator.tick();
     const reviewId = impl + 1;

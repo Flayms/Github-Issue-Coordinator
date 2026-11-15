@@ -193,7 +193,7 @@ describe("Reviewer run", () => {
     expect(store.issue("octo/app", 5).reviewFindings).toBeNull();
   });
 
-  test("REQ-001-11 / REQ-001-37 every finding, a single medium one too, is kept numbered for a Feedback round and the issue goes straight to agent:in-progress", async () => {
+  test("REQ-001-11 / REQ-001-39 every finding, a single medium one too, is kept numbered for a Feedback round and the issue goes straight to agent:in-progress", async () => {
     const id = await reviewer.start("octo/app", 9, [item(5), item(6)], "h1");
     gh.calls = [];
     finish(id, [finding("high"), finding("medium", 7, "Missing test for REQ-001-11")]);
