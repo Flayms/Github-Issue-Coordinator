@@ -37,7 +37,6 @@ stateDiagram-v2
         state "agent:proposed" as proposed
         state "agent:needs-refinement" as refinement
         state "agent:wontfix-proposed" as wontfix
-        state revise <<choice>>
     }
     state Implementing {
         state "agent:approved" as approved
@@ -55,12 +54,9 @@ stateDiagram-v2
     planning --> proposed : Coordinator, after the Planner's Result
     planning --> refinement : Coordinator, after the Planner's Result
     planning --> wontfix : Coordinator, after the Planner's Result
-    proposed --> revise : Owner comments feedback or edits the issue
-    refinement --> revise : Owner comments feedback or edits the issue
-    wontfix --> revise : Owner comments feedback or edits the issue
-    revise --> proposed : Coordinator, after the revised Assessment
-    revise --> refinement : Coordinator, after the revised Assessment
-    revise --> wontfix : Coordinator, after the revised Assessment
+    proposed --> proposed : Owner feedback, Planner revises
+    refinement --> refinement : Owner feedback, Planner revises
+    wontfix --> wontfix : Owner feedback, Planner revises
     proposed --> approved : Owner /approve or adds agent#58;approved
     proposed --> blocked : Owner /approve or adds agent#58;approved, while a blocking issue is open
     blocked --> approved : Coordinator, the blocking issue was closed
@@ -123,7 +119,7 @@ stateDiagram-v2
 | `agent:reviewed`         | The Review found nothing to fix; the PR left draft (on the issue and the PR)                                                                           | Coordinator, after a Review without findings                                                                     | Merge, or `/agent <text>` / "Request changes" for another round                                                                                                                                   |
 | `agent:failed`           | The Coordinator gave up; its comment says why (on the issue, and on the PR if there is one). No automatic rounds run any more                          | Coordinator                                                                                                      | `/agent <text>` or "Request changes" on the PR for a Feedback round, which clears the label; `/wake` to chat with the session; if it failed in planning, remove the label to have it planned anew |
 
-When an issue carries several agent labels, the most advanced one wins (`PRECEDENCE` in [`src/state.ts`](src/state.ts)), with `agent:failed` above all others. Merging or closing the PR clears the issue's agent labels; an issue whose PR was closed unmerged is open again without a label and gets a new Assessment.
+Feedback on a proposal (a comment, or an edit to the issue) can be given as often as you like; each revised Assessment can change the verdict to any of the three proposal labels. When an issue carries several agent labels, the most advanced one wins (`PRECEDENCE` in [`src/state.ts`](src/state.ts)), with `agent:failed` above all others. Merging or closing the PR clears the issue's agent labels; an issue whose PR was closed unmerged is open again without a label and gets a new Assessment.
 
 ## Role prompts
 
