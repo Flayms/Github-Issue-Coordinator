@@ -145,9 +145,12 @@ export function deriveActions(s: Snapshot): Action[] {
 
   // REQ-001-07 / REQ-001-16: an in-flight label needs its session; never start a second one.
   // REQ-001-27: a closed session whose sync is still being retried counts as its session.
+  // REQ-001-37: an Implementer issue with Review findings on record waits for its Feedback round below.
   const owners = [...s.sessions, ...(s.pendingSync ?? [])];
+  const awaitingRound = (n: number) => (s.worktrees ?? []).some((w) => w.pendingFeedback && w.issues.includes(n));
   for (const i of issues) {
     const role = IN_FLIGHT[issueState(i.labels)];
+    if (role === "implementer" && awaitingRound(i.number)) continue;
     if (role && !owners.some((x) => x.role === role && x.issues.includes(i.number)))
       actions.push({ type: "fail", repo: s.repo, issues: [i.number], reason: `no ${role} session to resume` });
   }
