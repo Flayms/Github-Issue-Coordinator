@@ -25,8 +25,8 @@ A single Bun process (`systemd` service, dedicated `agent` Linux user) runs a **
 | Role        | Where it runs                                               | Writes          | Result schema                                                          |
 | ----------- | ----------------------------------------------------------- | --------------- | ---------------------------------------------------------------------- |
 | Planner     | Main clone, read-only tools                                 | —               | `[{issue, verdict, approach, bundleWith[], blockedBy[], questions[]}]` |
-| Implementer | Own Worktree (a local clone of the main clone)              | Commits locally | `{prTitle, prBody, summary}`                                           |
-| Reviewer    | Temporary detached checkout of the PR head, read-only tools | —               | `{summary, findings[{path, line, severity, blocking, body}]}`          |
+| Implementer | Own Worktree (a local clone of the main clone)              | Commits locally | `{prTitle, prBody, summary, responses?[{finding, answer, reason}]}`    |
+| Reviewer    | Temporary detached checkout of the PR head, read-only tools | —               | `{summary, findings[{path, line, severity (high/medium), body}]}`      |
 
 ### Prompts and models
 

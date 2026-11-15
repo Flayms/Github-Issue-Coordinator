@@ -195,6 +195,9 @@ describe("store", () => {
       const s = new Store(path);
       s.updateIssue("octo/app", 5, { conflictSha: "h1", headSha: "h1", headSeenAt: "2026-11-13T10:00:00.000Z" });
       expect(s.issue("octo/app", 5)).toMatchObject({ worktreePath: "/wt/5", conflictSha: "h1", headSha: "h1" });
+      // REQ-001-34 / REQ-001-35: the Review findings and their history are migrated too.
+      s.updateIssue("octo/app", 5, { reviewFindings: "[]", reviewHistory: "Earlier" });
+      expect(s.issue("octo/app", 5)).toMatchObject({ reviewFindings: "[]", reviewHistory: "Earlier" });
       s.close();
     } finally {
       rmSync(dir, { recursive: true });
@@ -223,6 +226,8 @@ describe("store", () => {
       headSha: null,
       headSeenAt: null,
       inFeedbackRound: 0,
+      reviewFindings: null,
+      reviewHistory: null,
     });
     s.updateIssue("octo/app", 5, { assessmentCommentId: 77, lastHandledCommentId: 12 });
     s.updateIssue("octo/app", 5, { feedbackRounds: 1 });

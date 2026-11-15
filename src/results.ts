@@ -22,6 +22,16 @@ const implementerSchema = z.strictObject({
   prTitle: z.string().min(1),
   prBody: z.string().min(1),
   summary: z.string().min(1).describe("What changed in this turn"),
+  responses: z
+    .array(
+      z.strictObject({
+        finding: z.number().int().positive().describe("The finding's number in the Feedback round"),
+        answer: z.enum(["fixed", "declined"]),
+        reason: z.string().min(1).describe("What you changed, or why the finding is wrong"),
+      }),
+    )
+    .optional()
+    .describe("Only in a Feedback round with Review findings: one answer per finding (REQ-001-34)"),
 });
 
 const reviewerSchema = z.strictObject({
@@ -30,8 +40,7 @@ const reviewerSchema = z.strictObject({
     z.strictObject({
       path: z.string().min(1),
       line: z.number().int().positive(),
-      severity: z.enum(["high", "medium", "low"]),
-      blocking: z.boolean().describe("true if the PR must not be merged without fixing this"),
+      severity: z.enum(["high", "medium"]),
       body: z.string().min(1),
     }),
   ),
@@ -49,8 +58,11 @@ export type ReviewerResult = z.output<typeof reviewerSchema>;
 
 export type Validation = { ok: true; value: unknown } | { ok: false; problem: string };
 
-/** Validates a Result file's text; `issues` are the session's issues (a Planner must assess exactly these). */
-export function validateResult(role: Role, text: string | undefined, issues: number[]): Validation {
+/**
+ * Validates a Result file's text; `issues` are the session's issues (a Planner must assess exactly these).
+ * `findings` is the number of Review findings an Implementer's Result must answer (REQ-001-34).
+ */
+export function validateResult(role: Role, text: string | undefined, issues: number[], findings = 0): Validation {
   if (text === undefined) return { ok: false, problem: "The Result file is missing." };
   let raw: unknown;
   try {
@@ -78,7 +90,33 @@ export function validateResult(role: Role, text: string | undefined, issues: num
       };
     }
   }
+  if (role === "implementer" && findings > 0) {
+    const answered = new Set(((parsed.data as ImplementerResult).responses ?? []).map((r) => r.finding));
+    const missing = Array.from({ length: findings }, (_, i) => i + 1).filter((n) => !answered.has(n));
+    const unknown = [...answered].filter((n) => n > findings);
+    if (missing.length || unknown.length) {
+      const parts = [
+        missing.length ? `answer finding ${missing.join(", ")}` : "",
+        unknown.length ? `remove finding ${unknown.join(", ")} (there are only ${findings})` : "",
+      ].filter(Boolean);
+      return {
+        ok: false,
+        problem: `The Result must answer each of the ${findings} Review findings in \`responses\`: ${parts.join(" and ")}.`,
+      };
+    }
+  }
   return { ok: true, value: parsed.data };
+}
+
+/** How many Review findings the session's current Feedback round must answer (REQ-001-34). */
+export function findingsToAnswer(issue: { inFeedbackRound: number; reviewFindings: string | null }): number {
+  if (!issue.inFeedbackRound || !issue.reviewFindings) return 0;
+  try {
+    const list = JSON.parse(issue.reviewFindings);
+    return Array.isArray(list) ? list.length : 0;
+  } catch {
+    return 0;
+  }
 }
 
 /** Tells a session where to write its Result and in which shape. */

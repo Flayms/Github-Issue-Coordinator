@@ -10,7 +10,8 @@ import { type Config, roleSettings } from "./config.ts";
 import type { GitHubClient, Item } from "./github/client.ts";
 import { sessionNote } from "./note.ts";
 import { loadPrompt, renderPrompt } from "./prompts.ts";
-import { type ImplementerResult, validateResult } from "./results.ts";
+import { findingsToAnswer, type ImplementerResult, validateResult } from "./results.ts";
+import type { Finding } from "./reviewer.ts";
 import type { SessionRunner } from "./runner.ts";
 import type { Store } from "./store.ts";
 import type { Worktrees } from "./worktrees.ts";
@@ -62,9 +63,14 @@ export class Implementer {
     const s = this.d.store.session(sessionId);
     if (s?.role !== "implementer") return;
     const path = join(this.d.runner.sessionDir(sessionId), "result.json");
-    const check = validateResult("implementer", existsSync(path) ? readFileSync(path, "utf8") : undefined, s.issues);
-    const note = sessionNote(this.d.config, s);
     const first = this.d.store.issue(s.repo, s.issues[0] ?? 0);
+    const check = validateResult(
+      "implementer",
+      existsSync(path) ? readFileSync(path, "utf8") : undefined,
+      s.issues,
+      findingsToAnswer(first),
+    );
+    const note = sessionNote(this.d.config, s);
     this.d.store.patchSession(sessionId, { needsSync: false });
 
     if (!check.ok) {
@@ -108,8 +114,18 @@ export class Implementer {
     } else {
       await this.d.gh.updatePull(s.repo, first.prNumber, { title: result.prTitle, body });
       // REQ-001-31: a reviewed PR goes back to draft once a head it was not reviewed at is pushed.
-      if (first.reviewedHeadSha !== null && this.d.worktrees.head(wt) !== first.reviewedHeadSha)
-        await this.d.gh.setDraft(s.repo, first.prNumber, true);
+      const unchanged = first.reviewedHeadSha !== null && this.d.worktrees.head(wt) === first.reviewedHeadSha;
+      if (first.reviewedHeadSha !== null && !unchanged) await this.d.gh.setDraft(s.repo, first.prNumber, true);
+      if (first.inFeedbackRound && first.reviewFindings) {
+        // REQ-001-34: one comment answering every finding; REQ-001-35: kept for the next Review.
+        const answers = renderAnswers(JSON.parse(first.reviewFindings) as Finding[], result.responses ?? []);
+        const waits = unchanged
+          ? "\n\nNo new commits in this round, so the PR stays a draft and waits for the Owner: comment `/agent <text>` to have it fixed anyway, or merge it by hand."
+          : "";
+        await this.d.gh.createComment(s.repo, first.prNumber, `${note}\n\n${answers}${waits}`);
+        const history = [first.reviewHistory, answers].filter(Boolean).join("\n\n");
+        for (const n of s.issues) this.d.store.updateIssue(s.repo, n, { reviewFindings: null, reviewHistory: history });
+      }
       if (first.inFeedbackRound) {
         for (const n of s.issues) {
           this.d.store.updateIssue(s.repo, n, { inFeedbackRound: 0 });
@@ -217,6 +233,24 @@ export class Implementer {
     );
     return parts.join("\n\n");
   }
+}
+
+type Response = NonNullable<ImplementerResult["responses"]>[number];
+
+const quote = (text: string, indent: string) =>
+  text
+    .split("\n")
+    .map((l) => `${indent}> ${l}`)
+    .join("\n");
+
+/** Each Review finding quoted next to the Implementer's answer (REQ-001-34). */
+function renderAnswers(findings: Finding[], responses: Response[]): string {
+  const items = findings.map((f, i) => {
+    const r = responses.find((x) => x.finding === i + 1);
+    const answer = r ? `**${r.answer === "fixed" ? "Fixed" : "Declined"}**: ${r.reason}` : "_No answer._";
+    return `${i + 1}. **${f.severity}** \`${f.path}:${f.line}\`\n\n${quote(f.body, "   ")}\n\n   ${answer}`;
+  });
+  return ["## Answers to the Review findings", ...items].join("\n\n");
 }
 
 const truncate = (s: string) => (s.length > BODY_LIMIT ? `${s.slice(0, BODY_LIMIT)}\n… (truncated)` : s);
