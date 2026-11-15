@@ -122,6 +122,7 @@ export class Planner {
       role: "planner",
       kind: "issue",
       issues: [issue.number],
+      title: issue.title,
       cwd: repoDir,
       prompt: renderPrompt(loadPrompt("planner", repoDir), { repo, context }),
       model,

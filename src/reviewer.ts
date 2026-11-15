@@ -52,6 +52,7 @@ export class Reviewer {
       role: "reviewer",
       kind: "issue",
       issues: numbers,
+      title: issues[0]?.title,
       cwd: path,
       prompt: renderPrompt(loadPrompt("reviewer", path), { repo, context: parts.join("\n\n") }),
       model: roleSettings(this.d.config, repo, "reviewer"),

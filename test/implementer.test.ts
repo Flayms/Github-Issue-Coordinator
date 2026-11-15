@@ -99,7 +99,7 @@ class FakeRunner {
   ) {}
   start(o: StartOptions) {
     this.started.push(o);
-    const id = this.store.createSession({ repo: o.repo, role: o.role, kind: o.kind, issues: o.issues });
+    const id = this.store.createSession({ repo: o.repo, role: o.role, kind: o.kind, issues: o.issues, title: o.title });
     mkdirSync(this.sessionDir(id), { recursive: true });
     return id;
   }
@@ -159,7 +159,7 @@ const finish = (
 };
 
 describe("Implementer run", () => {
-  test("REQ-001-06 / REQ-001-09 labels the Bundle in progress and starts a fresh session in one new Worktree", async () => {
+  test("REQ-001-06 / REQ-001-09 / REQ-001-33 labels the Bundle in progress and starts a fresh session in one new Worktree", async () => {
     const id = await impl.start("octo/app", [item(5), item(6)]);
     expect(wt.created).toEqual([["octo/app", [5, 6], "Issue 5"]]);
     expect(gh.of("addLabels")).toEqual([
@@ -177,6 +177,7 @@ describe("Implementer run", () => {
         role: "implementer",
         kind: "issue",
         issues: [5, 6],
+        title: "Issue 5",
         cwd: "/wt/5",
         model: { model: "sonnet" },
         sandboxDomains: ["registry.npmjs.org", "pypi.org", "files.pythonhosted.org"],
@@ -283,7 +284,7 @@ describe("Implementer run", () => {
     ]);
   });
 
-  test("REQ-001-11 a Feedback round without a resumable session starts a fresh one in the existing Worktree", async () => {
+  test("REQ-001-11 / REQ-001-33 a Feedback round without a resumable session starts a fresh one in the existing Worktree", async () => {
     const id = await impl.start("octo/app", [item(5)]); // never reported a Claude session id
     wt.ahead = 1;
     finish(id);
@@ -293,6 +294,7 @@ describe("Implementer run", () => {
     expect(runner.started.at(-1)).toMatchObject({
       role: "implementer",
       issues: [5],
+      title: "Issue 5",
       cwd: "/wt/5",
       sandboxDomains: ["registry.npmjs.org", "pypi.org", "files.pythonhosted.org"],
     });

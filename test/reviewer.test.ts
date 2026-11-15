@@ -80,7 +80,7 @@ class FakeRunner {
   ) {}
   start(o: StartOptions) {
     this.started.push(o);
-    const id = this.store.createSession({ repo: o.repo, role: o.role, kind: o.kind, issues: o.issues });
+    const id = this.store.createSession({ repo: o.repo, role: o.role, kind: o.kind, issues: o.issues, title: o.title });
     mkdirSync(this.sessionDir(id), { recursive: true });
     return id;
   }
@@ -137,7 +137,7 @@ const finish = (id: number, findings: unknown[]) => {
 };
 
 describe("Reviewer run", () => {
-  test("REQ-001-10 starts a fresh read-only session on a checkout of the PR head, with the issue and its Assessment", async () => {
+  test("REQ-001-10 / REQ-001-33 starts a fresh read-only session on a checkout of the PR head, with the issue and its Assessment", async () => {
     await reviewer.start("octo/app", 9, [item(5), item(6)], "h1");
     expect(wt.checkouts).toEqual([[9, "h1"]]);
     expect(runner.started).toEqual([
@@ -145,6 +145,7 @@ describe("Reviewer run", () => {
         role: "reviewer",
         kind: "issue",
         issues: [5, 6],
+        title: "Issue 5",
         cwd: "/reviews/9",
         model: { model: "opus" },
       }),
