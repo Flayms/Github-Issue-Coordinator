@@ -24,23 +24,30 @@ Agents never get GitHub credentials; the Coordinator does every GitHub write as 
 
 ## Labels
 
-Each issue's state is an `agent:*` label on the issue (an agent PR gets `agent:reviewed` and `agent:failed` too). You steer with comments, the `agent:approved` label, reviews and merging; the **Coordinator** applies every label, after an agent's Result or on its own checks. Agents never set labels: they have no GitHub access. The Coordinator creates the labels in each repository.
+Each issue's state is an `agent:*` label on the issue (shown in its GitHub colour, grouped by phase) (an agent PR gets `agent:reviewed` and `agent:failed` too). You steer with comments, the `agent:approved` label, reviews and merging; the **Coordinator** applies every label, after an agent's Result or on its own checks. Agents never set labels: they have no GitHub access. The Coordinator creates the labels in each repository.
 
 ```mermaid
 stateDiagram-v2
     state "new (no agent label)" as new
-    state "agent:planning" as planning
-    state "agent:proposed" as proposed
-    state "agent:needs-refinement" as refinement
-    state "agent:wontfix-proposed" as wontfix
-    state "agent:approved" as approved
-    state "agent:blocked" as blocked
-    state "agent:in-progress" as inprogress
-    state "agent:pr-open" as propen
-    state "agent:reviewing" as reviewing
-    state "agent:reviewed" as reviewed
     state "agent:failed" as failed
     state "merged / closed" as done
+
+    state Planning {
+        state "agent:planning" as planning
+        state "agent:proposed" as proposed
+        state "agent:needs-refinement" as refinement
+        state "agent:wontfix-proposed" as wontfix
+    }
+    state Implementing {
+        state "agent:approved" as approved
+        state "agent:blocked" as blocked
+        state "agent:in-progress" as inprogress
+    }
+    state Reviewing {
+        state "agent:pr-open" as propen
+        state "agent:reviewing" as reviewing
+        state "agent:reviewed" as reviewed
+    }
 
     [*] --> new : Owner opens an issue (or the Coordinator creates a Split-off issue)
     new --> planning : Coordinator starts the Planner
@@ -58,32 +65,57 @@ stateDiagram-v2
     reviewing --> reviewed : Coordinator, after a Review without findings, PR leaves draft
     reviewing --> propen : Coordinator, after a Review with findings
     propen --> inprogress : Feedback round, Coordinator for findings, failing checks or conflicts, Owner for /agent or Request changes
-    reviewed --> inprogress : Owner /agent or Request changes, a Feedback round
-    propen --> failed : Coordinator, past maxFeedbackRounds
+    reviewed --> inprogress : Feedback round, Coordinator for conflicts, Owner for /agent or Request changes
+    propen --> failed : Coordinator, past maxFeedbackRounds for findings or failing checks
     planning --> failed : Coordinator, no valid Result or interrupted twice
     inprogress --> failed : Coordinator, no valid Result or interrupted twice
     reviewing --> failed : Coordinator, no valid Result or interrupted twice
+    failed --> inprogress : Owner /agent or Request changes on the PR, a Feedback round
     reviewed --> done : Owner merges, Coordinator cleans up
     propen --> done : Owner clicks Ready for review and merges
     propen --> new : Owner closes the PR unmerged, the issue is planned anew
     wontfix --> done : Owner closes the issue
     done --> [*]
+
+    %% Label colours from src/labels.ts, as on GitHub
+    classDef l_planning fill:#c5def5,stroke:#c5def5,color:#1f2328
+    classDef l_proposed fill:#0e8a16,stroke:#0e8a16,color:#ffffff
+    classDef l_refinement fill:#fbca04,stroke:#fbca04,color:#1f2328
+    classDef l_wontfix fill:#cccccc,stroke:#cccccc,color:#1f2328
+    classDef l_approved fill:#1d76db,stroke:#1d76db,color:#ffffff
+    classDef l_blocked fill:#b60205,stroke:#b60205,color:#ffffff
+    classDef l_inprogress fill:#5319e7,stroke:#5319e7,color:#ffffff
+    classDef l_propen fill:#006b75,stroke:#006b75,color:#ffffff
+    classDef l_reviewing fill:#d4c5f9,stroke:#d4c5f9,color:#1f2328
+    classDef l_reviewed fill:#0e8a16,stroke:#0e8a16,color:#ffffff
+    classDef l_failed fill:#e11d21,stroke:#e11d21,color:#ffffff
+    class planning l_planning
+    class proposed l_proposed
+    class refinement l_refinement
+    class wontfix l_wontfix
+    class approved l_approved
+    class blocked l_blocked
+    class inprogress l_inprogress
+    class propen l_propen
+    class reviewing l_reviewing
+    class reviewed l_reviewed
+    class failed l_failed
 ```
 
-| Label                    | Means                                                                                                         | Set by                                                                | What you can do now                                                                                                                                                                     |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| _(none)_                 | New issue, not planned yet                                                                                    | —                                                                     | Wait for the next poll                                                                                                                                                                  |
-| `agent:planning`         | The Planner is assessing the issue                                                                            | Coordinator, when it starts the Planner                               | Wait, or follow the session in the Claude app                                                                                                                                           |
-| `agent:proposed`         | The Assessment proposes an approach                                                                           | Coordinator, after the Planner's Result                               | Reply to revise, or `/approve [notes]` (or add `agent:approved`)                                                                                                                        |
-| `agent:needs-refinement` | The Assessment asks you for details                                                                           | Coordinator, after the Planner's Result                               | Reply with the details (or edit the issue); the Planner revises                                                                                                                         |
-| `agent:wontfix-proposed` | The Assessment proposes not to do this                                                                        | Coordinator, after the Planner's Result                               | Close the issue, or reply to argue for it                                                                                                                                               |
-| `agent:approved`         | Approved; queued for the Implementer                                                                          | Coordinator on `/approve`, or you (anyone else's is removed)          | Wait                                                                                                                                                                                    |
-| `agent:blocked`          | Approved, but an issue it is blocked by is still open                                                         | Coordinator                                                           | Close or finish the blocking issue; it moves back to `agent:approved` by itself                                                                                                         |
-| `agent:in-progress`      | The Implementer is working, first run or Feedback round                                                       | Coordinator, when it starts or resumes the Implementer                | Wait, or chat with the session in the Claude app                                                                                                                                        |
-| `agent:pr-open`          | The draft PR is open: waiting for checks and a Review, or, if the Implementer declined every finding, for you | Coordinator, after the Implementer's Result or a Review with findings | `/agent <text>` or "Request changes" on the PR for a Feedback round, or merge it yourself                                                                                               |
-| `agent:reviewing`        | The Reviewer is reviewing the PR                                                                              | Coordinator, when it starts the Reviewer                              | Wait                                                                                                                                                                                    |
-| `agent:reviewed`         | The Review found nothing to fix; the PR left draft (on the issue and the PR)                                  | Coordinator, after a Review without findings                          | Merge, or `/agent <text>` / "Request changes" for another round                                                                                                                         |
-| `agent:failed`           | The Coordinator gave up; its comment says why (on the issue, and on the PR if there is one)                   | Coordinator                                                           | `/wake` to chat with the session; `/agent <text>` on the PR for another round (the label stays until you remove it); if it failed in planning, remove the label to have it planned anew |
+| Label                    | Means                                                                                                                                                  | Set by                                                                | What you can do now                                                                                                                                                                               |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| _(none)_                 | New issue, not planned yet                                                                                                                             | —                                                                     | Wait for the next poll                                                                                                                                                                            |
+| `agent:planning`         | The Planner is assessing the issue                                                                                                                     | Coordinator, when it starts the Planner                               | Wait, or follow the session in the Claude app                                                                                                                                                     |
+| `agent:proposed`         | The Assessment proposes an approach                                                                                                                    | Coordinator, after the Planner's Result                               | Reply to revise, or `/approve [notes]` (or add `agent:approved`)                                                                                                                                  |
+| `agent:needs-refinement` | The Assessment asks you for details                                                                                                                    | Coordinator, after the Planner's Result                               | Reply with the details (or edit the issue); the Planner revises                                                                                                                                   |
+| `agent:wontfix-proposed` | The Assessment proposes not to do this                                                                                                                 | Coordinator, after the Planner's Result                               | Close the issue, or reply to argue for it                                                                                                                                                         |
+| `agent:approved`         | Approved; queued for the Implementer                                                                                                                   | Coordinator on `/approve`, or you (anyone else's is removed)          | Wait                                                                                                                                                                                              |
+| `agent:blocked`          | Approved, but an issue it is blocked by is still open                                                                                                  | Coordinator                                                           | Close or finish the blocking issue; it moves back to `agent:approved` by itself                                                                                                                   |
+| `agent:in-progress`      | The Implementer is working, first run or Feedback round                                                                                                | Coordinator, when it starts or resumes the Implementer                | Wait, or chat with the session in the Claude app                                                                                                                                                  |
+| `agent:pr-open`          | The draft PR is open: waiting for checks and a Review, or, after an automatic round without a new commit, for you (the Coordinator's comment says why) | Coordinator, after the Implementer's Result or a Review with findings | `/agent <text>` or "Request changes" on the PR for a Feedback round, mark it ready yourself, or merge it                                                                                          |
+| `agent:reviewing`        | The Reviewer is reviewing the PR                                                                                                                       | Coordinator, when it starts the Reviewer                              | Wait                                                                                                                                                                                              |
+| `agent:reviewed`         | The Review found nothing to fix; the PR left draft (on the issue and the PR)                                                                           | Coordinator, after a Review without findings                          | Merge, or `/agent <text>` / "Request changes" for another round                                                                                                                                   |
+| `agent:failed`           | The Coordinator gave up; its comment says why (on the issue, and on the PR if there is one). No automatic rounds run any more                          | Coordinator                                                           | `/agent <text>` or "Request changes" on the PR for a Feedback round, which clears the label; `/wake` to chat with the session; if it failed in planning, remove the label to have it planned anew |
 
 When an issue carries several agent labels, the most advanced one wins (`PRECEDENCE` in [`src/state.ts`](src/state.ts)), with `agent:failed` above all others. Merging or closing the PR clears the issue's agent labels; an issue whose PR was closed unmerged is open again without a label and gets a new Assessment.
 

@@ -16,4 +16,11 @@ describe("README Labels section", () => {
       expect(labelsSection).toContain(`state "${name}" as `);
       expect(labelsSection).toMatch(new RegExp(`^\\| \`${name}\` +\\|`, "m"));
     });
+
+  for (const { name, color } of AGENT_LABELS)
+    test(`colours ${name} as on GitHub (#${color})`, () => {
+      const id = labelsSection.match(new RegExp(`state "${name}" as (\\w+)`))?.[1];
+      const cls = labelsSection.match(new RegExp(`^ *class ${id} (\\w+)$`, "m"))?.[1];
+      expect(labelsSection).toMatch(new RegExp(`^ *classDef ${cls} fill:#${color}[,\\s]`, "m"));
+    });
 });
