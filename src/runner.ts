@@ -103,7 +103,13 @@ export class SessionRunner {
           // REQ-001-25: never run shell commands unsandboxed, e.g. when a sandbox dependency is missing.
           failIfUnavailable: true,
           allowUnsandboxedCommands: false,
-          filesystem: { denyRead: secrets },
+          filesystem: {
+            denyRead: secrets,
+            // REQ-001-25: the sandbox lets shell commands write to the cwd, and allowed read-only git can write
+            // files (`git log --output=<file>`). Deny beats that allow, so a Planner's or Reviewer's shell keeps
+            // only its session folder and the sandbox's temporary folder (docs/known-pitfalls.md).
+            ...(opts.role === "implementer" ? {} : { denyWrite: [opts.cwd] }),
+          },
           network: { allowedDomains: opts.role === "implementer" ? (opts.sandboxDomains ?? []) : [] },
         }
       : undefined;

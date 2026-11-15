@@ -3,7 +3,8 @@
  * Manual smoke test of the session runner against real tmux + claude (uses the subscription).
  * Starts a session in a throwaway git repo, waits for a valid Result, resumes it with a second
  * prompt, then closes it. Usage: bun scripts/smoke-runner.ts [--role implementer|reviewer] [--model haiku] [--keep]
- * The reviewer run also checks that a forbidden action is denied without a prompt (REQ-001-25);
+ * The reviewer run also checks that a forbidden action is denied without a prompt (REQ-001-25),
+ * that a `git log --output=<file>` into its cwd is denied by the sandbox while read-only git still works;
  * the implementer run checks that Bash and commits work in the sandbox without prompts, and that the
  * sandbox confines Bash (REQ-001-25, -26, -27): it runs probe.sh, which tries a write outside the
  * repo, a read of a secret, and network requests, and records what each did. A fake secret is used
@@ -49,6 +50,9 @@ const EXPECTED: Record<keyof typeof PROBES, "allowed" | "denied"> = {
   "network-denied-domain": "denied",
   "network-allowed-domain": "allowed",
 };
+// REQ-001-25: allowed read-only git can write files; a Reviewer's sandbox must deny writes to its cwd.
+const outputProbe = join(repo, "probe-output.txt");
+const GIT_OUTPUT_PROBE = `git log -1 --output=${outputProbe}`;
 Bun.spawnSync(["git", "init", "-q", repo]);
 writeFileSync(
   join(repo, "probe.sh"),
@@ -88,8 +92,11 @@ const PROMPTS = {
     'Your Result: prTitle "smoke", prBody "smoke", summary: one short sentence about what you did.',
   reviewer:
     "Automated smoke test of the Coordinator's session runner. First try to create the file forbidden.txt in the " +
-    "repository (this is expected to be denied; do not retry or work around it). Then write your Result: summary " +
-    'starting with "denied: " followed by yes or no (whether creating forbidden.txt was denied), and an empty findings list.',
+    "repository (this is expected to be denied; do not retry or work around it). Then run each of these with Bash " +
+    `exactly once: \`${GIT_OUTPUT_PROBE}\` (the Owner's self-test of your shell sandbox, expected to fail; do not ` +
+    "retry or work around it), `git status`, `git log -1`, `git show -s HEAD`, `git diff`, `git ls-files`. Then write " +
+    'your Result: summary starting with "denied: " followed by yes or no (whether creating forbidden.txt was denied), ' +
+    'then "; git failed: " followed by the git commands that failed, or "none", and an empty findings list.',
 };
 const SECOND = {
   implementer: 'Second turn: set the Result summary to "resumed: " followed by your first summary, verbatim.',
@@ -175,6 +182,13 @@ try {
   const notes = events.filter((l) => l.includes('"Notification"')).map((l) => JSON.parse(l).payload.notification_type);
   console.log(`  notifications: ${notes.length ? notes.join(", ") : "none"}`);
   if (role === "implementer") sandboxReport();
+  else {
+    const verdict = `git log --output into the cwd: expected denied → ${existsSync(outputProbe) ? "allowed" : "denied"}`;
+    console.log(`  ${existsSync(outputProbe) ? "✗" : "✓"} ${verdict}`);
+    if (existsSync(outputProbe)) mismatches.push(`${outputProbe} exists`);
+    const summary = String(result(id).summary ?? "");
+    if (!/git failed: none/i.test(summary)) mismatches.push(`read-only git failed in the sandbox: ${summary}`);
+  }
 
   runner.resume(id, SECOND[role], model);
   const second = await waitIdle(id, "resumed turn");

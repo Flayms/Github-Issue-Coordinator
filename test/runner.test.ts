@@ -214,6 +214,29 @@ describe("session runner", () => {
     expect(settings.permissions.additionalDirectories).toBeUndefined();
   });
 
+  test("REQ-001-25 a Planner's and a Reviewer's shell commands can't write to their cwd; the Implementer's can", () => {
+    // `git log/show/diff --output=<file>` writes files, so read-only git alone doesn't keep them read-only (#23).
+    for (const [role, cwd] of [
+      ["planner", "/clones/octo/app"],
+      ["reviewer", "/reviews/octo/app/9"],
+    ] as const) {
+      const id = runner.start({
+        repo: "octo/app",
+        role,
+        kind: "issue",
+        issues: [9],
+        cwd,
+        prompt: "p",
+        model: { model: "opus" },
+      });
+      const settings = JSON.parse(readFileSync(join(dir, "sessions", String(id), "settings.json"), "utf8"));
+      expect(settings.sandbox.filesystem.denyWrite).toEqual([cwd]);
+    }
+    const impl = startImplementer();
+    const settings = JSON.parse(readFileSync(join(dir, "sessions", String(impl), "settings.json"), "utf8"));
+    expect(settings.sandbox.filesystem.denyWrite).toBeUndefined();
+  });
+
   test("REQ-001-25 a resumed session keeps its Role's permissions", () => {
     const id = startImplementer();
     store.setClaudeSessionId(id, "sess-abc");
