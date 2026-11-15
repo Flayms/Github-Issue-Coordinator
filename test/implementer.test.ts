@@ -469,9 +469,10 @@ describe("Implementer run", () => {
     expect(gh.of("createComment")).toEqual([]);
   });
 
-  test("REQ-001-14 cleanup removes the Worktree, closes the sessions and clears the agent labels", async () => {
+  test("REQ-001-14 cleanup removes the Worktree, closes the sessions, clears the agent labels and the PR on record", async () => {
     const id = await impl.start("octo/app", [item(5), item(6)]);
     store.patchSession(id, { state: "idle" });
+    for (const n of [5, 6]) store.updateIssue("octo/app", n, { prNumber: 77 });
     gh.calls = [];
     expect(await impl.cleanup("octo/app", [5, 6], "/wt/5")).toBe(true);
     expect(wt.removed).toEqual(["/wt/5"]);
@@ -483,6 +484,7 @@ describe("Implementer run", () => {
         .map((c) => c[2]),
     ).toEqual(["agent:in-progress", "agent:pr-open", "agent:reviewing", "agent:reviewed", "agent:failed"]);
     expect(store.issue("octo/app", 5).worktreePath).toBeNull();
+    expect([5, 6].map((n) => store.issue("octo/app", n).prNumber)).toEqual([null, null]);
   });
 
   test("REQ-001-19 cleanup waits while the Owner is chatting with the session", async () => {
