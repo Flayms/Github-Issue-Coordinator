@@ -99,7 +99,7 @@ export class Coordinator {
             records: this.records(repo, view.items),
             now: this.now().toISOString(),
             worktrees,
-            pulls: await this.pulls(repo, view, worktrees),
+            pulls: await this.pulls(repo, worktrees),
             prFeedback: view.prFeedback,
             maxFeedbackRounds: this.d.config.limits.maxFeedbackRounds,
             checksGraceSeconds: this.d.config.checksGraceSeconds,
@@ -418,15 +418,33 @@ export class Coordinator {
   }
 
   /**
-   * Head, checks and mergeability of open agent PRs. Read on every tick: a check finishing does not
-   * change the issue list, so the ETag poll would not notice it (REQ-001-10, REQ-001-28). Records when
-   * each head was first seen, for the checks grace period.
+   * State, head, checks and mergeability of every agent PR on record. Read on every tick: a check
+   * finishing does not change the issue list, so the ETag poll would not notice it (REQ-001-10,
+   * REQ-001-28). Fetched per PR rather than taken from the list, which can be cached or lag behind a
+   * PR just opened (REQ-001-14). A failed fetch is logged and the PR left out until the next tick.
+   * Records when each head was first seen, for the checks grace period.
    */
-  private async pulls(repo: string, view: RepoView, worktrees: WorktreeRecord[]) {
+  private async pulls(repo: string, worktrees: WorktreeRecord[]) {
     const out = new Map<number, PullState>();
     for (const w of worktrees) {
-      if (w.prNumber === null || !view.items.some((i) => i.number === w.prNumber)) continue;
-      const pull = await this.d.gh.getPull(repo, w.prNumber);
+      if (w.prNumber === null) continue;
+      let pull: Awaited<ReturnType<CoordinatorDeps["gh"]["getPull"]>>;
+      try {
+        pull = await this.d.gh.getPull(repo, w.prNumber);
+      } catch (e) {
+        this.log(`${repo}: could not read PR #${w.prNumber}: ${e instanceof Error ? e.message : String(e)}`);
+        continue;
+      }
+      if (pull.state !== "open") {
+        out.set(w.prNumber, {
+          headSha: pull.headSha,
+          checks: "none",
+          mergeable: pull.mergeable,
+          headSeenAt: "",
+          state: pull.state,
+        });
+        continue;
+      }
       const checks = await this.d.gh.checks(repo, pull.headSha);
       let headSeenAt = w.headSeenAt;
       if (w.headSha !== pull.headSha || !headSeenAt) {
@@ -440,6 +458,7 @@ export class Coordinator {
         mergeable: pull.mergeable,
         headSeenAt,
         baseRef: pull.baseRef,
+        state: pull.state,
       });
     }
     return out;

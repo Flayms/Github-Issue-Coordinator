@@ -245,55 +245,6 @@ describe("deriveActions", () => {
     ]);
   });
 
-  test("REQ-001-14 a Worktree whose PR is no longer open is cleaned up", () => {
-    const actions = deriveActions(
-      snap({
-        items: [issue(5, ["agent:pr-open"]), issue(10, [], { isPullRequest: true, author: { login: "bot", id: 1 } })],
-        worktrees: [
-          {
-            issues: [5, 6],
-            prNumber: 9,
-            worktreePath: "/wt/5",
-            reviewedHeadSha: null,
-            feedbackRounds: 0,
-            pendingFeedback: null,
-            failedChecksSha: null,
-            conflictSha: null,
-            headSha: null,
-            headSeenAt: null,
-          },
-          {
-            issues: [7],
-            prNumber: 10,
-            worktreePath: "/wt/7",
-            reviewedHeadSha: null,
-            feedbackRounds: 0,
-            pendingFeedback: null,
-            failedChecksSha: null,
-            conflictSha: null,
-            headSha: null,
-            headSeenAt: null,
-          },
-          {
-            issues: [8],
-            prNumber: null,
-            worktreePath: "/wt/8",
-            reviewedHeadSha: null,
-            feedbackRounds: 0,
-            pendingFeedback: null,
-            failedChecksSha: null,
-            conflictSha: null,
-            headSha: null,
-            headSeenAt: null,
-          },
-        ],
-      }),
-    );
-    expect(actions).toEqual([
-      { type: "cleanup", repo: "octo/app", issues: [5, 6], prNumber: 9, worktreePath: "/wt/5" },
-    ]);
-  });
-
   const pr = (n: number) => issue(n, [], { isPullRequest: true, author: { login: "bot", id: 1 } });
   const wt = (reviewedHeadSha: string | null = null, extra: Partial<WorktreeRecord> = {}): WorktreeRecord[] => [
     {
@@ -318,9 +269,57 @@ describe("deriveActions", () => {
     failed: [],
     mergeable: true,
     headSeenAt: SEEN,
+    state: "open",
     ...extra,
   });
   type Pull = NonNullable<Snapshot["pulls"]> extends ReadonlyMap<number, infer P> ? P : never;
+
+  test("REQ-001-14 a Worktree is cleaned up once GitHub reports its PR merged or closed", () => {
+    const worktrees = [
+      ...wt(null, { issues: [5, 6], prNumber: 9, worktreePath: "/wt/5" }),
+      ...wt(null, { issues: [7], prNumber: 10, worktreePath: "/wt/7" }),
+      ...wt(null, { issues: [8], prNumber: null, worktreePath: "/wt/8" }),
+    ];
+    const actions = deriveActions(
+      snap({
+        // PR #10 is still in the (stale) list; what counts is the PR's own state.
+        items: [issue(5, ["agent:pr-open"]), pr(10)],
+        worktrees,
+        pulls: new Map([
+          [9, pullOf("h1", "pending", { state: "merged" })],
+          [10, pullOf("h1", "pending", { state: "closed" })],
+        ]),
+      }),
+    );
+    expect(actions).toEqual([
+      { type: "cleanup", repo: "octo/app", issues: [5, 6], prNumber: 9, worktreePath: "/wt/5" },
+      { type: "cleanup", repo: "octo/app", issues: [7], prNumber: 10, worktreePath: "/wt/7" },
+    ]);
+  });
+
+  test("REQ-001-14 a PR missing from the open list but open on GitHub keeps its Worktree and gets a Review", () => {
+    const actions = deriveActions(
+      snap({ items: [issue(5, ["agent:pr-open"])], worktrees: wt(), pulls: new Map([[9, pullOf("h1", "success")]]) }),
+    );
+    expect(actions).toEqual([{ type: "review", repo: "octo/app", pr: 9, issues: [5], headSha: "h1" }]);
+  });
+
+  test("REQ-001-14 a PR missing from the open list but open on GitHub still gets Feedback rounds", () => {
+    const actions = deriveActions(
+      snap({
+        items: [issue(5, ["agent:pr-open"])],
+        worktrees: wt(),
+        pulls: new Map([[9, pullOf("h2", "pending", { mergeable: false })]]),
+      }),
+    );
+    expect(actions).toEqual([expect.objectContaining({ type: "feedback", pr: 9, conflicted: true })]);
+  });
+
+  test("REQ-001-14 a PR whose state could not be fetched is neither cleaned up nor reviewed", () => {
+    expect(deriveActions(snap({ items: [issue(5, ["agent:pr-open"])], worktrees: wt(), pulls: new Map() }))).toEqual(
+      [],
+    );
+  });
 
   test("REQ-001-10 an agent PR whose head is unreviewed and whose checks passed (or has none) gets a Review", () => {
     for (const checks of ["success", "none"] as const) {
@@ -543,6 +542,49 @@ describe("deriveActions", () => {
         checksFailed: false,
         conflicted: false,
       },
+    ]);
+  });
+
+  test("REQ-001-39 an agent:in-progress issue with Review findings on record and no Implementer session gets its round, not agent:failed", () => {
+    const actions = deriveActions(
+      snap({
+        items: [issue(5, ["agent:in-progress"]), pr(9)],
+        worktrees: wt("h2", { pendingFeedback: "Blocking: crash" }),
+        pulls: passing,
+      }),
+    );
+    expect(actions).toEqual([expect.objectContaining({ type: "feedback", pr: 9, issues: [5], counted: true })]);
+  });
+
+  test("REQ-001-39 / REQ-001-11 past maxFeedbackRounds such an issue fails once, for the round limit", () => {
+    const actions = deriveActions(
+      snap({
+        items: [issue(5, ["agent:in-progress"]), pr(9)],
+        worktrees: wt("h2", { pendingFeedback: "x", feedbackRounds: 2 }),
+        pulls: passing,
+        maxFeedbackRounds: 2,
+      }),
+    );
+    expect(actions).toEqual([
+      {
+        type: "fail",
+        repo: "octo/app",
+        issues: [5],
+        pr: 9,
+        headSha: "h2",
+        checksFailed: false,
+        conflicted: false,
+        reason: "the PR still had problems after 2 automatic Feedback rounds",
+      },
+    ]);
+  });
+
+  test("REQ-001-07 / REQ-001-39 an agent:in-progress issue without Review findings on record and no session still fails", () => {
+    const actions = deriveActions(
+      snap({ items: [issue(5, ["agent:in-progress"]), pr(9)], worktrees: wt("h2"), pulls: passing }),
+    );
+    expect(actions).toEqual([
+      { type: "fail", repo: "octo/app", issues: [5], reason: "no implementer session to resume" },
     ]);
   });
 
