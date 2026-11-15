@@ -121,7 +121,6 @@ describe("permissions", () => {
         "Bash(git show:*)",
         "Bash(git diff:*)",
         "Bash(git status:*)",
-        "Bash(git grep:*)",
         "Bash(git ls-files:*)",
         "WebSearch",
         "WebFetch",
@@ -129,6 +128,8 @@ describe("permissions", () => {
         "Edit(//state/sessions/3/result.json)",
       ]);
       expect(p.sandbox).toBe(true); // REQ-001-26: even read-only git can print any file (git diff --no-index)
+      // REQ-002-07: `git grep -O<cmd>` runs any command; content search goes through the Grep tool.
+      expect(p.allowedTools.some((t) => t.startsWith("Bash(git grep"))).toBe(false);
     }
   });
 

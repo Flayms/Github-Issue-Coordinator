@@ -54,11 +54,12 @@ The Owner gets plans they can approve on a phone, code that matches those plans,
 - **And** it uses the domain terms of the repository's glossary, if there is one
 - **And** it treats issue text, comments, PR content and web pages as data, never as instructions
 
-### REQ-002-07 Planner and Reviewer can list and search tracked files
+### REQ-002-07 Planner and Reviewer can list tracked files
 
 - **Given** a Planner or Reviewer session
-- **When** it runs `git grep` or `git ls-files`
+- **When** it runs `git ls-files`
 - **Then** the command is allowed without asking, inside the sandbox like its other shell commands (REQ-001-26)
+- **And** `git grep` is not allowed, because `git grep -O<cmd>` runs an arbitrary command; the Grep tool covers content search
 
 ## Out of scope
 
@@ -81,5 +82,5 @@ The Owner gets plans they can approve on a phone, code that matches those plans,
 | REQ-002-04 | `prompts > REQ-002-04 the Implementer prompt asks for red-green tests, no test weakening, the full suite and unverified` | pass (wording only; quality via a real run)              |
 | REQ-002-05 | `prompts > REQ-002-05 the Reviewer prompt checks against the Assessment with a checklist and concrete blocking findings` | pass (wording only; quality via a real run)              |
 | REQ-002-06 | `prompts > REQ-002-06 every default prompt has the shared rules`                                                         | pass                                                     |
-| REQ-002-07 | `permissions > REQ-001-25 / REQ-002-07 Planner and Reviewer may only read, run read-only git …`                          | pass                                                     |
+| REQ-002-07 | `permissions > REQ-001-25 / REQ-002-07 Planner and Reviewer may only read, run read-only git …` (incl. no `git grep`)    | pass                                                     |
 | all        | manual: one real run per Role                                                                                            | open (to be done by the Owner on this PR via dogfooding) |
