@@ -25,6 +25,12 @@ const plannerSchema = z.array(
       .describe(
         "New issues the Coordinator creates, split off from this one: independent changes, or a separate bug or follow-up found while reading the code",
       ),
+    reply: z
+      .string()
+      .optional()
+      .describe(
+        "Only when the Owner's comments started this turn: a few lines on what changed in the Assessment and why, or why nothing changed",
+      ),
   }),
 );
 

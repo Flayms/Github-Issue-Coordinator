@@ -278,13 +278,43 @@ describe("reconcile loop", () => {
     expect(runner.started.at(-1)).toMatchObject({ kind: "issue", issues: [5] });
     expect(runner.started.at(-1)?.prompt).toContain("Use v2");
 
-    // The revision turn ends with nothing new on GitHub: the same feedback is not handed over again.
-    store.patchSession(runner.started.length, { state: "idle" });
+    // REQ-001-35: the revised Assessment is edited in place, and a Reply below the comment says what changed.
+    gh.calls = [];
+    finishPlanner(2, [5]);
     await coordinator.tick();
+    expect(gh.calls.filter((c) => c[0] === "updateComment")).toHaveLength(0); // same Assessment
+    const replies = gh.calls.filter((c) => c[0] === "createComment");
+    expect(replies).toEqual([["createComment", 5, expect.stringContaining("#issuecomment-901")]]);
+
+    // The revision turn ends with nothing new on GitHub: the same feedback is not handed over again.
     gh.changed = true;
     await coordinator.tick();
     expect(runner.started).toHaveLength(2);
     expect(runner.resumed).toEqual([]);
+  });
+
+  test("REQ-001-36 an edited issue description is planned from scratch, with the open issues as context", async () => {
+    gh.items = [item(5), item(6)];
+    await coordinator.tick();
+    finishPlanner(1, [5, 6]);
+    await coordinator.tick();
+
+    const edited = gh.items.find((i) => i.number === 5);
+    if (edited) edited.body = "A whole new plan, please";
+    gh.changed = true;
+    await coordinator.tick();
+    expect(runner.started).toHaveLength(2);
+    expect(runner.started.at(-1)).toMatchObject({ kind: "issue", issues: [5] });
+    const prompt = runner.started.at(-1)?.prompt as string;
+    expect(prompt).toContain("A whole new plan, please");
+    expect(prompt).toContain("- #6 Issue 6");
+    expect(prompt).not.toContain("A5");
+
+    gh.calls = [];
+    finishPlanner(2, [5], "needs-refinement");
+    await coordinator.tick();
+    expect(gh.calls.filter((c) => c[0] === "updateComment")).toHaveLength(1);
+    expect(gh.calls.filter((c) => c[0] === "createComment")).toEqual([]);
   });
 
   test("REQ-001-34 a Split-off issue is planned like an Owner issue, and the Owner's /approve approves it", async () => {

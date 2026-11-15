@@ -382,10 +382,16 @@ export class Coordinator {
           { key: `${a.repo}#${a.issue} revise`, kind: "revise", role: "planner", queuedAt: now, sessionId },
           async () => {
             const dir = await this.d.clones.mainClone(a.repo);
-            const id = await this.planner.revise(a.repo, dir, issue, {
-              comments: a.comments,
-              bodyChanged: a.bodyChanged,
-            });
+            const splitOffs = this.d.store.splitOffNumbers(a.repo);
+            const issues = view.items.filter((i) => inScope(i, this.d.config.owner.id, splitOffs));
+            const pulls = view.items.filter((i) => i.isPullRequest);
+            const id = await this.planner.revise(
+              a.repo,
+              dir,
+              issue,
+              { comments: a.comments, bodyChanged: a.bodyChanged },
+              { issues, pulls },
+            );
             view.feedback.delete(a.issue);
             this.log(`${a.repo}#${a.issue}: revising the plan (session ${id})`);
           },

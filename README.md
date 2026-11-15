@@ -5,7 +5,7 @@ A self-hosted Bun daemon that polls GitHub and runs Claude Code agents. They tri
 ## How it works
 
 1. **You open an issue.** Only issues you authored are considered, plus Split-off issues the Planner proposed (below); comments, labels and reviews by anyone else are ignored.
-2. **The Planner assesses it** and posts an Assessment comment: proposed approach, questions, and Coordination notes ("do together with #N", "blocked by #N"). Label: `agent:proposed`, `agent:needs-refinement` or `agent:wontfix-proposed`. Reply with feedback to revise the plan; the comment is edited in place. If an issue mixes independent changes, or the Planner finds a separate bug, it can split off new issues: the Coordinator creates them (at most 5 per Assessment, never twice), links them back, lists them under Coordination, and plans them like your own issues. They still need your approval.
+2. **The Planner assesses it** and posts an Assessment comment: proposed approach, questions, and Coordination notes ("do together with #N", "blocked by #N"). Label: `agent:proposed`, `agent:needs-refinement` or `agent:wontfix-proposed`. Comment with feedback to revise the plan: the Assessment is edited in place, and the Planner answers below your comment with a short Reply saying what changed and why. Editing the issue description instead plans it from scratch, without the old plan. If an issue mixes independent changes, or the Planner finds a separate bug, it can split off new issues: the Coordinator creates them (at most 5 per Assessment, never twice), links them back, lists them under Coordination, and plans them like your own issues. They still need your approval.
 3. **You approve** with `/approve [notes]` or the `agent:approved` label. Nothing said inside a session counts as approval.
 4. **The Implementer works on it** in its own Worktree and branch (`agent/<issue>-<slug>`); bundled issues share one. The Coordinator pushes and opens a **draft** PR that closes the issues, so it can't be merged before its Review.
 5. **The Reviewer reviews the PR** once its checks pass and it has no merge conflicts, as one review with inline comments (never an approval). A Review without blocking findings marks the PR ready for review (`agent:reviewed`). Blocking findings, failing checks and merge conflicts go back to the Implementer, up to `maxFeedbackRounds` times, then the PR is labelled `agent:failed`. Any new commit pushed after a Review turns the PR back into a draft until that commit is reviewed; a failed PR stays a draft.
@@ -20,7 +20,7 @@ Agents never get GitHub credentials; the Coordinator does every GitHub write as 
 | `/approve [notes]` | proposed issue    | Approves the plan; notes go to the Implementer                    |
 | `/agent <text>`    | agent PR          | A Feedback round with your text (also: "Request changes" reviews) |
 | `/wake`            | agent issue or PR | Resumes its closed session so you can chat in the Claude app      |
-| any other comment  | proposed issue    | Revises the plan                                                  |
+| any other comment  | proposed issue    | Revises the plan and gets a Reply                                 |
 
 ## Labels
 

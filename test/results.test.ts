@@ -69,6 +69,18 @@ describe("Result validation", () => {
     expect(resultInstructions("planner", "/r.json")).toContain("splitOff");
   });
 
+  test("REQ-001-35 a Planner entry may carry a reply to the Owner's comments", () => {
+    const withReply = (reply: unknown) =>
+      JSON.stringify([
+        { issue: 5, verdict: "proposed", approach: "Do it", bundleWith: [], blockedBy: [], questions: [], reply },
+      ]);
+    const parsed = validateResult("planner", withReply("Switched to v2."), [5]);
+    expect(parsed.ok && (parsed.value as { reply?: string }[])[0]?.reply).toBe("Switched to v2.");
+    expect(validateResult("planner", withReply(3), [5]).ok).toBe(false);
+    expect(validateResult("planner", planner([5]), [5]).ok).toBe(true); // optional
+    expect(resultInstructions("planner", "/r.json")).toContain("reply");
+  });
+
   test("REQ-001-21 instructions name the file and show the expected shape", () => {
     const text = resultInstructions("reviewer", "/state/sessions/3/result.json");
     expect(text).toContain("/state/sessions/3/result.json");

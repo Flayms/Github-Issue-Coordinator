@@ -65,6 +65,10 @@ describe("prompts (REQ-002)", () => {
     expectAll(prompt("planner"), [/splitOff/, /independent changes/i, /follow-up/i, /open issues/i, /duplicate/i]);
   });
 
+  test("REQ-002-09 the Planner prompt asks for a brief reply on a revision the Owner's comments started", () => {
+    expectAll(prompt("planner"), [/`reply`/, /comment/i, /what changed/i, /why nothing changed/i, /few lines/i]);
+  });
+
   test("REQ-002-03 the Implementer prompt owns the how and stops when the approved scope is wrong", () => {
     expectAll(prompt("implementer"), [
       /You decide [*_]how[*_]/,

@@ -90,6 +90,8 @@ export interface IssueRecord {
   headSeenAt: string | null;
   /** 1 while a Feedback round runs; its next sync returns the issue to agent:pr-open. */
   inFeedbackRound: number;
+  /** The Owner's comments whose revision still owes them a Reply (REQ-001-35); empty when none is pending. */
+  replyTo: number[];
 }
 
 const SCHEMA = `
@@ -131,6 +133,7 @@ CREATE TABLE IF NOT EXISTS issues (
   head_sha TEXT,
   head_seen_at TEXT,
   in_feedback_round INTEGER NOT NULL DEFAULT 0,
+  reply_to TEXT,
   PRIMARY KEY (repo, number)
 );
 CREATE TABLE IF NOT EXISTS split_offs (
@@ -202,6 +205,7 @@ const ISSUE_COLUMNS = {
   headSha: "head_sha",
   headSeenAt: "head_seen_at",
   inFeedbackRound: "in_feedback_round",
+  replyTo: "reply_to",
 } as const satisfies Record<Exclude<keyof IssueRecord, "repo" | "number">, string>;
 
 export class Store {
@@ -221,7 +225,7 @@ export class Store {
   /** Adds columns introduced after a store was created; CREATE TABLE IF NOT EXISTS leaves old tables as they are. */
   private migrate(): void {
     const added: Record<string, Record<string, string>> = {
-      issues: { conflict_sha: "TEXT", head_sha: "TEXT", head_seen_at: "TEXT" },
+      issues: { conflict_sha: "TEXT", head_sha: "TEXT", head_seen_at: "TEXT", reply_to: "TEXT" },
       sessions: { model_id: "TEXT", title: "TEXT" },
     };
     for (const [table, cols] of Object.entries(added)) {
@@ -358,10 +362,12 @@ export class Store {
       headSha: null,
       headSeenAt: null,
       inFeedbackRound: 0,
+      replyTo: [],
     };
     if (row) {
       for (const [key, col] of Object.entries(ISSUE_COLUMNS))
         (rec as unknown as Record<string, unknown>)[key] = row[col];
+      rec.replyTo = typeof row.reply_to === "string" ? JSON.parse(row.reply_to) : [];
     }
     return rec;
   }
@@ -373,7 +379,11 @@ export class Store {
     const sets = entries.map(([k]) => `${ISSUE_COLUMNS[k as keyof typeof ISSUE_COLUMNS]} = ?`).join(", ");
     this.db
       .query(`UPDATE issues SET ${sets} WHERE repo = ? AND number = ?`)
-      .run(...(entries.map(([, v]) => v) as (string | number | null)[]), repo, number);
+      .run(
+        ...(entries.map(([, v]) => (Array.isArray(v) ? JSON.stringify(v) : v)) as (string | number | null)[]),
+        repo,
+        number,
+      );
   }
 
   /** Worktrees on record (REQ-001-14), grouped by path, with their issues and PR. */
