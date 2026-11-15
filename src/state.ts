@@ -42,6 +42,8 @@ export interface Snapshot {
   repo: string;
   ownerId: number;
   items: Item[];
+  /** Split-off issues on record (REQ-001-34); in scope although the Coordinator authored them. */
+  splitOffs?: ReadonlySet<number>;
   /** Open (running or idle) sessions of this repository, from the store. */
   sessions: SessionRecord[];
   /** Closed sessions whose last turn still has to be synced; their issues are not orphaned (REQ-001-27). */
@@ -89,6 +91,10 @@ const isWake = (body: string): boolean => /^\/wake(\s|$)/.test(body.trim());
 
 const PROPOSALS: IssueState[] = ["proposed", "needs-refinement", "wontfix-proposed"];
 
+/** REQ-001-01 / REQ-001-34: an issue the Owner authored, or one the Coordinator split off from one. */
+export const inScope = (i: Item, ownerId: number, splitOffs: ReadonlySet<number> = new Set()): boolean =>
+  !i.isPullRequest && (i.author.id === ownerId || splitOffs.has(i.number));
+
 export type Action =
   | { type: "plan"; repo: string; issues: number[] }
   | { type: "revise"; repo: string; issue: number; comments: Comment[]; bodyChanged: boolean }
@@ -123,8 +129,8 @@ export type Action =
 
 export function deriveActions(s: Snapshot): Action[] {
   const actions: Action[] = [];
-  // REQ-001-01: only the Owner's issues are in scope. Agent PRs are tracked through the store.
-  const issues = s.items.filter((i) => !i.isPullRequest && i.author.id === s.ownerId);
+  // REQ-001-01: only the Owner's issues and Split-off issues (REQ-001-34) are in scope. Agent PRs are tracked through the store.
+  const issues = s.items.filter((i) => inScope(i, s.ownerId, s.splitOffs));
 
   // REQ-001-16: open sessions without a live window were cut off by a restart or crash.
   for (const session of s.sessions) {
