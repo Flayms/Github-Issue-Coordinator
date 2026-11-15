@@ -47,7 +47,7 @@ const snap = (s: Partial<Snapshot>): Snapshot => ({
 });
 
 describe("issue state from labels", () => {
-  test("no agent label means new; the most advanced agent label wins", () => {
+  test("REQ-001-16 no agent label means new; the most advanced agent label wins", () => {
     expect(issueState(["bug"])).toBe("new");
     expect(issueState(["agent:proposed"])).toBe("proposed");
     expect(issueState(["agent:proposed", "agent:approved"])).toBe("approved");
@@ -119,6 +119,7 @@ describe("deriveActions", () => {
         notes: "Also log it\n\nship it",
         at: "2026-11-11T02:00:00Z",
         upToCommentId: 22,
+        blockers: [],
       },
     ]);
   });
@@ -148,8 +149,28 @@ describe("deriveActions", () => {
       snap({ items: [issue(5, ["agent:proposed", "agent:approved"])], labelActors: new Map([[5, OWNER]]) }),
     );
     expect(actions).toEqual([
-      { type: "approve", repo: "octo/app", issue: 5, notes: "", at: NOW_ISO, upToCommentId: 0 },
+      { type: "approve", repo: "octo/app", issue: 5, notes: "", at: NOW_ISO, upToCommentId: 0, blockers: [] },
     ]);
+  });
+
+  test("REQ-001-05 an approval names the issue's open blockers, so it can go straight to agent:blocked", () => {
+    const records = new Map([[5, { approvedAt: null, assessment: assessment([8, 99]) }]]);
+    const byComment = deriveActions(
+      snap({
+        items: [issue(5, ["agent:proposed"]), issue(8, ["agent:proposed"])],
+        records,
+        feedback: new Map([[5, { comments: [c(22, "/approve")], bodyChanged: false }]]),
+      }),
+    );
+    expect(byComment).toContainEqual(expect.objectContaining({ type: "approve", issue: 5, blockers: [8] }));
+    const byLabel = deriveActions(
+      snap({
+        items: [issue(5, ["agent:proposed", "agent:approved"]), issue(8, ["agent:proposed"])],
+        records,
+        labelActors: new Map([[5, OWNER]]),
+      }),
+    );
+    expect(byLabel).toContainEqual(expect.objectContaining({ type: "approve", issue: 5, blockers: [8] }));
   });
 
   test("REQ-001-04 an agent:approved label added by anyone else is removed", () => {

@@ -291,10 +291,16 @@ export class Coordinator {
           lastHandledCommentId: Math.max(a.upToCommentId, this.d.store.issue(a.repo, a.issue).lastHandledCommentId),
         });
         await this.d.gh.removeLabel(a.repo, a.issue, "agent:proposed");
-        await this.d.gh.addLabels(a.repo, a.issue, ["agent:approved"]);
+        // REQ-001-05: an issue that is still blocked goes straight to agent:blocked.
+        if (a.blockers.length) {
+          await this.d.gh.removeLabel(a.repo, a.issue, "agent:approved");
+          await this.d.gh.addLabels(a.repo, a.issue, ["agent:blocked"]);
+        } else await this.d.gh.addLabels(a.repo, a.issue, ["agent:approved"]);
         view.feedback.delete(a.issue);
         view.labelActors.delete(a.issue);
-        this.log(`${a.repo}#${a.issue}: approved by the Owner`);
+        this.log(
+          `${a.repo}#${a.issue}: approved by the Owner${a.blockers.length ? `, blocked by ${a.blockers.map((n) => `#${n}`).join(", ")}` : ""}`,
+        );
         return;
       case "reject-approval":
         await this.d.gh.removeLabel(a.repo, a.issue, "agent:approved");
