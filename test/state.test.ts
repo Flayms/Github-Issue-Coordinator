@@ -31,6 +31,7 @@ const session = (s: Partial<SessionRecord> & Pick<SessionRecord, "role" | "issue
   needsSync: false,
   usageLimited: false,
   modelId: null,
+  title: null,
   ...s,
 });
 

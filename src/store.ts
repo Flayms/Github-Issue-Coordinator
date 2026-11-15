@@ -32,6 +32,8 @@ export interface SessionRecord {
   usageLimited: boolean;
   /** The model the session runs, e.g. `claude-opus-5-5`, reported by the hooks (REQ-001-29). */
   modelId: string | null;
+  /** Title of the first issue, for the Remote Control name (REQ-001-33); null for a batch Planner and older sessions. */
+  title: string | null;
 }
 
 /** A Worktree on record: its issues (a Bundle shares one), PR and last reviewed head. */
@@ -100,7 +102,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   result_failures INTEGER NOT NULL DEFAULT 0,
   needs_sync INTEGER NOT NULL DEFAULT 0,
   usage_limited INTEGER NOT NULL DEFAULT 0,
-  model_id TEXT
+  model_id TEXT,
+  title TEXT
 );
 CREATE TABLE IF NOT EXISTS issues (
   repo TEXT NOT NULL,
@@ -146,6 +149,7 @@ interface SessionRow {
   needs_sync: number;
   usage_limited: number;
   model_id: string | null;
+  title: string | null;
 }
 
 const toSession = (r: SessionRow): SessionRecord => ({
@@ -164,6 +168,7 @@ const toSession = (r: SessionRow): SessionRecord => ({
   needsSync: r.needs_sync === 1,
   usageLimited: r.usage_limited === 1,
   modelId: r.model_id ?? null,
+  title: r.title ?? null,
 });
 
 const ISSUE_COLUMNS = {
@@ -204,7 +209,7 @@ export class Store {
   private migrate(): void {
     const added: Record<string, Record<string, string>> = {
       issues: { conflict_sha: "TEXT", head_sha: "TEXT", head_seen_at: "TEXT" },
-      sessions: { model_id: "TEXT" },
+      sessions: { model_id: "TEXT", title: "TEXT" },
     };
     for (const [table, cols] of Object.entries(added)) {
       const have = new Set(
@@ -226,13 +231,20 @@ export class Store {
     this.db.close();
   }
 
-  createSession(s: Pick<SessionRecord, "repo" | "role" | "kind" | "issues">): number {
+  createSession(s: Pick<SessionRecord, "repo" | "role" | "kind" | "issues"> & { title?: string | null }): number {
     const row = this.db
-      .query<{ id: number }, Record<string, string>>(
-        `INSERT INTO sessions (repo, role, kind, issues, state, last_activity_at)
-         VALUES ($repo, $role, $kind, $issues, 'running', $at) RETURNING id`,
+      .query<{ id: number }, Record<string, string | null>>(
+        `INSERT INTO sessions (repo, role, kind, issues, title, state, last_activity_at)
+         VALUES ($repo, $role, $kind, $issues, $title, 'running', $at) RETURNING id`,
       )
-      .get({ repo: s.repo, role: s.role, kind: s.kind, issues: JSON.stringify(s.issues), at: this.stamp() });
+      .get({
+        repo: s.repo,
+        role: s.role,
+        kind: s.kind,
+        issues: JSON.stringify(s.issues),
+        title: s.title ?? null,
+        at: this.stamp(),
+      });
     if (!row) throw new Error("failed to create session");
     return row.id;
   }

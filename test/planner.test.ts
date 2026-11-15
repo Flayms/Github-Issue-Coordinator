@@ -80,7 +80,7 @@ class FakeRunner {
   ) {}
   start(o: StartOptions) {
     this.started.push(o);
-    const id = this.store.createSession({ repo: o.repo, role: o.role, kind: o.kind, issues: o.issues });
+    const id = this.store.createSession({ repo: o.repo, role: o.role, kind: o.kind, issues: o.issues, title: o.title });
     mkdirSync(this.sessionDir(id), { recursive: true });
     return id;
   }
@@ -238,11 +238,11 @@ describe("plan revision", () => {
     return id;
   };
 
-  test("REQ-001-03 after a batch, feedback goes to a fresh Planner session for that issue with its current Assessment", async () => {
+  test("REQ-001-03 / REQ-001-33 after a batch, feedback goes to a fresh Planner session for that issue with its current Assessment", async () => {
     const batch = await assessed();
     store.setClaudeSessionId(batch, "sess-batch"); // resumable, but it covers several issues
     await planner.revise("octo/app", "/c", item(5), { comments: [comment(300, "Use the v2 API")], bodyChanged: false });
-    expect(runner.started.at(-1)).toMatchObject({ kind: "issue", issues: [5], role: "planner" });
+    expect(runner.started.at(-1)).toMatchObject({ kind: "issue", issues: [5], role: "planner", title: "Issue 5" });
     expect(runner.started.at(-1)?.prompt).toContain("Approach for 5");
     expect(runner.started.at(-1)?.prompt).toContain("Use the v2 API");
     expect(store.issue("octo/app", 5).lastHandledCommentId).toBe(300);
