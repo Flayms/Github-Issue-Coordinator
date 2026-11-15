@@ -82,14 +82,14 @@ The Owner gets plans they can approve on a phone, code that matches those plans,
 
 - **Given** the default Planner prompt
 - **When** the Owner's comments started a revision
-- **Then** the Planner writes a brief `reply` in its Result: a few lines on what changed and why, or why nothing changed (REQ-001-37)
+- **Then** the Planner writes a brief `reply` in its Result: a few lines on what changed and why, or why nothing changed (REQ-001-40)
 - **And** it leaves `reply` out on any other turn
 
 ## Out of scope
 
 - Letting the Reviewer run the test suite or linters (it would execute the PR's code; REQ-001-25 stays as it is).
 - Updating prompts that a repository has overridden in `.github/coordinator/<role>.md` (REQ-001-22).
-- Changing the Result schemas, apart from the Reviewer's findings (REQ-002-09); the Planner's `splitOff` field belongs to REQ-001-34, `reply` to REQ-001-37.
+- Changing the Result schemas, apart from the Reviewer's findings (REQ-002-09); the Planner's `splitOff` field belongs to REQ-001-34, `reply` to REQ-001-40.
 
 ## Assumptions
 

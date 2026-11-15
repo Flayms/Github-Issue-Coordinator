@@ -69,7 +69,7 @@ describe("Result validation", () => {
     expect(resultInstructions("planner", "/r.json")).toContain("splitOff");
   });
 
-  test("REQ-001-37 a Planner entry may carry a reply to the Owner's comments", () => {
+  test("REQ-001-40 a Planner entry may carry a reply to the Owner's comments", () => {
     const withReply = (reply: unknown) =>
       JSON.stringify([
         { issue: 5, verdict: "proposed", approach: "Do it", bundleWith: [], blockedBy: [], questions: [], reply },

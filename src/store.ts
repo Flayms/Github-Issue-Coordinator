@@ -94,7 +94,7 @@ export interface IssueRecord {
   reviewFindings: string | null;
   /** Earlier Review findings with the Implementer's answers, for a re-review (REQ-001-36). */
   reviewHistory: string | null;
-  /** The Owner's comments whose revision still owes them a Reply (REQ-001-37); empty when none is pending. */
+  /** The Owner's comments whose revision still owes them a Reply (REQ-001-40); empty when none is pending. */
   replyTo: number[];
 }
 
