@@ -227,7 +227,7 @@ describe("store", () => {
     }
   });
 
-  test("REQ-001-35 keeps the comments a reply is pending for, also in a database created before they existed", () => {
+  test("REQ-001-37 keeps the comments a reply is pending for, also in a database created before they existed", () => {
     const dir = mkdtempSync(join(tmpdir(), "store-"));
     try {
       const path = join(dir, "state.db");

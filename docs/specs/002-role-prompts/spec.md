@@ -68,18 +68,18 @@ The Owner gets plans they can approve on a phone, code that matches those plans,
 - **Then** it lists Split-off issues (REQ-001-34) only when the issue mixes independent changes or it found a separate bug or follow-up while reading the code
 - **And** it checks the open issues first so it doesn't create a duplicate
 
-### REQ-002-09 The Planner replies to feedback comments
+### REQ-002-10 The Planner replies to feedback comments
 
 - **Given** the default Planner prompt
 - **When** the Owner's comments started a revision
-- **Then** the Planner writes a brief `reply` in its Result: a few lines on what changed and why, or why nothing changed (REQ-001-35)
+- **Then** the Planner writes a brief `reply` in its Result: a few lines on what changed and why, or why nothing changed (REQ-001-37)
 - **And** it leaves `reply` out on any other turn
 
 ## Out of scope
 
 - Letting the Reviewer run the test suite or linters (it would execute the PR's code; REQ-001-25 stays as it is).
 - Updating prompts that a repository has overridden in `.github/coordinator/<role>.md` (REQ-001-22).
-- Changing the Result schemas (the Planner's `splitOff` field belongs to REQ-001-34, `reply` to REQ-001-35).
+- Changing the Result schemas (the Planner's `splitOff` field belongs to REQ-001-34, `reply` to REQ-001-37).
 
 ## Assumptions
 
@@ -98,5 +98,5 @@ The Owner gets plans they can approve on a phone, code that matches those plans,
 | REQ-002-06 | `prompts > REQ-002-06 every default prompt has the shared rules`                                                         | pass                                                     |
 | REQ-002-07 | `permissions > REQ-001-25 / REQ-002-07 Planner and Reviewer may only read, run read-only git …` (incl. no `git grep`)    | pass                                                     |
 | REQ-002-08 | `prompts > REQ-002-08 the Planner prompt says when to split off an issue and to check open issues first`                 | pass (wording only; quality via a real run)              |
-| REQ-002-09 | `prompts > REQ-002-09 the Planner prompt asks for a brief reply on a revision the Owner's comments started`              | pass (wording only; quality via a real run)              |
+| REQ-002-10 | `prompts > REQ-002-10 the Planner prompt asks for a brief reply on a revision the Owner's comments started`              | pass (wording only; quality via a real run)              |
 | all        | manual: one real run per Role                                                                                            | open (to be done by the Owner on this PR via dogfooding) |

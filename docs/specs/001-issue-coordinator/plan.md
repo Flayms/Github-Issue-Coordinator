@@ -35,7 +35,7 @@ A single Bun process (`systemd` service, dedicated `agent` Linux user) runs a **
 
 ### Store
 
-`bun:sqlite` holds session ids and their state (running/idle/closed, last activity, Owner-busy), Worktree paths, the reviewed head SHAs, feedback-round counts, the last handled comment/review ids, the comments still owed a Reply (REQ-001-35), the usage-limit pause, and which Split-off issues were created for which parent (REQ-001-34).
+`bun:sqlite` holds session ids and their state (running/idle/closed, last activity, Owner-busy), Worktree paths, the reviewed head SHAs, feedback-round counts, the last handled comment/review ids, the comments still owed a Reply (REQ-001-37), the usage-limit pause, and which Split-off issues were created for which parent (REQ-001-34).
 
 ### Config sketch (`config.ts`, typed)
 
@@ -78,7 +78,7 @@ export default {
 - [x] T5 Scheduler (`src/scheduler.ts`, pure): Slots per Role plus a total limit, priority order, usage-limit pause (persisted in the store), idle timeout and live-session limit with the eviction order. (REQ-001-08, REQ-001-17, REQ-001-20)
 - [x] T6 Session runner (`src/runner.ts`, `src/tmux.ts`), hook script (`src/hook.ts`), Result schemas (`src/results.ts`), Owner-busy guard; smoke-tested against real tmux + claude with `bun scripts/smoke-runner.ts`. (REQ-001-18, REQ-001-19, REQ-001-21)
 - [x] T7 Prompts (`prompts/<role>.md`, repo override `.github/coordinator/<role>.md`, `src/prompts.ts`) and per-Role permissions: Planner/Reviewer `dontAsk` with read-only tools plus their Result file; Implementer in `auto` mode with the sandbox; whatever auto mode won't allow on its own waits for the Owner in the Claude app. (REQ-001-22, REQ-001-25)
-- [x] T8 Planner pass and Assessment rendering/editing, plus the sync after any turn (`src/planner.ts`; the latest Assessment is kept in the store as the source of Coordination notes; revise trigger in `src/state.ts`). (REQ-001-02, REQ-001-03, REQ-001-19, REQ-001-35, REQ-001-36)
+- [x] T8 Planner pass and Assessment rendering/editing, plus the sync after any turn (`src/planner.ts`; the latest Assessment is kept in the store as the source of Coordination notes; revise trigger in `src/state.ts`). (REQ-001-02, REQ-001-03, REQ-001-19, REQ-001-37, REQ-001-38)
 - [x] T9 Approval handling and blocked/unblock logic (approval and notes kept in the store, so the Coordinator re-adding `agent:approved` after unblocking is not mistaken for someone else's label; `/approve` takes all feedback comments since the last handled one as notes). (REQ-001-04, REQ-001-05)
 - [x] T10 Worktree manager (`src/worktrees.ts`): create, setup command, commit identity, push, review checkouts, removal, `maxWorktrees`. Each Worktree is a local clone of the main clone, not a `git worktree`, because a worktree writes commits into the main clone's `.git`, outside the Implementer's sandbox. (REQ-001-06, REQ-001-14)
 - [x] T11 Implementer run, push and PR creation, plus the sync after any turn (`src/implementer.ts`; also the REQ-001-14 cleanup once a PR is merged or closed). (REQ-001-06, REQ-001-09, REQ-001-19)

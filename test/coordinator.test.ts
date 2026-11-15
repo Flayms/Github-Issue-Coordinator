@@ -278,7 +278,7 @@ describe("reconcile loop", () => {
     expect(runner.started.at(-1)).toMatchObject({ kind: "issue", issues: [5] });
     expect(runner.started.at(-1)?.prompt).toContain("Use v2");
 
-    // REQ-001-35: the revised Assessment is edited in place, and a Reply below the comment says what changed.
+    // REQ-001-37: the revised Assessment is edited in place, and a Reply below the comment says what changed.
     gh.calls = [];
     finishPlanner(2, [5]);
     await coordinator.tick();
@@ -293,7 +293,7 @@ describe("reconcile loop", () => {
     expect(runner.resumed).toEqual([]);
   });
 
-  test("REQ-001-36 an edited issue description is planned from scratch, with the open issues as context", async () => {
+  test("REQ-001-38 an edited issue description is planned from scratch, with the open issues as context", async () => {
     gh.items = [item(5), item(6)];
     await coordinator.tick();
     finishPlanner(1, [5, 6]);

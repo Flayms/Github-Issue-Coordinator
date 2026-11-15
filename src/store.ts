@@ -90,7 +90,7 @@ export interface IssueRecord {
   headSeenAt: string | null;
   /** 1 while a Feedback round runs; its next sync returns the issue to agent:pr-open. */
   inFeedbackRound: number;
-  /** The Owner's comments whose revision still owes them a Reply (REQ-001-35); empty when none is pending. */
+  /** The Owner's comments whose revision still owes them a Reply (REQ-001-37); empty when none is pending. */
   replyTo: number[];
 }
 

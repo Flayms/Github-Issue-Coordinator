@@ -30,8 +30,8 @@ The Owner (the single human user) wants GitHub issues across their public and pr
 - **When** the Owner posts a comment that is not a command
 - **Then** that issue's own Planner session is resumed with the comment, or started fresh with the issue and its current Assessment as context if it has none yet
 - **And** the Assessment comment is edited in place (not duplicated) and the label updated
-- **And** the Owner gets a Reply (REQ-001-35)
-- An edited issue body is planned from scratch instead (REQ-001-36).
+- **And** the Owner gets a Reply (REQ-001-37)
+- An edited issue body is planned from scratch instead (REQ-001-38).
 
 ### REQ-001-04 Approval only by the Owner on GitHub
 
@@ -274,9 +274,9 @@ The Owner (the single human user) wants GitHub issues across their public and pr
 - **Then** it is in scope like an Owner issue (REQ-001-01): planned on the next pass, and approved only by the Owner (REQ-001-04)
 - **And** no agent session gets a GitHub credential for this (REQ-001-15)
 
-### REQ-001-35 The Planner answers feedback comments
+### REQ-001-37 The Planner answers feedback comments
 
-- **Given** an Assessment revised because the Owner commented (REQ-001-03, or REQ-001-36 with comments from the same poll)
+- **Given** an Assessment revised because the Owner commented (REQ-001-03, or REQ-001-38 with comments from the same poll)
 - **When** the Coordinator syncs the Planner's Result
 - **Then** it edits the Assessment in place and posts one new comment, the Reply, below the Owner's comments
 - **And** the Reply starts with the agent note (REQ-001-29), links the Owner's comments and the Assessment, and says in a few lines what changed and why, or why nothing changed
@@ -286,14 +286,14 @@ The Owner (the single human user) wants GitHub issues across their public and pr
 - **Given** a Planner turn no feedback comment started (a first pass, a body edit only, the Owner chatting through Remote Control)
 - **Then** no Reply is posted
 
-### REQ-001-36 An edited issue is planned from scratch
+### REQ-001-38 An edited issue is planned from scratch
 
 - **Given** an issue labelled `agent:proposed`, `agent:needs-refinement` or `agent:wontfix-proposed`
 - **When** the Owner edits its description
 - **Then** the Coordinator closes any live Planner session of that issue and starts a fresh Planner session for it, with all in-scope open issues and open PRs as context like a pass (REQ-001-02)
 - **And** that session gets neither the old Assessment nor the old session
 - **And** the new Assessment replaces the old one in the same comment, the label is updated, and no Reply is posted
-- **And** comments the Owner posted in the same poll go into the fresh session as feedback and get a Reply (REQ-001-35)
+- **And** comments the Owner posted in the same poll go into the fresh session as feedback and get a Reply (REQ-001-37)
 - **And** Split-off issues created earlier are not created again (REQ-001-34)
 
 ## Out of scope
@@ -353,5 +353,5 @@ Partial rows: the REQ is only covered for the parts built so far (noted in brack
 | REQ-001-32 | `plan revision > REQ-001-32 a deleted Assessment comment is posted again and edited from then on`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | pass                                                                                                                |
 | REQ-001-33 | `claude command line > REQ-001-33 …` (5 tests: issue, Bundle, batch Planner, truncation, no title); `session runner > REQ-001-18 starts a session …`, `REQ-001-20 / REQ-001-33 resumes …`; `store > REQ-001-33 keeps the session's issue title, also in a database created before it existed`; `Implementer run > REQ-001-06 / REQ-001-09 / REQ-001-33 …`, `REQ-001-11 / REQ-001-33 …`; `Reviewer run > REQ-001-10 / REQ-001-33 …`; `plan revision > REQ-001-03 / REQ-001-33 …`                                                                                                                                                                                                                                                                         | pass                                                                                                                |
 | REQ-001-34 | `Result validation > REQ-001-34 a Planner entry may list up to 5 Split-off issues …`; `GitHub client > REQ-001-34 creates an issue …`; `store > REQ-001-34 records Split-off issues per parent, also in a database created before they existed`; `Assessment comment > REQ-001-34 lists the Split-off issues under Coordination`; `Split-off issues > REQ-001-34 …` (2 tests: created once with note and back-link, no re-creation on a revision); `deriveActions > REQ-001-01 / REQ-001-34 …`, `REQ-001-04 / REQ-001-34 on a Split-off issue only the Owner's comments count`; `reconcile loop > REQ-001-34 a Split-off issue is planned like an Owner issue, and the Owner's /approve approves it`; manual: one real Planner run that splits an issue | pass (manual run open)                                                                                              |
-| REQ-001-35 | `replies to the Owner's comments > REQ-001-35 …` (5 tests: Reply with links, unchanged Assessment and several comments, no Reply on an Owner-chat turn, fallback line, posted once on a retry with REQ-001-27), `REQ-001-36 / REQ-001-35 …`; `Result validation > REQ-001-35 …`; `store > REQ-001-35 keeps the comments a reply is pending for, also in a database created before they existed`; `reconcile loop > REQ-001-03 an Owner comment on a proposal revises the plan …`; manual: one real comment round on a test issue                                                                                                                                                                                                                        | pass (manual run open)                                                                                              |
-| REQ-001-36 | `replies to the Owner's comments > REQ-001-36 an edited issue is planned from scratch …`, `REQ-001-36 / REQ-001-35 comments from the same poll …`; `reconcile loop > REQ-001-36 an edited issue description is planned from scratch, with the open issues as context`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | pass                                                                                                                |
+| REQ-001-37 | `replies to the Owner's comments > REQ-001-37 …` (5 tests: Reply with links, unchanged Assessment and several comments, no Reply on an Owner-chat turn, fallback line, posted once on a retry with REQ-001-27), `REQ-001-38 / REQ-001-37 …`; `Result validation > REQ-001-37 …`; `store > REQ-001-37 keeps the comments a reply is pending for, also in a database created before they existed`; `reconcile loop > REQ-001-03 an Owner comment on a proposal revises the plan …`; manual: one real comment round on a test issue                                                                                                                                                                                                                        | pass (manual run open)                                                                                              |
+| REQ-001-38 | `replies to the Owner's comments > REQ-001-38 an edited issue is planned from scratch …`, `REQ-001-38 / REQ-001-37 comments from the same poll …`; `reconcile loop > REQ-001-38 an edited issue description is planned from scratch, with the open issues as context`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | pass                                                                                                                |

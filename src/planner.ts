@@ -1,6 +1,6 @@
 /**
- * Planner pass (REQ-001-02), plan revision (REQ-001-03, REQ-001-36) and the sync of Planner turns to GitHub
- * (REQ-001-19): Assessment comments, Replies (REQ-001-35), verdict labels, and the Assessment kept in the store.
+ * Planner pass (REQ-001-02), plan revision (REQ-001-03, REQ-001-38) and the sync of Planner turns to GitHub
+ * (REQ-001-19): Assessment comments, Replies (REQ-001-37), verdict labels, and the Assessment kept in the store.
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -97,8 +97,8 @@ export class Planner {
   /**
    * REQ-001-03: hand the Owner's comments to the issue's own Planner session, or to a fresh one with the
    * current Assessment if the issue so far was only part of a batch.
-   * REQ-001-36: an edited description is planned from scratch, in a fresh session without the old Assessment.
-   * REQ-001-35: the comments are kept as owing a Reply until the turn is synced.
+   * REQ-001-38: an edited description is planned from scratch, in a fresh session without the old Assessment.
+   * REQ-001-37: the comments are kept as owing a Reply until the turn is synced.
    */
   async revise(
     repo: string,
@@ -198,7 +198,7 @@ export class Planner {
           if (l !== target) await this.d.gh.removeLabel(s.repo, a.issue, l);
         await this.d.gh.addLabels(s.repo, a.issue, [target]);
       }
-      // REQ-001-35: only a turn the Owner's comments started owes a Reply; cleared right after posting it.
+      // REQ-001-37: only a turn the Owner's comments started owes a Reply; cleared right after posting it.
       if (rec.replyTo.length) {
         await this.d.gh.createComment(
           s.repo,
@@ -258,7 +258,7 @@ function renderFeedback(comments: Comment[], fresh: boolean): string {
 const commentUrl = (repo: string, issue: number, id: number) =>
   `https://github.com/${repo}/issues/${issue}#issuecomment-${id}`;
 
-/** REQ-001-35: the Reply to the Owner's comments, linking them and the Assessment. */
+/** REQ-001-37: the Reply to the Owner's comments, linking them and the Assessment. */
 export function renderReply(
   repo: string,
   issue: number,

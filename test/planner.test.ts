@@ -306,7 +306,7 @@ describe("plan revision", () => {
     );
     finishTurn(own, [entry(5, { verdict: "wontfix-proposed", approach: "Not worth it" })]);
     await planner.sync(own);
-    expect(assessmentsPosted()).toEqual([]); // the Reply (REQ-001-35) is the only new comment
+    expect(assessmentsPosted()).toEqual([]); // the Reply (REQ-001-37) is the only new comment
     expect(gh.of("updateComment")).toEqual([
       ["updateComment", "octo/app", 100, expect.stringContaining("Not worth it")],
     ]);
@@ -371,7 +371,7 @@ describe("replies to the Owner's comments", () => {
   };
   const replies = () => gh.of("createComment");
 
-  test("REQ-001-35 a revision a comment started edits the Assessment and posts one reply that links the comment and the Assessment", async () => {
+  test("REQ-001-37 a revision a comment started edits the Assessment and posts one reply that links the comment and the Assessment", async () => {
     await assessed();
     const own = await planner.revise(
       "octo/app",
@@ -394,7 +394,7 @@ describe("replies to the Owner's comments", () => {
     expect(store.issue("octo/app", 5).replyTo).toEqual([]);
   });
 
-  test("REQ-001-35 the reply is posted even when the Assessment did not change, and links every comment of the turn", async () => {
+  test("REQ-001-37 the reply is posted even when the Assessment did not change, and links every comment of the turn", async () => {
     await assessed();
     const own = await planner.revise(
       "octo/app",
@@ -412,7 +412,7 @@ describe("replies to the Owner's comments", () => {
     expect(replies()[0]?.[3]).toContain("v1 is deprecated");
   });
 
-  test("REQ-001-35 a turn no comment started posts no reply: the Owner chatting, or the first pass", async () => {
+  test("REQ-001-37 a turn no comment started posts no reply: the Owner chatting, or the first pass", async () => {
     await assessed();
     expect(store.issue("octo/app", 5).replyTo).toEqual([]);
     const own = await planner.revise(
@@ -431,7 +431,7 @@ describe("replies to the Owner's comments", () => {
     expect(replies()).toEqual([]);
   });
 
-  test("REQ-001-35 a Result without a reply still gets a one-line reply with the links", async () => {
+  test("REQ-001-37 a Result without a reply still gets a one-line reply with the links", async () => {
     await assessed();
     const own = await planner.revise(
       "octo/app",
@@ -448,7 +448,7 @@ describe("replies to the Owner's comments", () => {
     expect(reply).toContain("Took your feedback into account");
   });
 
-  test("REQ-001-35 / REQ-001-27 a failed reply is posted on the retry, and only once", async () => {
+  test("REQ-001-37 / REQ-001-27 a failed reply is posted on the retry, and only once", async () => {
     await assessed();
     const own = await planner.revise(
       "octo/app",
@@ -469,7 +469,7 @@ describe("replies to the Owner's comments", () => {
     expect(replies()).toEqual([]);
   });
 
-  test("REQ-001-36 an edited issue is planned from scratch: the live session is closed, a fresh one gets all open issues and PRs but not the old Assessment", async () => {
+  test("REQ-001-38 an edited issue is planned from scratch: the live session is closed, a fresh one gets all open issues and PRs but not the old Assessment", async () => {
     await assessed();
     const own = await planner.revise(
       "octo/app",
@@ -509,7 +509,7 @@ describe("replies to the Owner's comments", () => {
     expect(gh.of("addLabels")).toEqual([["addLabels", "octo/app", 5, ["agent:needs-refinement"]]]);
   });
 
-  test("REQ-001-36 / REQ-001-35 comments from the same poll go into the fresh session as feedback and get a reply", async () => {
+  test("REQ-001-38 / REQ-001-37 comments from the same poll go into the fresh session as feedback and get a reply", async () => {
     await assessed();
     const fresh = await planner.revise(
       "octo/app",
