@@ -187,7 +187,10 @@ try {
     console.log(`  ${existsSync(outputProbe) ? "✗" : "✓"} ${verdict}`);
     if (existsSync(outputProbe)) mismatches.push(`${outputProbe} exists`);
     const summary = String(result(id).summary ?? "");
-    if (!/git failed: none/i.test(summary)) mismatches.push(`read-only git failed in the sandbox: ${summary}`);
+    // The --output probe is expected to fail; every other git command must work.
+    const failed = (summary.split(/git failed:/i)[1] ?? "").replaceAll(GIT_OUTPUT_PROBE, "");
+    if (/git (status|log|show|diff|ls-files)/i.test(failed))
+      mismatches.push(`read-only git failed in the sandbox: ${summary}`);
   }
 
   runner.resume(id, SECOND[role], model);
