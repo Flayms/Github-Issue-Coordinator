@@ -365,9 +365,11 @@ describe("reconcile loop", () => {
     await coordinator.tick();
     gh.comments.set(5, [{ id: 960, body: "/approve", author: OWNER, createdAt: "t", updatedAt: "" }]);
     gh.changed = true;
-    await coordinator.tick();
+    gh.calls = [];
     await coordinator.tick();
     expect(gh.items[0]?.labels).toEqual(["agent:blocked"]);
+    expect(gh.calls).not.toContainEqual(["addLabels", 5, ["agent:approved"]]); // straight to blocked
+    expect(store.issue("octo/app", 5).approvedAt).toBe("t");
 
     gh.items = gh.items.filter((i) => i.number !== 8);
     gh.changed = true;
@@ -404,6 +406,33 @@ describe("reconcile loop", () => {
     expect(worktrees.removed).toEqual(["/wt/5"]);
     expect(store.session(id)?.state).toBe("closed");
     expect(store.issue("octo/app", 5).worktreePath).toBeNull();
+  });
+
+  test("REQ-001-14 an issue whose PR was closed without merging is open again without an agent label and planned anew", async () => {
+    await proposed();
+    gh.checkState = "pending";
+    gh.comments.set(5, [{ id: 970, body: "/approve", author: OWNER, createdAt: "t", updatedAt: "" }]);
+    gh.changed = true;
+    await coordinator.tick(); // approve
+    await coordinator.tick(); // implement
+    const id = runner.started.length;
+    writeFileSync(
+      join(runner.sessionDir(id), "result.json"),
+      JSON.stringify({ prTitle: "T", prBody: "B", summary: "S" }),
+    );
+    store.patchSession(id, { state: "idle", needsSync: true });
+    gh.items.push(item(70, [], { isPullRequest: true, author: { login: "bot", id: 1 } }));
+    await coordinator.tick();
+    expect(gh.items[0]?.labels).toEqual(["agent:pr-open"]);
+
+    gh.items = gh.items.filter((i) => i.number !== 70); // closed unmerged; the issue stays open
+    gh.changed = true;
+    await coordinator.tick(); // cleanup
+    expect(gh.items[0]?.labels).toEqual([]);
+    gh.changed = true;
+    await coordinator.tick();
+    expect(runner.started.at(-1)).toMatchObject({ role: "planner", kind: "batch", issues: [5] });
+    expect(gh.items[0]?.labels).toEqual(["agent:planning"]);
   });
 
   /** An Implementer that finished its first turn with commits, awaiting the sync that opens its PR. */

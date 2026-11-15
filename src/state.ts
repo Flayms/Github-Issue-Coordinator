@@ -101,7 +101,16 @@ export type FeedbackCause = "findings" | "checks" | "conflicts";
 export type Action =
   | { type: "plan"; repo: string; issues: number[] }
   | { type: "revise"; repo: string; issue: number; comments: Comment[]; bodyChanged: boolean }
-  | { type: "approve"; repo: string; issue: number; notes: string; at: string; upToCommentId: number }
+  | {
+      type: "approve";
+      repo: string;
+      issue: number;
+      notes: string;
+      at: string;
+      upToCommentId: number;
+      /** Open issues it is blocked by: then it goes straight to `agent:blocked` (REQ-001-05). */
+      blockers: number[];
+    }
   | { type: "reject-approval"; repo: string; issue: number }
   | { type: "block"; repo: string; issue: number; blockers: number[] }
   | { type: "unblock"; repo: string; issue: number }
@@ -168,6 +177,11 @@ export function deriveActions(s: Snapshot): Action[] {
       actions.push({ type: "fail", repo: s.repo, issues: [i.number], reason: `no ${role} session to resume` });
   }
 
+  // REQ-001-05: the open issues an issue's Assessment says it is blocked by.
+  const open = new Set(s.items.map((i) => i.number));
+  const openBlockers = (n: number) =>
+    coordination(s.records?.get(n)?.assessment ?? null, "blockedBy").filter((b) => open.has(b));
+
   // REQ-001-04 / REQ-001-03: on a proposal, the Owner's /approve approves it; other feedback revises the plan.
   for (const i of issues) {
     const state = issueState(i.labels);
@@ -185,13 +199,13 @@ export function deriveActions(s: Snapshot): Action[] {
         notes: notes.filter(Boolean).join("\n\n"),
         at: approval.createdAt,
         upToCommentId: Math.max(...own.map((c) => c.id)),
+        blockers: openBlockers(i.number),
       });
     } else if (comments.length > 0 || f?.bodyChanged)
       actions.push({ type: "revise", repo: s.repo, issue: i.number, comments, bodyChanged: f?.bodyChanged ?? false });
   }
 
   // REQ-001-04: the approved label counts only when the Owner added it. REQ-001-05: blocked issues wait.
-  const open = new Set(s.items.map((i) => i.number));
   for (const i of issues) {
     const state = issueState(i.labels);
     if (state !== "approved" && state !== "blocked") continue;
@@ -206,11 +220,12 @@ export function deriveActions(s: Snapshot): Action[] {
           notes: "",
           at: s.now ?? new Date().toISOString(),
           upToCommentId: 0,
+          blockers: openBlockers(i.number),
         });
       else actions.push({ type: "reject-approval", repo: s.repo, issue: i.number });
       continue;
     }
-    const blockers = coordination(rec.assessment, "blockedBy").filter((n) => open.has(n));
+    const blockers = openBlockers(i.number);
     if (state === "approved" && blockers.length)
       actions.push({ type: "block", repo: s.repo, issue: i.number, blockers });
     if (state === "blocked" && !blockers.length) actions.push({ type: "unblock", repo: s.repo, issue: i.number });
