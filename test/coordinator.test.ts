@@ -66,6 +66,14 @@ class FakeGitHub {
   async updateComment(_r: string, id: number, body: string) {
     this.calls.push(["updateComment", id, body]);
   }
+  /** Issues it creates are authored by the App, like on GitHub (REQ-001-34). */
+  async createIssue(_r: string, issue: { title: string; body: string }) {
+    const number = 200 + this.items.length;
+    this.calls.push(["createIssue", number, issue.title]);
+    this.items.push(item(number, [], { ...issue, author: { login: "coordinator[bot]", id: 900 } }));
+    this.changed = true;
+    return number;
+  }
   /** How many createPull calls fail before one succeeds (REQ-001-27). */
   createPullFailures = 0;
   async createPull(_r: string, pr: { title: string; body: string; head: string; base: string }) {
@@ -277,6 +285,31 @@ describe("reconcile loop", () => {
     await coordinator.tick();
     expect(runner.started).toHaveLength(2);
     expect(runner.resumed).toEqual([]);
+  });
+
+  test("REQ-001-34 a Split-off issue is planned like an Owner issue, and the Owner's /approve approves it", async () => {
+    gh.items = [item(5), item(6, [], { author: { login: "coordinator[bot]", id: 900 } })];
+    await coordinator.tick();
+    const split = [{ issue: 5, verdict: "proposed", approach: "A5", bundleWith: [], blockedBy: [], questions: [] }];
+    writeFileSync(
+      join(runner.sessionDir(1), "result.json"),
+      JSON.stringify([{ ...split[0], splitOff: [{ title: "Parser bug", body: "Found while reading" }] }]),
+    );
+    store.patchSession(1, { state: "idle", needsSync: true });
+    await coordinator.tick();
+    expect(gh.calls.filter((c) => c[0] === "createIssue")).toEqual([["createIssue", 202, "Parser bug"]]);
+    expect(runner.started.at(-1)).toMatchObject({ kind: "batch", issues: [202] });
+    expect(runner.started.at(-1)?.prompt).toContain("- #5 Issue 5");
+    expect(runner.started.at(-1)?.prompt).not.toContain("#6 Issue 6"); // other App issues stay out of scope
+
+    finishPlanner(2, [202]);
+    await coordinator.tick();
+    gh.comments.set(202, [
+      { id: 960, body: "/approve", author: OWNER, createdAt: "2026-11-11T09:30:00Z", updatedAt: "" },
+    ]);
+    gh.changed = true;
+    await coordinator.tick();
+    expect(store.issue("octo/app", 202).approvedAt).toBe("2026-11-11T09:30:00Z");
   });
 
   const proposed = async () => {

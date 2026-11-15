@@ -61,11 +61,18 @@ The Owner gets plans they can approve on a phone, code that matches those plans,
 - **Then** the command is allowed without asking, inside the sandbox like its other shell commands (REQ-001-26)
 - **And** `git grep` is not allowed, because `git grep -O<cmd>` runs an arbitrary command; the Grep tool covers content search
 
+### REQ-002-08 The Planner knows when to split off an issue
+
+- **Given** the default Planner prompt
+- **When** the Planner assesses an issue
+- **Then** it lists Split-off issues (REQ-001-34) only when the issue mixes independent changes or it found a separate bug or follow-up while reading the code
+- **And** it checks the open issues first so it doesn't create a duplicate
+
 ## Out of scope
 
 - Letting the Reviewer run the test suite or linters (it would execute the PR's code; REQ-001-25 stays as it is).
 - Updating prompts that a repository has overridden in `.github/coordinator/<role>.md` (REQ-001-22).
-- Changing the Result schemas.
+- Changing the Result schemas (the Planner's `splitOff` field belongs to REQ-001-34).
 
 ## Assumptions
 
@@ -83,4 +90,5 @@ The Owner gets plans they can approve on a phone, code that matches those plans,
 | REQ-002-05 | `prompts > REQ-002-05 the Reviewer prompt checks against the Assessment with a checklist and concrete blocking findings` | pass (wording only; quality via a real run)              |
 | REQ-002-06 | `prompts > REQ-002-06 every default prompt has the shared rules`                                                         | pass                                                     |
 | REQ-002-07 | `permissions > REQ-001-25 / REQ-002-07 Planner and Reviewer may only read, run read-only git …` (incl. no `git grep`)    | pass                                                     |
+| REQ-002-08 | `prompts > REQ-002-08 the Planner prompt says when to split off an issue and to check open issues first`                 | pass (wording only; quality via a real run)              |
 | all        | manual: one real run per Role                                                                                            | open (to be done by the Owner on this PR via dogfooding) |

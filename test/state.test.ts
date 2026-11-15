@@ -539,6 +539,30 @@ describe("deriveActions", () => {
     expect(actions).toEqual([]);
   });
 
+  test("REQ-001-01 / REQ-001-34 a Split-off issue on record is in scope like an Owner issue; other bot issues are not", () => {
+    const bot = { login: "coordinator[bot]", id: 900 };
+    const actions = deriveActions(
+      snap({
+        items: [issue(31, [], { author: bot }), issue(32, [], { author: bot })],
+        splitOffs: new Set([31]),
+      }),
+    );
+    expect(actions).toEqual([{ type: "plan", repo: "octo/app", issues: [31] }]);
+  });
+
+  test("REQ-001-04 / REQ-001-34 on a Split-off issue only the Owner's comments count", () => {
+    const bot = { login: "coordinator[bot]", id: 900 };
+    const foreign = { id: 1, body: "/approve", author: bot, createdAt: "c", updatedAt: "c" };
+    const actions = deriveActions(
+      snap({
+        items: [issue(31, ["agent:proposed"], { author: bot })],
+        splitOffs: new Set([31]),
+        feedback: new Map([[31, { comments: [foreign], bodyChanged: false }]]),
+      }),
+    );
+    expect(actions).toEqual([]);
+  });
+
   test.each([
     ["agent:planning", "planner"],
     ["agent:in-progress", "implementer"],
