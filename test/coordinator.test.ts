@@ -647,6 +647,34 @@ describe("reconcile loop", () => {
     expect(reReview?.prompt).toContain("**Fixed**: Added a test for empty input");
   });
 
+  test("REQ-001-39 Review findings take the issue from agent:reviewing to agent:in-progress without agent:pr-open, also across a restart", async () => {
+    const impl = prOpen({ reviewedHeadSha: null });
+    await coordinator.tick();
+    const reviewId = impl + 1;
+    expect(runner.started.at(-1)?.role).toBe("reviewer");
+    writeFileSync(
+      join(runner.sessionDir(reviewId), "result.json"),
+      JSON.stringify({ summary: "S", findings: [{ path: "a.ts", line: 1, severity: "high", body: "crash" }] }),
+    );
+    store.patchSession(reviewId, { state: "idle", needsSync: true });
+    // A restart closed the Implementer's window before its round could start.
+    runner.live.delete(impl);
+    gh.calls = [];
+    await coordinator.tick();
+    expect(gh.items[0]?.labels).toEqual(["agent:in-progress"]);
+    await coordinator.tick();
+    await coordinator.tick();
+    expect(runner.resumed).toEqual([[impl, expect.stringContaining("crash")]]);
+    const labels = gh.calls.filter((c) => (c[0] === "addLabels" || c[0] === "removeLabel") && c[1] === 5);
+    expect(labels.filter((c) => c[0] === "addLabels")).toEqual([
+      ["addLabels", 5, ["agent:in-progress"]],
+      ["addLabels", 5, ["agent:in-progress"]],
+    ]);
+    expect(labels).toContainEqual(["removeLabel", 5, "agent:reviewing"]);
+    expect(labels).not.toContainEqual(["addLabels", 5, ["agent:failed"]]); // the round only clears it (REQ-001-37)
+    expect(gh.items[0]?.labels).toEqual(["agent:in-progress"]);
+  });
+
   test("REQ-001-11 past maxFeedbackRounds the PR and its issue are labelled agent:failed", async () => {
     prOpen({ pendingFeedback: "Blocking: crash", reviewFindings: "[]", feedbackRounds: 2 });
     await coordinator.tick();

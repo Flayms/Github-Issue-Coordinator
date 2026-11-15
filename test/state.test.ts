@@ -545,6 +545,49 @@ describe("deriveActions", () => {
     ]);
   });
 
+  test("REQ-001-39 an agent:in-progress issue with Review findings on record and no Implementer session gets its round, not agent:failed", () => {
+    const actions = deriveActions(
+      snap({
+        items: [issue(5, ["agent:in-progress"]), pr(9)],
+        worktrees: wt("h2", { pendingFeedback: "Blocking: crash" }),
+        pulls: passing,
+      }),
+    );
+    expect(actions).toEqual([expect.objectContaining({ type: "feedback", pr: 9, issues: [5], counted: true })]);
+  });
+
+  test("REQ-001-39 / REQ-001-11 past maxFeedbackRounds such an issue fails once, for the round limit", () => {
+    const actions = deriveActions(
+      snap({
+        items: [issue(5, ["agent:in-progress"]), pr(9)],
+        worktrees: wt("h2", { pendingFeedback: "x", feedbackRounds: 2 }),
+        pulls: passing,
+        maxFeedbackRounds: 2,
+      }),
+    );
+    expect(actions).toEqual([
+      {
+        type: "fail",
+        repo: "octo/app",
+        issues: [5],
+        pr: 9,
+        headSha: "h2",
+        checksFailed: false,
+        conflicted: false,
+        reason: "the PR still had problems after 2 automatic Feedback rounds",
+      },
+    ]);
+  });
+
+  test("REQ-001-07 / REQ-001-39 an agent:in-progress issue without Review findings on record and no session still fails", () => {
+    const actions = deriveActions(
+      snap({ items: [issue(5, ["agent:in-progress"]), pr(9)], worktrees: wt("h2"), pulls: passing }),
+    );
+    expect(actions).toEqual([
+      { type: "fail", repo: "octo/app", issues: [5], reason: "no implementer session to resume" },
+    ]);
+  });
+
   test("REQ-001-12 the Owner's /agent comment or changes-requested review starts an uncounted round, even past the limit", () => {
     const actions = deriveActions(
       snap({
