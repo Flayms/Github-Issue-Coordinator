@@ -198,6 +198,9 @@ describe("store", () => {
       // REQ-001-35 / REQ-001-36: the Review findings and their history are migrated too.
       s.updateIssue("octo/app", 5, { reviewFindings: "[]", reviewHistory: "Earlier" });
       expect(s.issue("octo/app", 5)).toMatchObject({ reviewFindings: "[]", reviewHistory: "Earlier" });
+      // REQ-001-38: and the running automatic round.
+      s.updateIssue("octo/app", 5, { autoRound: '{"headSha":"h1","causes":["checks"]}' });
+      expect(s.issue("octo/app", 5).autoRound).toBe('{"headSha":"h1","causes":["checks"]}');
       s.close();
     } finally {
       rmSync(dir, { recursive: true });
@@ -274,6 +277,7 @@ describe("store", () => {
       headSha: null,
       headSeenAt: null,
       inFeedbackRound: 0,
+      autoRound: null,
       reviewFindings: null,
       reviewHistory: null,
       replyTo: [],
