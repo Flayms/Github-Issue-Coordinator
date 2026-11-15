@@ -57,7 +57,11 @@ export interface Pull {
   baseRef: string;
   /** False when the PR has merge conflicts; null while GitHub is still computing it (REQ-001-28). */
   mergeable: boolean | null;
+  /** Whether the PR is still open, closed without merging, or merged (REQ-001-14). */
+  state: PullStatus;
 }
+
+export type PullStatus = "open" | "closed" | "merged";
 
 interface RawUser {
   login: string;
@@ -201,7 +205,7 @@ export class GitHubClient {
     return raw.map((r) => ({ id: r.id, state: r.state, body: r.body ?? "", author: actor(r.user) }));
   }
 
-  /** A PR's head commit, branches, mergeability and draft status (REQ-001-10, REQ-001-28, REQ-001-31). */
+  /** A PR's head commit, branches, mergeability, draft status and state (REQ-001-10, -14, -28, -31). */
   async getPull(repo: string, pr: number): Promise<Pull> {
     const r = await this.request<RawPull>(repo, "GET", `/repos/${repo}/pulls/${pr}`);
     return {
@@ -212,6 +216,7 @@ export class GitHubClient {
       headRef: r.head.ref,
       baseRef: r.base.ref,
       mergeable: r.mergeable ?? null,
+      state: r.merged || r.merged_at ? "merged" : r.state === "closed" ? "closed" : "open",
     };
   }
 
@@ -336,6 +341,9 @@ interface RawPull {
   head: { sha: string; ref: string };
   base: { ref: string };
   mergeable?: boolean | null;
+  state: "open" | "closed";
+  merged?: boolean;
+  merged_at?: string | null;
 }
 
 interface RawCheckRun {

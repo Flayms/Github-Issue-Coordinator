@@ -93,9 +93,15 @@ class FakeGitHub {
   heads = new Map<number, string>();
   checkState: "none" | "pending" | "success" | "failure" = "success";
   mergeable: boolean | null = true;
+  /** PRs not listed here are open (REQ-001-14). */
+  pullStates = new Map<number, "open" | "closed" | "merged">();
+  /** PRs whose fetch fails, e.g. a network error. */
+  failingPulls = new Set<number>();
   async getPull(_r: string, pr: number) {
+    if (this.failingPulls.has(pr)) throw new Error(`GitHub GET /repos/octo/app/pulls/${pr} failed with 502`);
     const headSha = this.heads.get(pr) ?? "h1";
     return {
+      state: this.pullStates.get(pr) ?? "open",
       number: pr,
       nodeId: `PR_${pr}`,
       draft: true,
@@ -202,8 +208,10 @@ let gh: FakeGitHub;
 let runner: FakeRunner;
 let worktrees: FakeWorktrees;
 let coordinator: Coordinator;
+let logs: string[];
 
 beforeEach(() => {
+  logs = [];
   dir = mkdtempSync(join(tmpdir(), "coord-"));
   now = new Date("2026-11-11T10:00:00Z");
   store = new Store(":memory:", () => now);
@@ -218,7 +226,7 @@ beforeEach(() => {
     worktrees,
     clones: { mainClone: async (repo: string) => `/clones/${repo}` },
     now: () => now,
-    log: () => {},
+    log: (m) => logs.push(m),
   });
 });
 afterEach(() => {
@@ -399,6 +407,7 @@ describe("reconcile loop", () => {
     expect(runner.started.filter((s) => s.role === "implementer")).toHaveLength(1);
 
     gh.items = gh.items.filter((i) => i.number !== 70 && i.number !== 5); // merged, issue closed
+    gh.pullStates.set(70, "merged");
     gh.changed = true;
     await coordinator.tick();
     expect(worktrees.removed).toEqual(["/wt/5"]);
@@ -423,6 +432,38 @@ describe("reconcile loop", () => {
     runner.live.add(id);
     return id;
   };
+
+  test("REQ-001-14 a PR missing from a cached (304) or lagging list right after it was opened keeps its Worktree and gets a Review", async () => {
+    const id = implementerDone();
+    gh.items = gh.items.filter((i) => i.number !== 70); // GitHub's list doesn't show the new PR yet
+    gh.checkState = "success";
+    await coordinator.tick(); // sync opens PR #70
+    expect(gh.calls).toContainEqual(["createPull", "T"]);
+    expect(store.issue("octo/app", 5).prNumber).toBe(70);
+    gh.changed = false; // 304: the cached view without PR #70
+    await coordinator.tick();
+    expect(worktrees.removed).toEqual([]);
+    expect(store.issue("octo/app", 5).worktreePath).toBe("/wt/5");
+    expect(gh.items[0]?.labels).toEqual(["agent:reviewing"]); // not cleared by a cleanup
+    expect(logs.join("\n")).not.toContain("is closed");
+    expect(runner.started.filter((s) => s.role === "reviewer")).toMatchObject([{ issues: [5] }]);
+    expect(store.session(id)?.state).not.toBe("closed");
+  });
+
+  test("REQ-001-14 when a PR can't be fetched nothing is cleaned up; the fetch is logged and retried next tick", async () => {
+    gh.items = [item(5, ["agent:pr-open"])];
+    store.updateIssue("octo/app", 5, { worktreePath: "/wt/5", prNumber: 70 });
+    gh.pullStates.set(70, "closed");
+    gh.failingPulls.add(70);
+    await coordinator.tick();
+    expect(worktrees.removed).toEqual([]);
+    expect(logs.join("\n")).toContain("pulls/70 failed with 502");
+
+    gh.failingPulls.clear();
+    await coordinator.tick();
+    expect(worktrees.removed).toEqual(["/wt/5"]);
+    expect(store.issue("octo/app", 5)).toMatchObject({ worktreePath: null, prNumber: null });
+  });
 
   test("REQ-001-27 a failed sync is retried on the next tick", async () => {
     const id = implementerDone();

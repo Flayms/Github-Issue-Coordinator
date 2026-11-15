@@ -195,7 +195,7 @@ export class Implementer {
     this.d.worktrees.remove(worktreePath);
     for (const n of issues) {
       for (const l of CLEARED_ON_CLEANUP) await this.d.gh.removeLabel(repo, n, l);
-      this.d.store.updateIssue(repo, n, { worktreePath: null });
+      this.d.store.updateIssue(repo, n, { worktreePath: null, prNumber: null });
     }
     return true;
   }

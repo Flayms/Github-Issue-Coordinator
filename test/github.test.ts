@@ -238,7 +238,23 @@ describe("GitHub client", () => {
         headRef: "agent/5-x",
         baseRef: "main",
         mergeable,
+        state: "open",
       });
+    }
+  });
+
+  test("REQ-001-14 reads whether a PR is open, closed or merged", async () => {
+    for (const [state, merged, expected] of [
+      ["open", false, "open"],
+      ["closed", false, "closed"],
+      ["closed", true, "merged"],
+    ] as const) {
+      const { gh } = client({
+        "GET /repos/octo/app/pulls/9": {
+          body: { number: 9, node_id: "PR_9", state, merged, head: { sha: "abc", ref: "b" }, base: { ref: "main" } },
+        },
+      });
+      expect((await gh.getPull("octo/app", 9)).state).toBe(expected);
     }
   });
 

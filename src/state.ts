@@ -3,7 +3,7 @@
  * Pure, so every rule is unit-tested; the scheduler (T5) decides when actions run.
  */
 import type { Role } from "./config.ts";
-import type { Actor, ChecksState, Comment, Item } from "./github/client.ts";
+import type { Actor, ChecksState, Comment, Item, PullStatus } from "./github/client.ts";
 import { type AgentLabel, isAgentLabel } from "./labels.ts";
 import type { IssueRecord, SessionRecord, WorktreeRecord } from "./store.ts";
 
@@ -58,7 +58,11 @@ export interface Snapshot {
   labelActors?: ReadonlyMap<number, Actor | undefined>;
   /** Worktrees on record for this repository, with the PR they belong to. */
   worktrees?: WorktreeRecord[];
-  /** Head commit, checks and mergeability of open agent PRs. */
+  /**
+   * Head commit, checks, mergeability and state of the agent PRs on record, fetched one by one: a PR
+   * missing from `items` (cached or lagging list) may still be open (REQ-001-14). Missing here when
+   * the fetch failed, so nothing is decided about that PR on this tick.
+   */
   pulls?: ReadonlyMap<number, PullState>;
   /** Per agent PR: the Owner's comments since the last handled one, and changes-requested reviews by the Owner. */
   prFeedback?: ReadonlyMap<number, { comments: Comment[]; changesRequested: { id: number; body: string }[] }>;
@@ -77,6 +81,8 @@ export interface PullState {
   headSeenAt: string;
   /** The PR's base branch, normally the default branch. */
   baseRef?: string;
+  /** As GitHub reports it for the PR itself (REQ-001-14). */
+  state: PullStatus;
 }
 
 export interface IssueFeedback {
@@ -224,7 +230,7 @@ export function deriveActions(s: Snapshot): Action[] {
   // REQ-001-11/12/13: Feedback rounds on agent PRs; REQ-001-24: /wake.
   const withFeedback = new Set<number>();
   for (const w of s.worktrees ?? []) {
-    const pull = w.prNumber !== null && open.has(w.prNumber) ? s.pulls?.get(w.prNumber) : undefined;
+    const pull = openPull(s, w);
     if (!pull || w.prNumber === null) continue;
     if (s.sessions.some((x) => x.role === "reviewer" && x.issues.some((n) => w.issues.includes(n)))) continue;
     const f = s.prFeedback?.get(w.prNumber);
@@ -295,7 +301,7 @@ export function deriveActions(s: Snapshot): Action[] {
   const now = Date.parse(s.now ?? new Date().toISOString());
   const graceMs = (s.checksGraceSeconds ?? 120) * 1000;
   for (const w of s.worktrees ?? []) {
-    const pull = w.prNumber !== null && open.has(w.prNumber) ? s.pulls?.get(w.prNumber) : undefined;
+    const pull = openPull(s, w);
     if (!pull || w.prNumber === null || pull.headSha === w.reviewedHeadSha || withFeedback.has(w.prNumber)) continue;
     if (pull.mergeable !== true) continue; // REQ-001-28
     if (pull.checks !== "success" && pull.checks !== "none") continue;
@@ -308,9 +314,11 @@ export function deriveActions(s: Snapshot): Action[] {
     if (!busy) actions.push({ type: "review", repo: s.repo, pr: w.prNumber, issues: w.issues, headSha: pull.headSha });
   }
 
-  // REQ-001-14: a Worktree whose PR was merged or closed is cleaned up.
+  // REQ-001-14: a Worktree whose PR GitHub reports as merged or closed is cleaned up. Missing from the
+  // list of open items is not enough: the list may be cached (304) or lag behind a PR just opened.
   for (const w of s.worktrees ?? []) {
-    if (w.prNumber !== null && !open.has(w.prNumber))
+    const state = w.prNumber === null ? undefined : s.pulls?.get(w.prNumber)?.state;
+    if (w.prNumber !== null && (state === "closed" || state === "merged"))
       actions.push({
         type: "cleanup",
         repo: s.repo,
@@ -326,6 +334,12 @@ export function deriveActions(s: Snapshot): Action[] {
 
   return actions;
 }
+
+/** The PR of a Worktree, if GitHub reports it open (REQ-001-14). */
+const openPull = (s: Snapshot, w: WorktreeRecord): PullState | undefined => {
+  const pull = w.prNumber === null ? undefined : s.pulls?.get(w.prNumber);
+  return pull?.state === "open" ? pull : undefined;
+};
 
 const conflictText = (base = "HEAD"): string =>
   `This PR has merge conflicts with \`${base}\`. The Coordinator has fetched \`origin/${base}\` into your Worktree. ` +
