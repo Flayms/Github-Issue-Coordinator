@@ -29,6 +29,7 @@ export interface CoordinatorDeps {
   gh: Pick<
     GitHubClient,
     | "listOpenItems"
+    | "listOpenPulls"
     | "listComments"
     | "labelActor"
     | "addLabels"
@@ -65,6 +66,8 @@ export class Coordinator {
   private readonly views = new Map<string, RepoView>();
   /** Failed sync attempts in a row per session; kept in memory, so a restart allows a few more (REQ-001-27). */
   private readonly syncFailures = new Map<number, number>();
+  /** Orphaned agent PRs already reported as having no open issue to re-attach to (REQ-001-41). */
+  private readonly reportedOrphans = new Set<string>();
   private readonly now: () => Date;
   private readonly log: (m: string) => void;
 
@@ -101,6 +104,7 @@ export class Coordinator {
             worktrees,
             pulls: await this.pulls(repo, worktrees),
             prFeedback: view.prFeedback,
+            openPulls: await this.d.gh.listOpenPulls(repo),
             maxFeedbackRounds: this.d.config.limits.maxFeedbackRounds,
             checksGraceSeconds: this.d.config.checksGraceSeconds,
           });
@@ -351,6 +355,18 @@ export class Coordinator {
         if (await this.implementer.cleanup(a.repo, a.issues, a.worktreePath))
           this.log(`${a.repo}: PR #${a.prNumber} is closed; cleaned up ${a.issues.map((n) => `#${n}`).join(", ")}`);
         return;
+      case "reattach":
+        await this.reattach(a.repo, a.pr, a.branch, a.issues);
+        return;
+      case "orphan-closed": {
+        const key = `${a.repo}#${a.pr}`;
+        if (this.reportedOrphans.has(key)) return;
+        this.reportedOrphans.add(key);
+        this.log(
+          `${a.repo}: PR #${a.pr} is an agent PR without a Worktree, but its issues (${a.issues.map((n) => `#${n}`).join(", ")}) are closed or out of scope; not re-attached`,
+        );
+        return;
+      }
       case "resume-interrupted": {
         const s = a.session;
         this.add(
@@ -408,6 +424,22 @@ export class Coordinator {
         );
         return;
       }
+    }
+  }
+
+  /**
+   * REQ-001-41: re-attach an orphaned agent PR, once GitHub reports the PR itself open on the same
+   * branch: the open list may lag behind a PR just closed (REQ-001-14). Failures (maxWorktrees
+   * reached, a folder in the way) are logged and retried on a later tick.
+   */
+  private async reattach(repo: string, pr: number, branch: string, issues: number[]) {
+    try {
+      const pull = await this.d.gh.getPull(repo, pr);
+      if (pull.state !== "open" || pull.headRef !== branch) return;
+      const path = await this.implementer.reattach(repo, pr, branch, issues);
+      this.log(`${repo}: re-attached PR #${pr} to ${issues.map((n) => `#${n}`).join(", ")} in ${path}`);
+    } catch (e) {
+      this.log(`${repo}: could not re-attach PR #${pr}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 

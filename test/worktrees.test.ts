@@ -132,4 +132,38 @@ describe("worktrees", () => {
     expect(existsSync(wt.path)).toBe(false);
     expect(w.hasRoom()).toBe(true);
   });
+
+  test("REQ-001-41 re-attaching builds a Worktree from the PR's remote branch, which still pushes as a fast-forward", async () => {
+    git(origin, "checkout", "-q", "-b", "agent/5-fix-it");
+    writeFileSync(join(origin, "fix.txt"), "fix");
+    git(origin, "add", "-A");
+    git(origin, "commit", "-qm", "fix");
+    const remoteHead = git(origin, "rev-parse", "HEAD");
+    git(origin, "checkout", "-q", "main");
+
+    const w = make("echo ready > setup-ran");
+    const wt = await w.attach("octo/app", [5, 6], "agent/5-fix-it");
+    expect(wt).toEqual({ path: join(dir, "state", "worktrees", "octo", "app", "5"), branch: "agent/5-fix-it" });
+    expect(w.head(wt.path)).toBe(remoteHead);
+    expect(w.currentBranch(wt.path)).toBe("agent/5-fix-it");
+    expect(git(wt.path, "rev-parse", "--abbrev-ref", "@{upstream}")).toBe("origin/agent/5-fix-it");
+    expect(readFileSync(join(wt.path, "setup-ran"), "utf8").trim()).toBe("ready");
+    expect(w.commitsAhead(wt.path)).toBe(1);
+    expect(readFileSync(join(wt.path, ".git", "config"), "utf8")).not.toContain("tok-123");
+
+    writeFileSync(join(wt.path, "more.txt"), "more");
+    git(wt.path, "add", "more.txt");
+    git(wt.path, "commit", "-qm", "more");
+    await w.push("octo/app", wt.path, wt.branch);
+    expect(git(origin, "rev-parse", "agent/5-fix-it")).toBe(w.head(wt.path));
+    expect(git(origin, "rev-parse", "agent/5-fix-it~1")).toBe(remoteHead);
+  });
+
+  test("REQ-001-41 re-attaching never reuses a folder that exists, and respects maxWorktrees", async () => {
+    git(origin, "branch", "agent/5-fix-it");
+    const w = make(undefined, 1);
+    await w.create("octo/app", [5], "fix it");
+    expect(w.attach("octo/app", [5], "agent/5-fix-it")).rejects.toThrow("already exists");
+    expect(w.attach("octo/app", [6], "agent/5-fix-it")).rejects.toThrow("maxWorktrees");
+  });
 });

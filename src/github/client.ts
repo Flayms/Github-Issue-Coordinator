@@ -61,6 +61,15 @@ export interface Pull {
   state: PullStatus;
 }
 
+/** An open PR as listed by the pulls endpoint, with its head branch (REQ-001-40). */
+export interface OpenPull {
+  number: number;
+  headRef: string;
+  /** `owner/name` of the head repository; differs for a fork, null if the fork was deleted. */
+  headRepo: string | null;
+  body: string;
+}
+
 export type PullStatus = "open" | "closed" | "merged";
 
 interface RawUser {
@@ -82,6 +91,7 @@ interface Page<T> {
 export class GitHubClient {
   private readonly fetch: Fetch;
   private readonly etagCache = new Map<string, { etag: string; items: Item[] }>();
+  private readonly pullsCache = new Map<string, { etag: string; pulls: OpenPull[] }>();
 
   constructor(private readonly opts: { auth: AppAuth; fetch?: Fetch }) {
     this.fetch = opts.fetch ?? fetch;
@@ -100,6 +110,25 @@ export class GitHubClient {
     const items = raw.map(toItem);
     if (first.etag) this.etagCache.set(repo, { etag: first.etag, items });
     return { changed: true, items };
+  }
+
+  /**
+   * All open PRs with their head branch and repository, which the issues list lacks (REQ-001-40).
+   * Polled with the ETag like `listOpenItems`; on 304 the cached list is returned.
+   */
+  async listOpenPulls(repo: string): Promise<OpenPull[]> {
+    const path = `/repos/${repo}/pulls?state=open&per_page=100`;
+    const cached = this.pullsCache.get(repo);
+    const first = await this.page<RawOpenPull[]>(repo, path, cached?.etag);
+    if (first.notModified && cached) return cached.pulls;
+    const pulls = [...first.data, ...(await this.rest<RawOpenPull>(repo, first.next))].map((p) => ({
+      number: p.number,
+      headRef: p.head.ref,
+      headRepo: p.head.repo?.full_name ?? null,
+      body: p.body ?? "",
+    }));
+    if (first.etag) this.pullsCache.set(repo, { etag: first.etag, pulls });
+    return pulls;
   }
 
   /** Comments on an issue or PR, oldest first; with `afterId`, only newer ones. */
@@ -344,6 +373,12 @@ interface RawPull {
   state: "open" | "closed";
   merged?: boolean;
   merged_at?: string | null;
+}
+
+interface RawOpenPull {
+  number: number;
+  body: string | null;
+  head: { ref: string; repo: { full_name: string } | null };
 }
 
 interface RawCheckRun {

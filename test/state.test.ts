@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ChecksState, Item } from "../src/github/client.ts";
-import { deriveActions, issueState, type Snapshot } from "../src/state.ts";
+import { deriveActions, issueState, type OpenPull, type Snapshot } from "../src/state.ts";
 import type { SessionRecord, WorktreeRecord } from "../src/store.ts";
 
 const OWNER = { login: "octo", id: 42 };
@@ -774,5 +774,138 @@ describe("deriveActions", () => {
         reason: "session never reported its id, so it cannot be resumed",
       },
     ]);
+  });
+});
+
+describe("agent PRs without a Worktree on record", () => {
+  const openPull = (number: number, headRef: string, extra: Partial<OpenPull> = {}): OpenPull => ({
+    number,
+    headRef,
+    headRepo: "octo/app",
+    body: "",
+    ...extra,
+  });
+  const approvedRecord = new Map([
+    [
+      5,
+      {
+        approvedAt: "2026-11-11T09:00:00Z",
+        assessment: JSON.stringify({ issue: 5, verdict: "proposed", approach: "A", bundleWith: [], blockedBy: [] }),
+      },
+    ],
+  ]);
+  const record: WorktreeRecord = {
+    issues: [5],
+    prNumber: 34,
+    worktreePath: "/wt/5",
+    reviewedHeadSha: null,
+    feedbackRounds: 0,
+    pendingFeedback: null,
+    failedChecksSha: null,
+    conflictSha: null,
+    headSha: null,
+    headSeenAt: null,
+  };
+
+  test("REQ-001-40 a new issue with an open agent PR named after it is not planned", () => {
+    const actions = deriveActions(
+      snap({ items: [issue(5), issue(6)], openPulls: [openPull(34, "agent/5-fix-it")], worktrees: [record] }),
+    );
+    expect(actions).toEqual([{ type: "plan", repo: "octo/app", issues: [6] }]);
+  });
+
+  test("REQ-001-40 an issue an agent PR closes is not planned, whatever the branch number", () => {
+    const actions = deriveActions(
+      snap({
+        items: [issue(5), issue(6), issue(7)],
+        openPulls: [openPull(34, "agent/5-bundle", { body: "note\n\nCloses #5\ncloses #6\nFixes: #99" })],
+        worktrees: [{ ...record, issues: [5, 6] }],
+      }),
+    );
+    expect(actions).toEqual([{ type: "plan", repo: "octo/app", issues: [7] }]);
+  });
+
+  test("REQ-001-40 an approved issue with an open agent PR starts no Implementer, nor joins a Bundle", () => {
+    const actions = deriveActions(
+      snap({
+        items: [issue(5, ["agent:approved"]), issue(6, ["agent:approved"])],
+        records: new Map([
+          ...approvedRecord,
+          [
+            6,
+            {
+              approvedAt: "2026-11-11T10:00:00Z",
+              assessment: JSON.stringify({ issue: 6, verdict: "proposed", approach: "A", bundleWith: [5] }),
+            },
+          ],
+        ]),
+        openPulls: [openPull(34, "agent/5-fix-it")],
+        worktrees: [record],
+      }),
+    );
+    expect(actions).toEqual([{ type: "implement", repo: "octo/app", issues: [6], approvedAt: "2026-11-11T10:00:00Z" }]);
+  });
+
+  test("REQ-001-40 a PR from a fork, or from a branch not named agent/<n>-…, is not an agent PR", () => {
+    const actions = deriveActions(
+      snap({
+        items: [issue(5), issue(6)],
+        openPulls: [
+          openPull(34, "agent/5-fix-it", { headRepo: "mallory/app", body: "Closes #6" }),
+          openPull(35, "agent/5-fix-it", { headRepo: null }),
+          openPull(36, "feature/6", { body: "Closes #6" }),
+          openPull(37, "agent/x-5", { body: "" }),
+        ],
+      }),
+    );
+    expect(actions).toEqual([{ type: "plan", repo: "octo/app", issues: [5, 6] }]);
+  });
+
+  test("REQ-001-41 an open agent PR with no Worktree on record is re-attached, for its open issues in scope", () => {
+    const actions = deriveActions(
+      snap({
+        items: [issue(5, ["agent:proposed"]), issue(7, [], { author: { login: "mallory", id: 666 } })],
+        openPulls: [openPull(34, "agent/5-fix-it", { body: "Closes #5\nCloses #6\nCloses #7" })],
+      }),
+    );
+    expect(actions).toEqual([{ type: "reattach", repo: "octo/app", pr: 34, branch: "agent/5-fix-it", issues: [5] }]);
+  });
+
+  test("REQ-001-41 a PR whose issues have a Worktree on record is not re-attached", () => {
+    for (const w of [record, { ...record, prNumber: null }, { ...record, issues: [6], prNumber: 34 }]) {
+      const actions = deriveActions(
+        snap({
+          items: [issue(5, ["agent:pr-open"]), issue(6, ["agent:pr-open"])],
+          openPulls: [openPull(34, "agent/5-fix-it", { body: "Closes #5" })],
+          worktrees: [w],
+        }),
+      );
+      expect(actions.filter((a) => a.type === "reattach")).toEqual([]);
+    }
+  });
+
+  test("REQ-001-41 a PR whose issue has an open session, or one still to be synced, is not re-attached", () => {
+    for (const s of [
+      {
+        sessions: [session({ role: "planner", kind: "batch", issues: [4, 5], state: "idle" })],
+        liveSessionIds: new Set([1]),
+      },
+      { pendingSync: [session({ role: "implementer", issues: [5], state: "closed" })] },
+    ]) {
+      const actions = deriveActions(
+        snap({ items: [issue(5, ["agent:proposed"])], openPulls: [openPull(34, "agent/5-fix-it")], ...s }),
+      );
+      expect(actions.filter((a) => a.type === "reattach")).toEqual([]);
+    }
+  });
+
+  test("REQ-001-41 an orphaned agent PR whose issues are all closed or out of scope is only reported", () => {
+    const actions = deriveActions(
+      snap({
+        items: [issue(7, [], { author: { login: "mallory", id: 666 } })],
+        openPulls: [openPull(34, "agent/5-fix-it", { body: "Closes #7" })],
+      }),
+    );
+    expect(actions).toEqual([{ type: "orphan-closed", repo: "octo/app", pr: 34, issues: [5, 7] }]);
   });
 });
