@@ -100,7 +100,7 @@ describe("prompts (REQ-002)", () => {
     ]);
   });
 
-  test("REQ-002-08 the Reviewer prompt reports only findings worth fixing, without blocking or low severity", () => {
+  test("REQ-002-09 the Reviewer prompt reports only findings worth fixing, without blocking or low severity", () => {
     const text = prompt("reviewer");
     expectAll(text, [
       /worth fixing|fixed before merg/i,
@@ -119,7 +119,7 @@ describe("prompts (REQ-002)", () => {
     expect(text).not.toMatch(/blocking/i);
   });
 
-  test("REQ-001-34 the Implementer prompt asks to answer each Review finding in `responses`", () => {
+  test("REQ-001-35 the Implementer prompt asks to answer each Review finding in `responses`", () => {
     expectAll(prompt("implementer"), [/`responses`/, /`fixed`/, /`declined`/, /reason/i]);
   });
 

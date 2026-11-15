@@ -89,7 +89,7 @@ describe("hook", () => {
     expect(store.session(id)).toMatchObject({ state: "running", resultFailures: 1, needsSync: false });
   });
 
-  test("REQ-001-34 in a Feedback round on Review findings, a Result that does not answer every finding blocks the stop", () => {
+  test("REQ-001-35 in a Feedback round on Review findings, a Result that does not answer every finding blocks the stop", () => {
     const f = { path: "a.ts", line: 1, severity: "high", body: "Bug" };
     store.updateIssue("octo/app", 5, { inFeedbackRound: 1, reviewFindings: JSON.stringify([f, f]) });
     writeResult({ ...validResult, responses: [{ finding: 1, answer: "fixed", reason: "Done" }] });

@@ -117,7 +117,7 @@ export class Implementer {
       const unchanged = first.reviewedHeadSha !== null && this.d.worktrees.head(wt) === first.reviewedHeadSha;
       if (first.reviewedHeadSha !== null && !unchanged) await this.d.gh.setDraft(s.repo, first.prNumber, true);
       if (first.inFeedbackRound && first.reviewFindings) {
-        // REQ-001-34: one comment answering every finding; REQ-001-35: kept for the next Review.
+        // REQ-001-35: one comment answering every finding; REQ-001-36: kept for the next Review.
         const answers = renderAnswers(JSON.parse(first.reviewFindings) as Finding[], result.responses ?? []);
         const waits = unchanged
           ? "\n\nNo new commits in this round, so the PR stays a draft and waits for the Owner: comment `/agent <text>` to have it fixed anyway, or merge it by hand."
@@ -243,7 +243,7 @@ const quote = (text: string, indent: string) =>
     .map((l) => `${indent}> ${l}`)
     .join("\n");
 
-/** Each Review finding quoted next to the Implementer's answer (REQ-001-34). */
+/** Each Review finding quoted next to the Implementer's answer (REQ-001-35). */
 function renderAnswers(findings: Finding[], responses: Response[]): string {
   const items = findings.map((f, i) => {
     const r = responses.find((x) => x.finding === i + 1);

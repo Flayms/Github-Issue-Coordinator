@@ -27,7 +27,7 @@ export interface ReviewerDeps {
 
 export const renderFinding = (f: Finding): string => `**${f.severity}** \`${f.path}:${f.line}\`: ${f.body}`;
 
-/** The Feedback round's text: every finding, numbered so the Implementer can answer each one (REQ-001-34). */
+/** The Feedback round's text: every finding, numbered so the Implementer can answer each one (REQ-001-35). */
 const feedbackText = (findings: Finding[]): string =>
   [
     "Review findings. Answer each one by its number in `responses` of your Result: `fixed`, or `declined` with the reason.",
@@ -49,7 +49,7 @@ export class Reviewer {
       const a = this.d.store.issue(repo, n).assessment;
       if (a) parts.push(`## Approved Assessment of #${n}`, (JSON.parse(a) as { approach: string }).approach);
     }
-    // REQ-001-35: a re-review sees the earlier findings and the Implementer's answers.
+    // REQ-001-36: a re-review sees the earlier findings and the Implementer's answers.
     const history = this.d.store.issue(repo, numbers[0] ?? 0).reviewHistory;
     if (history)
       parts.push(

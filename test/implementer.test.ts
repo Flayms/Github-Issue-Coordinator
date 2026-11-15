@@ -344,7 +344,7 @@ describe("Implementer run", () => {
     responses,
   });
 
-  test("REQ-001-34 the sync after a round on Review findings posts the answers as one PR comment, each finding quoted next to its answer", async () => {
+  test("REQ-001-35 the sync after a round on Review findings posts the answers as one PR comment, each finding quoted next to its answer", async () => {
     const id = await withPr();
     store.setModelId(id, "claude-opus-5-5");
     reviewed([crash, naming]);
@@ -378,7 +378,7 @@ describe("Implementer run", () => {
     expect(rec.reviewHistory).toContain("Crashes on empty input");
   });
 
-  test("REQ-001-35 answers of later rounds are added to the history", async () => {
+  test("REQ-001-36 answers of later rounds are added to the history", async () => {
     const id = await withPr();
     store.updateIssue("octo/app", 5, { reviewHistory: "Earlier round" });
     reviewed([crash]);
@@ -391,7 +391,7 @@ describe("Implementer run", () => {
     expect(history).toContain("Guarded");
   });
 
-  test("REQ-001-34 a round whose Result leaves a finding unanswered is not synced", async () => {
+  test("REQ-001-35 a round whose Result leaves a finding unanswered is not synced", async () => {
     const id = await withPr();
     reviewed([crash, naming]);
     await impl.feedbackRound("octo/app", 77, [5], "Review findings");
@@ -402,7 +402,7 @@ describe("Implementer run", () => {
     expect(gh.of("updatePull")).toEqual([]);
   });
 
-  test("REQ-001-31 / REQ-001-34 a round that declines every finding without new commits stays draft at agent:pr-open and says it waits for the Owner", async () => {
+  test("REQ-001-31 / REQ-001-35 a round that declines every finding without new commits stays draft at agent:pr-open and says it waits for the Owner", async () => {
     const id = await withPr();
     reviewed([crash]);
     await impl.feedbackRound("octo/app", 77, [5], "Review findings");
@@ -418,7 +418,7 @@ describe("Implementer run", () => {
     expect(store.issue("octo/app", 5).inFeedbackRound).toBe(0);
   });
 
-  test("REQ-001-34 a round without Review findings (e.g. failing checks) posts no answers comment", async () => {
+  test("REQ-001-35 a round without Review findings (e.g. failing checks) posts no answers comment", async () => {
     const id = await withPr();
     await impl.feedbackRound("octo/app", 77, [5], "Failing checks");
     gh.calls = [];

@@ -498,7 +498,7 @@ describe("reconcile loop", () => {
     expect(gh.items[0]?.labels).toEqual(["agent:in-progress"]);
   });
 
-  test("REQ-001-11 / REQ-001-34 / REQ-001-35 a medium finding is fixed in a round, answered on the PR and shown to the re-review", async () => {
+  test("REQ-001-11 / REQ-001-35 / REQ-001-36 a medium finding is fixed in a round, answered on the PR and shown to the re-review", async () => {
     const impl = prOpen({ reviewedHeadSha: null });
     await coordinator.tick();
     const review = runner.started.at(-1);
@@ -551,7 +551,7 @@ describe("reconcile loop", () => {
     expect(gh.calls).toContainEqual(["addLabels", 70, ["agent:failed"]]);
     expect(gh.calls).toContainEqual(["setDraft", 70, true]); // REQ-001-31
     expect(store.issue("octo/app", 5).pendingFeedback).toBeNull();
-    // REQ-001-34: a later Owner round must not have to answer findings its prompt doesn't list.
+    // REQ-001-35: a later Owner round must not have to answer findings its prompt doesn't list.
     expect(store.issue("octo/app", 5).reviewFindings).toBeNull();
   });
 

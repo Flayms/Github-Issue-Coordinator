@@ -31,7 +31,7 @@ const implementerSchema = z.strictObject({
       }),
     )
     .optional()
-    .describe("Only in a Feedback round with Review findings: one answer per finding (REQ-001-34)"),
+    .describe("Only in a Feedback round with Review findings: one answer per finding (REQ-001-35)"),
 });
 
 const reviewerSchema = z.strictObject({
@@ -60,7 +60,7 @@ export type Validation = { ok: true; value: unknown } | { ok: false; problem: st
 
 /**
  * Validates a Result file's text; `issues` are the session's issues (a Planner must assess exactly these).
- * `findings` is the number of Review findings an Implementer's Result must answer (REQ-001-34).
+ * `findings` is the number of Review findings an Implementer's Result must answer (REQ-001-35).
  */
 export function validateResult(role: Role, text: string | undefined, issues: number[], findings = 0): Validation {
   if (text === undefined) return { ok: false, problem: "The Result file is missing." };
@@ -108,7 +108,7 @@ export function validateResult(role: Role, text: string | undefined, issues: num
   return { ok: true, value: parsed.data };
 }
 
-/** How many Review findings the session's current Feedback round must answer (REQ-001-34). */
+/** How many Review findings the session's current Feedback round must answer (REQ-001-35). */
 export function findingsToAnswer(issue: { inFeedbackRound: number; reviewFindings: string | null }): number {
   if (!issue.inFeedbackRound || !issue.reviewFindings) return 0;
   try {

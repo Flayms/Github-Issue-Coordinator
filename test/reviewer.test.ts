@@ -232,7 +232,7 @@ describe("Reviewer run", () => {
     expect(gh.of("setDraft")).toEqual([]);
   });
 
-  test("REQ-001-35 a re-review's context holds the earlier findings and the Implementer's answers", async () => {
+  test("REQ-001-36 a re-review's context holds the earlier findings and the Implementer's answers", async () => {
     store.updateIssue("octo/app", 5, {
       reviewHistory: "1. **medium** `src/a.ts:3`: Rename it\n\n   **Declined**: The name is in the glossary",
     });
@@ -244,7 +244,7 @@ describe("Reviewer run", () => {
     expect(prompt).toMatch(/declined finding again only if you say why/i);
   });
 
-  test("REQ-001-35 a first Review has no earlier-Reviews section", async () => {
+  test("REQ-001-36 a first Review has no earlier-Reviews section", async () => {
     await reviewer.start("octo/app", 9, [item(5)], "h1");
     expect(runner.started[0]?.prompt).not.toContain("Earlier Reviews");
   });

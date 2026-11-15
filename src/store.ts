@@ -84,9 +84,9 @@ export interface IssueRecord {
   headSeenAt: string | null;
   /** 1 while a Feedback round runs; its next sync returns the issue to agent:pr-open. */
   inFeedbackRound: number;
-  /** The latest Review's findings (JSON), until the Implementer has answered them (REQ-001-34). */
+  /** The latest Review's findings (JSON), until the Implementer has answered them (REQ-001-35). */
   reviewFindings: string | null;
-  /** Earlier Review findings with the Implementer's answers, for a re-review (REQ-001-35). */
+  /** Earlier Review findings with the Implementer's answers, for a re-review (REQ-001-36). */
   reviewHistory: string | null;
 }
 

@@ -195,7 +195,7 @@ describe("store", () => {
       const s = new Store(path);
       s.updateIssue("octo/app", 5, { conflictSha: "h1", headSha: "h1", headSeenAt: "2026-11-13T10:00:00.000Z" });
       expect(s.issue("octo/app", 5)).toMatchObject({ worktreePath: "/wt/5", conflictSha: "h1", headSha: "h1" });
-      // REQ-001-34 / REQ-001-35: the Review findings and their history are migrated too.
+      // REQ-001-35 / REQ-001-36: the Review findings and their history are migrated too.
       s.updateIssue("octo/app", 5, { reviewFindings: "[]", reviewHistory: "Earlier" });
       expect(s.issue("octo/app", 5)).toMatchObject({ reviewFindings: "[]", reviewHistory: "Earlier" });
       s.close();
