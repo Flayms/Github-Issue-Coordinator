@@ -280,7 +280,9 @@ describe("Implementer run", () => {
     expect(gh.of("removeLabel").map((c) => [c[1], c[2]])).toEqual([
       [5, "agent:pr-open"],
       [5, "agent:reviewed"],
+      [5, "agent:failed"],
       [77, "agent:reviewed"],
+      [77, "agent:failed"],
     ]);
   });
 
@@ -405,17 +407,57 @@ describe("Implementer run", () => {
   test("REQ-001-31 / REQ-001-35 a round that declines every finding without new commits stays draft at agent:pr-open and says it waits for the Owner", async () => {
     const id = await withPr();
     reviewed([crash]);
-    await impl.feedbackRound("octo/app", 77, [5], "Review findings");
+    await impl.feedbackRound("octo/app", 77, [5], "Review findings", { headSha: "h1", causes: ["findings"] });
     gh.calls = [];
     finish(id, answered([{ finding: 1, answer: "declined", reason: "Input is never empty here" }]));
     await impl.sync(id);
     expect(gh.of("setDraft")).toEqual([]);
     expect(gh.of("addLabels")).toEqual([["addLabels", 5, ["agent:pr-open"]]]);
-    const [, , body] = gh.of("createComment")[0] as [string, number, string];
+    const comments = gh.of("createComment");
+    expect(comments).toHaveLength(1); // REQ-001-38: the stall is part of the answers comment, not a second one
+    const [, , body] = comments[0] as [string, number, string];
     expect(body).toContain("**Declined**: Input is never empty here");
     expect(body).toContain("No new commits in this round");
+    expect(body).toContain("the Review findings were declined or not fixed");
     expect(body).toContain("`/agent <text>`");
-    expect(store.issue("octo/app", 5).inFeedbackRound).toBe(0);
+    expect(store.issue("octo/app", 5)).toMatchObject({ inFeedbackRound: 0, autoRound: null });
+  });
+
+  test("REQ-001-38 an automatic round on checks or conflicts that ends without new commits tells the Owner why, once", async () => {
+    const id = await withPr();
+    await impl.feedbackRound("octo/app", 77, [5], "Failing checks and conflicts", {
+      headSha: "h1",
+      causes: ["checks", "conflicts"],
+    });
+    gh.calls = [];
+    finish(id);
+    await impl.sync(id);
+    expect(gh.of("setDraft")).toEqual([]);
+    expect(gh.of("addLabels")).toEqual([["addLabels", 5, ["agent:pr-open"]]]);
+    const comments = gh.of("createComment");
+    expect(comments).toHaveLength(1);
+    const [, pr, body] = comments[0] as [string, number, string];
+    expect(pr).toBe(77);
+    expect(body).toStartWith("> [!Note]\n> 🤖");
+    expect(body).toContain("No new commits in this round");
+    expect(body).toContain("the checks still fail");
+    expect(body).toContain("the PR still has merge conflicts with its base branch");
+    expect(body).toContain("`/agent <text>`");
+    expect(body).toContain("mark it ready for review");
+    finish(id); // e.g. a later chat turn with the Owner
+    gh.calls = [];
+    await impl.sync(id);
+    expect(gh.of("createComment")).toEqual([]);
+  });
+
+  test("REQ-001-38 an automatic round that pushes a new head posts no stall comment", async () => {
+    const id = await withPr();
+    await impl.feedbackRound("octo/app", 77, [5], "Failing checks", { headSha: "h1", causes: ["checks"] });
+    gh.calls = [];
+    wt.headSha = "h2";
+    finish(id);
+    await impl.sync(id);
+    expect(gh.of("createComment")).toEqual([]);
   });
 
   test("REQ-001-35 a round without Review findings (e.g. failing checks) posts no answers comment", async () => {

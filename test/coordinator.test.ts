@@ -373,9 +373,11 @@ describe("reconcile loop", () => {
     await coordinator.tick();
     gh.comments.set(5, [{ id: 960, body: "/approve", author: OWNER, createdAt: "t", updatedAt: "" }]);
     gh.changed = true;
-    await coordinator.tick();
+    gh.calls = [];
     await coordinator.tick();
     expect(gh.items[0]?.labels).toEqual(["agent:blocked"]);
+    expect(gh.calls).not.toContainEqual(["addLabels", 5, ["agent:approved"]]); // straight to blocked
+    expect(store.issue("octo/app", 5).approvedAt).toBe("t");
 
     gh.items = gh.items.filter((i) => i.number !== 8);
     gh.changed = true;
@@ -413,6 +415,34 @@ describe("reconcile loop", () => {
     expect(worktrees.removed).toEqual(["/wt/5"]);
     expect(store.session(id)?.state).toBe("closed");
     expect(store.issue("octo/app", 5).worktreePath).toBeNull();
+  });
+
+  test("REQ-001-14 an issue whose PR was closed without merging is open again without an agent label and planned anew", async () => {
+    await proposed();
+    gh.checkState = "pending";
+    gh.comments.set(5, [{ id: 970, body: "/approve", author: OWNER, createdAt: "t", updatedAt: "" }]);
+    gh.changed = true;
+    await coordinator.tick(); // approve
+    await coordinator.tick(); // implement
+    const id = runner.started.length;
+    writeFileSync(
+      join(runner.sessionDir(id), "result.json"),
+      JSON.stringify({ prTitle: "T", prBody: "B", summary: "S" }),
+    );
+    store.patchSession(id, { state: "idle", needsSync: true });
+    gh.items.push(item(70, [], { isPullRequest: true, author: { login: "bot", id: 1 } }));
+    await coordinator.tick();
+    expect(gh.items[0]?.labels).toEqual(["agent:pr-open"]);
+
+    gh.items = gh.items.filter((i) => i.number !== 70); // closed unmerged; the issue stays open
+    gh.pullStates.set(70, "closed");
+    gh.changed = true;
+    await coordinator.tick(); // cleanup
+    expect(gh.items[0]?.labels).toEqual([]);
+    gh.changed = true;
+    await coordinator.tick();
+    expect(runner.started.at(-1)).toMatchObject({ role: "planner", kind: "batch", issues: [5] });
+    expect(gh.items[0]?.labels).toEqual(["agent:planning"]);
   });
 
   /** An Implementer that finished its first turn with commits, awaiting the sync that opens its PR. */
@@ -641,7 +671,7 @@ describe("reconcile loop", () => {
     expect(store.issue("octo/app", 5).feedbackRounds).toBe(1);
   });
 
-  test("REQ-001-28 merge conflicts fetch the default branch, then start a counted round, once per head", async () => {
+  test("REQ-001-28 merge conflicts fetch the default branch, then start an uncounted round, once per head", async () => {
     const id = prOpen({ reviewedHeadSha: null });
     gh.mergeable = false;
     gh.checkState = "none"; // GitHub runs no checks on a conflicted PR
@@ -654,13 +684,93 @@ describe("reconcile loop", () => {
     expect(resumedBeforeFetch).toBe(0);
     expect(runner.resumed).toEqual([[id, expect.stringContaining("git merge origin/main")]]);
     expect(runner.started).toEqual([]); // no Review while conflicted
-    expect(store.issue("octo/app", 5)).toMatchObject({ feedbackRounds: 1, conflictSha: "h1" });
+    expect(store.issue("octo/app", 5)).toMatchObject({ feedbackRounds: 0, conflictSha: "h1" });
     store.patchSession(id, { state: "idle" });
     gh.changed = true;
     now = new Date(now.getTime() + 10 * 60_000);
     await coordinator.tick();
     expect(runner.resumed).toHaveLength(1);
     expect(runner.started).toEqual([]);
+  });
+
+  test("REQ-001-28 a reviewed PR that conflicts after maxFeedbackRounds gets a merge round, then goes back to draft and is reviewed", async () => {
+    const id = prOpen({ feedbackRounds: 2 });
+    gh.items[0] = item(5, ["agent:reviewed"]);
+    gh.mergeable = false;
+    gh.checkState = "none";
+    await coordinator.tick();
+    expect(worktrees.fetched).toEqual(["/wt/5"]);
+    expect(runner.resumed).toEqual([[id, expect.stringContaining("git merge origin/main")]]);
+    expect(gh.calls).not.toContainEqual(["addLabels", 5, ["agent:failed"]]);
+
+    worktrees.headSha = "h2";
+    gh.heads.set(70, "h2");
+    gh.mergeable = true;
+    gh.checkState = "success";
+    mkdirSync(runner.sessionDir(id), { recursive: true });
+    writeFileSync(
+      join(runner.sessionDir(id), "result.json"),
+      JSON.stringify({ prTitle: "T", prBody: "B", summary: "Merged main" }),
+    );
+    store.patchSession(id, { state: "idle", needsSync: true });
+    await coordinator.tick();
+    expect(gh.calls).toContainEqual(["setDraft", 70, true]); // REQ-001-31
+    expect(runner.started).toEqual([expect.objectContaining({ role: "reviewer", issues: [5] })]);
+    expect(gh.items[0]?.labels).toEqual(["agent:reviewing"]);
+  });
+
+  test("REQ-001-38 a conflict round that ends without a new commit tells the Owner on the PR, once", async () => {
+    const id = prOpen();
+    gh.mergeable = false;
+    gh.checkState = "none";
+    await coordinator.tick();
+    expect(runner.resumed).toHaveLength(1);
+    mkdirSync(runner.sessionDir(id), { recursive: true });
+    writeFileSync(
+      join(runner.sessionDir(id), "result.json"),
+      JSON.stringify({ prTitle: "T", prBody: "B", summary: "Could not resolve the conflicts" }),
+    );
+    store.patchSession(id, { state: "idle", needsSync: true });
+    await coordinator.tick();
+    await coordinator.tick();
+    const comments = gh.calls.filter((c) => c[0] === "createComment");
+    expect(comments).toEqual([
+      ["createComment", 70, expect.stringContaining("the PR still has merge conflicts with its base branch")],
+    ]);
+    expect(gh.items[0]?.labels).toEqual(["agent:pr-open"]);
+    expect(runner.resumed).toHaveLength(1);
+  });
+
+  test("REQ-001-37 the Owner's /agent on a failed, conflicting PR fetches the base, runs an uncounted round and clears agent:failed", async () => {
+    const id = prOpen({ feedbackRounds: 2, conflictSha: "h1" });
+    gh.items = [
+      item(5, ["agent:failed"]),
+      item(70, ["agent:failed"], { isPullRequest: true, author: { login: "bot", id: 1 } }),
+    ];
+    gh.mergeable = false;
+    gh.checkState = "none";
+    await coordinator.tick();
+    expect(runner.resumed).toEqual([]);
+    gh.comments.set(70, [{ id: 991, body: "/agent fix the conflicts", author: OWNER, createdAt: "", updatedAt: "" }]);
+    gh.changed = true;
+    await coordinator.tick();
+    expect(worktrees.fetched).toEqual(["/wt/5"]);
+    expect(runner.resumed).toEqual([[id, expect.stringMatching(/fix the conflicts[\s\S]*git merge origin\/main/)]]);
+    expect(store.issue("octo/app", 5).feedbackRounds).toBe(2);
+    expect(gh.items[0]?.labels).toEqual(["agent:in-progress"]);
+    expect(gh.items[1]?.labels).toEqual([]);
+  });
+
+  test("REQ-001-13 past maxFeedbackRounds, failing checks give up once per head, not on every tick", async () => {
+    prOpen({ feedbackRounds: 2 });
+    gh.checkState = "failure";
+    await coordinator.tick();
+    gh.items[0] = item(5, ["agent:pr-open"]); // e.g. the Owner removed agent:failed by hand
+    gh.changed = true;
+    await coordinator.tick();
+    const gaveUp = gh.calls.filter((c) => c[0] === "createComment" && String(c[2]).includes("gave up"));
+    expect(gaveUp).toHaveLength(1);
+    expect(store.issue("octo/app", 5).failedChecksSha).toBe("h1");
   });
 
   test("REQ-001-10 a new head without checks is reviewed only after the grace period", async () => {

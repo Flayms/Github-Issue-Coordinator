@@ -90,6 +90,8 @@ export interface IssueRecord {
   headSeenAt: string | null;
   /** 1 while a Feedback round runs; its next sync returns the issue to agent:pr-open. */
   inFeedbackRound: number;
+  /** JSON `{ headSha, causes }` while an automatic Feedback round runs, to report a stall (REQ-001-38). */
+  autoRound: string | null;
   /** The latest Review's findings (JSON), until the Implementer has answered them (REQ-001-35). */
   reviewFindings: string | null;
   /** Earlier Review findings with the Implementer's answers, for a re-review (REQ-001-36). */
@@ -137,6 +139,7 @@ CREATE TABLE IF NOT EXISTS issues (
   in_feedback_round INTEGER NOT NULL DEFAULT 0,
   review_findings TEXT,
   review_history TEXT,
+  auto_round TEXT,
   PRIMARY KEY (repo, number)
 );
 CREATE TABLE IF NOT EXISTS split_offs (
@@ -208,6 +211,7 @@ const ISSUE_COLUMNS = {
   headSha: "head_sha",
   headSeenAt: "head_seen_at",
   inFeedbackRound: "in_feedback_round",
+  autoRound: "auto_round",
   reviewFindings: "review_findings",
   reviewHistory: "review_history",
 } as const satisfies Record<Exclude<keyof IssueRecord, "repo" | "number">, string>;
@@ -235,6 +239,7 @@ export class Store {
         head_seen_at: "TEXT",
         review_findings: "TEXT",
         review_history: "TEXT",
+        auto_round: "TEXT",
       },
       sessions: { model_id: "TEXT", title: "TEXT" },
     };
@@ -372,6 +377,7 @@ export class Store {
       headSha: null,
       headSeenAt: null,
       inFeedbackRound: 0,
+      autoRound: null,
       reviewFindings: null,
       reviewHistory: null,
     };

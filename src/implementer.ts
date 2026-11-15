@@ -13,10 +13,17 @@ import { loadPrompt, renderPrompt } from "./prompts.ts";
 import { findingsToAnswer, type ImplementerResult, validateResult } from "./results.ts";
 import type { Finding } from "./reviewer.ts";
 import type { SessionRunner } from "./runner.ts";
+import type { FeedbackCause } from "./state.ts";
 import type { Store } from "./store.ts";
 import type { Worktrees } from "./worktrees.ts";
 
 const BODY_LIMIT = 6_000;
+
+/** An automatic Feedback round: the head it started at and why it runs (REQ-001-38). */
+export interface AutoRound {
+  headSha: string;
+  causes: FeedbackCause[];
+}
 const CLEARED_ON_CLEANUP = ["agent:in-progress", "agent:pr-open", "agent:reviewing", "agent:reviewed", "agent:failed"];
 
 export interface ImplementerDeps {
@@ -116,19 +123,19 @@ export class Implementer {
       // REQ-001-31: a reviewed PR goes back to draft once a head it was not reviewed at is pushed.
       const unchanged = first.reviewedHeadSha !== null && this.d.worktrees.head(wt) === first.reviewedHeadSha;
       if (first.reviewedHeadSha !== null && !unchanged) await this.d.gh.setDraft(s.repo, first.prNumber, true);
+      // REQ-001-38: an automatic round that ends without a new commit tells the Owner why the PR waits.
+      const auto = first.inFeedbackRound && first.autoRound ? (JSON.parse(first.autoRound) as AutoRound) : null;
+      const stall = auto && this.d.worktrees.head(wt) === auto.headSha ? stallText(auto.causes) : null;
       if (first.inFeedbackRound && first.reviewFindings) {
         // REQ-001-35: one comment answering every finding; REQ-001-36: kept for the next Review.
         const answers = renderAnswers(JSON.parse(first.reviewFindings) as Finding[], result.responses ?? []);
-        const waits = unchanged
-          ? "\n\nNo new commits in this round, so the PR stays a draft and waits for the Owner: comment `/agent <text>` to have it fixed anyway, or merge it by hand."
-          : "";
-        await this.d.gh.createComment(s.repo, first.prNumber, `${note}\n\n${answers}${waits}`);
+        await this.d.gh.createComment(s.repo, first.prNumber, [note, answers, stall].filter(Boolean).join("\n\n"));
         const history = [first.reviewHistory, answers].filter(Boolean).join("\n\n");
         for (const n of s.issues) this.d.store.updateIssue(s.repo, n, { reviewFindings: null, reviewHistory: history });
-      }
+      } else if (stall) await this.d.gh.createComment(s.repo, first.prNumber, `${note}\n\n${stall}`);
       if (first.inFeedbackRound) {
         for (const n of s.issues) {
-          this.d.store.updateIssue(s.repo, n, { inFeedbackRound: 0 });
+          this.d.store.updateIssue(s.repo, n, { inFeedbackRound: 0, autoRound: null });
           await this.d.gh.removeLabel(s.repo, n, "agent:in-progress");
           await this.d.gh.addLabels(s.repo, n, ["agent:pr-open"]);
         }
@@ -136,24 +143,25 @@ export class Implementer {
     }
   }
 
-  /**
-   * REQ-001-11/12/13: resume the Implementer in its Worktree with the feedback; a session that
-   * can't be resumed is replaced by a fresh one in the same Worktree.
-   */
-  /** Fetches the default branch into the issue's Worktree before a merge-conflict round (REQ-001-28). */
+  /** Fetches the default branch into the issue's Worktree before a round on a conflicting PR (REQ-001-28, REQ-001-37). */
   async fetchBase(repo: string, issues: number[]): Promise<void> {
     const wt = this.d.store.issue(repo, issues[0] ?? 0).worktreePath;
     if (!wt) throw new Error(`no Worktree on record for #${issues[0]}`);
     await this.d.worktrees.fetchBase(repo, wt);
   }
 
-  async feedbackRound(repo: string, pr: number, issues: number[], text: string): Promise<number> {
+  /**
+   * REQ-001-11/12/13: resume the Implementer in its Worktree with the feedback; a session that
+   * can't be resumed is replaced by a fresh one in the same Worktree. `auto` is set for an automatic
+   * round (REQ-001-38). A round clears `agent:failed`, which only the Owner's rounds can meet (REQ-001-37).
+   */
+  async feedbackRound(repo: string, pr: number, issues: number[], text: string, auto?: AutoRound): Promise<number> {
     for (const n of issues) {
-      for (const l of ["agent:pr-open", "agent:reviewed"]) await this.d.gh.removeLabel(repo, n, l);
+      for (const l of ["agent:pr-open", "agent:reviewed", "agent:failed"]) await this.d.gh.removeLabel(repo, n, l);
       await this.d.gh.addLabels(repo, n, ["agent:in-progress"]);
-      this.d.store.updateIssue(repo, n, { inFeedbackRound: 1 });
+      this.d.store.updateIssue(repo, n, { inFeedbackRound: 1, autoRound: auto ? JSON.stringify(auto) : null });
     }
-    await this.d.gh.removeLabel(repo, pr, "agent:reviewed");
+    for (const l of ["agent:reviewed", "agent:failed"]) await this.d.gh.removeLabel(repo, pr, l);
     const prompt = `## Feedback round on PR #${pr}\n\n${text}\n\nAddress this with new commits on the same branch, then update your Result (prTitle and prBody describe the whole PR).`;
     const model = roleSettings(this.d.config, repo, "implementer");
     const own = this.d.store.latestSession(repo, issues[0] ?? 0, "implementer");
@@ -234,6 +242,17 @@ export class Implementer {
     return parts.join("\n\n");
   }
 }
+
+const STALL_REASONS: Record<FeedbackCause, string> = {
+  findings: "the Review findings were declined or not fixed",
+  checks: "the checks still fail",
+  conflicts: "the PR still has merge conflicts with its base branch",
+};
+
+/** Why an automatic round stalled and what the Owner can do (REQ-001-38). */
+const stallText = (causes: FeedbackCause[]): string =>
+  `No new commits in this round, so the PR waits for the Owner: ${causes.map((c) => STALL_REASONS[c]).join("; ")}. ` +
+  "Comment `/agent <text>` to have it fixed anyway, mark it ready for review by hand, or merge it by hand.";
 
 type Response = NonNullable<ImplementerResult["responses"]>[number];
 

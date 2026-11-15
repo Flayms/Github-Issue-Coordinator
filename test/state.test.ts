@@ -47,7 +47,7 @@ const snap = (s: Partial<Snapshot>): Snapshot => ({
 });
 
 describe("issue state from labels", () => {
-  test("no agent label means new; the most advanced agent label wins", () => {
+  test("REQ-001-16 no agent label means new; the most advanced agent label wins", () => {
     expect(issueState(["bug"])).toBe("new");
     expect(issueState(["agent:proposed"])).toBe("proposed");
     expect(issueState(["agent:proposed", "agent:approved"])).toBe("approved");
@@ -119,6 +119,7 @@ describe("deriveActions", () => {
         notes: "Also log it\n\nship it",
         at: "2026-11-11T02:00:00Z",
         upToCommentId: 22,
+        blockers: [],
       },
     ]);
   });
@@ -148,8 +149,28 @@ describe("deriveActions", () => {
       snap({ items: [issue(5, ["agent:proposed", "agent:approved"])], labelActors: new Map([[5, OWNER]]) }),
     );
     expect(actions).toEqual([
-      { type: "approve", repo: "octo/app", issue: 5, notes: "", at: NOW_ISO, upToCommentId: 0 },
+      { type: "approve", repo: "octo/app", issue: 5, notes: "", at: NOW_ISO, upToCommentId: 0, blockers: [] },
     ]);
+  });
+
+  test("REQ-001-05 an approval names the issue's open blockers, so it can go straight to agent:blocked", () => {
+    const records = new Map([[5, { approvedAt: null, assessment: assessment([8, 99]) }]]);
+    const byComment = deriveActions(
+      snap({
+        items: [issue(5, ["agent:proposed"]), issue(8, ["agent:proposed"])],
+        records,
+        feedback: new Map([[5, { comments: [c(22, "/approve")], bodyChanged: false }]]),
+      }),
+    );
+    expect(byComment).toContainEqual(expect.objectContaining({ type: "approve", issue: 5, blockers: [8] }));
+    const byLabel = deriveActions(
+      snap({
+        items: [issue(5, ["agent:proposed", "agent:approved"]), issue(8, ["agent:proposed"])],
+        records,
+        labelActors: new Map([[5, OWNER]]),
+      }),
+    );
+    expect(byLabel).toContainEqual(expect.objectContaining({ type: "approve", issue: 5, blockers: [8] }));
   });
 
   test("REQ-001-04 an agent:approved label added by anyone else is removed", () => {
@@ -372,6 +393,7 @@ describe("deriveActions", () => {
         issues: [5],
         text: "Blocking: crash",
         counted: true,
+        causes: ["findings"],
         headSha: "h2",
         upToCommentId: 0,
         upToReviewId: 0,
@@ -387,6 +409,7 @@ describe("deriveActions", () => {
       expect.objectContaining({
         type: "feedback",
         counted: true,
+        causes: ["checks"],
         checksFailed: true,
         text: expect.stringContaining("test: 2 failed"),
       }),
@@ -398,12 +421,13 @@ describe("deriveActions", () => {
 
   const conflicting = new Map([[9, pullOf("h2", "none", { mergeable: false, baseRef: "main" })]]);
 
-  test("REQ-001-28 a PR with merge conflicts starts a counted Feedback round to merge the default branch, once per head", () => {
+  test("REQ-001-28 a PR with merge conflicts starts an uncounted Feedback round to merge the default branch, once per head", () => {
     expect(deriveActions(snap({ items: prItems(), worktrees: wt(), pulls: conflicting }))).toEqual([
       expect.objectContaining({
         type: "feedback",
         pr: 9,
-        counted: true,
+        counted: false,
+        causes: ["conflicts"],
         conflicted: true,
         checksFailed: false,
         headSha: "h2",
@@ -423,11 +447,58 @@ describe("deriveActions", () => {
     }
   });
 
-  test("REQ-001-28 after maxFeedbackRounds a PR that still has conflicts is labelled agent:failed", () => {
+  test("REQ-001-28 a PR that conflicts after maxFeedbackRounds still gets its merge round", () => {
     const actions = deriveActions(
-      snap({ items: prItems(), worktrees: wt(null, { feedbackRounds: 2 }), pulls: conflicting, maxFeedbackRounds: 2 }),
+      snap({ items: prItems(), worktrees: wt("h1", { feedbackRounds: 2 }), pulls: conflicting, maxFeedbackRounds: 2 }),
     );
-    expect(actions).toEqual([expect.objectContaining({ type: "fail", issues: [5], pr: 9 })]);
+    expect(actions).toEqual([expect.objectContaining({ type: "feedback", counted: false, conflicted: true })]);
+  });
+
+  test("REQ-001-28 no automatic round on a PR whose issue is labelled agent:failed", () => {
+    const items = [issue(5, ["agent:failed"]), pr(9)];
+    for (const extra of [{ pendingFeedback: "x" }, {}]) {
+      const actions = deriveActions(snap({ items, worktrees: wt(null, extra), pulls: conflicting }));
+      expect(actions).toEqual([]);
+    }
+  });
+
+  test("REQ-001-37 the Owner's round on a conflicting PR fetches the default branch and asks for the merge, also once it failed", () => {
+    for (const labels of [["agent:pr-open"], ["agent:failed"]]) {
+      const actions = deriveActions(
+        snap({
+          items: [issue(5, labels), pr(9)],
+          worktrees: wt("h1", { conflictSha: "h2", feedbackRounds: 2 }),
+          pulls: conflicting,
+          maxFeedbackRounds: 2,
+          prFeedback: fb([{ id: 31, body: "/agent fix the conflicts" }]),
+        }),
+      );
+      expect(actions).toEqual([
+        expect.objectContaining({
+          type: "feedback",
+          counted: false,
+          causes: [],
+          conflicted: true,
+          text: expect.stringMatching(/^fix the conflicts\n\n.*git merge origin\/main/s),
+        }),
+      ]);
+    }
+  });
+
+  test("REQ-001-38 an automatic round names its causes, so a round without new commits can say why it stalled", () => {
+    const pulls = new Map([[9, pullOf("h2", "failure", { failed: ["lint"] })]]);
+    const actions = deriveActions(snap({ items: prItems(), worktrees: wt(null, { pendingFeedback: "x" }), pulls }));
+    expect(actions).toEqual([expect.objectContaining({ type: "feedback", causes: ["findings", "checks"] })]);
+  });
+
+  test("REQ-001-13 / REQ-001-28 giving up past the limit names the head, so it happens once per head", () => {
+    const pulls = new Map([[9, pullOf("h2", "failure", { mergeable: false, failed: ["lint"] })]]);
+    const actions = deriveActions(
+      snap({ items: prItems(), worktrees: wt(null, { feedbackRounds: 2 }), pulls, maxFeedbackRounds: 2 }),
+    );
+    expect(actions).toEqual([
+      expect.objectContaining({ type: "fail", pr: 9, headSha: "h2", checksFailed: true, conflicted: true }),
+    ]);
   });
 
   test("REQ-001-10 no checks count as passed only once the grace period since the head appeared is over", () => {
@@ -467,6 +538,9 @@ describe("deriveActions", () => {
         issues: [5],
         pr: 9,
         reason: "the PR still had problems after 2 automatic Feedback rounds",
+        headSha: "h2",
+        checksFailed: false,
+        conflicted: false,
       },
     ]);
   });
@@ -495,6 +569,7 @@ describe("deriveActions", () => {
         issues: [5],
         text: "please also add docs\n\nSplit the function\n\nBlocking: crash",
         counted: false,
+        causes: [],
         headSha: "h2",
         upToCommentId: 32,
         upToReviewId: 7,

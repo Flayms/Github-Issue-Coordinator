@@ -211,13 +211,22 @@ export class Coordinator {
         return;
       case "fail":
         await this.fail(a.repo, a.issues, a.reason, a.session, a.pr);
+        // REQ-001-13 / REQ-001-28: give up on a head's failing checks or conflicts once, not on every tick.
+        if (a.headSha)
+          for (const n of a.issues) {
+            const rec = this.d.store.issue(a.repo, n);
+            this.d.store.updateIssue(a.repo, n, {
+              failedChecksSha: a.checksFailed ? a.headSha : rec.failedChecksSha,
+              conflictSha: a.conflicted ? a.headSha : rec.conflictSha,
+            });
+          }
         return;
       case "feedback": {
         const own = this.d.store.latestSession(a.repo, a.issues[0] ?? 0, "implementer");
         const sessionId = own && own.state !== "closed" ? own.id : undefined;
         const key = `${a.repo} PR #${a.pr} feedback`;
         this.add(queue, jobs, { key, kind: "feedback", role: "implementer", queuedAt: now, sessionId }, async () => {
-          // REQ-001-28: before the round is recorded, so a failed fetch is retried on the next tick.
+          // REQ-001-28 / REQ-001-37: before the round is recorded, so a failed fetch is retried on the next tick.
           if (a.conflicted) await this.implementer.fetchBase(a.repo, a.issues);
           for (const n of a.issues) {
             const rec = this.d.store.issue(a.repo, n);
@@ -234,7 +243,8 @@ export class Coordinator {
             lastHandledReviewId: Math.max(pr.lastHandledReviewId, a.upToReviewId),
           });
           view.prFeedback.delete(a.pr);
-          const id = await this.implementer.feedbackRound(a.repo, a.pr, a.issues, a.text);
+          const auto = a.causes.length ? { headSha: a.headSha, causes: a.causes } : undefined;
+          const id = await this.implementer.feedbackRound(a.repo, a.pr, a.issues, a.text, auto);
           this.log(`${a.repo}: Feedback round on PR #${a.pr}${a.counted ? "" : " (from the Owner)"} (session ${id})`);
         });
         return;
@@ -281,10 +291,16 @@ export class Coordinator {
           lastHandledCommentId: Math.max(a.upToCommentId, this.d.store.issue(a.repo, a.issue).lastHandledCommentId),
         });
         await this.d.gh.removeLabel(a.repo, a.issue, "agent:proposed");
-        await this.d.gh.addLabels(a.repo, a.issue, ["agent:approved"]);
+        // REQ-001-05: an issue that is still blocked goes straight to agent:blocked.
+        if (a.blockers.length) {
+          await this.d.gh.removeLabel(a.repo, a.issue, "agent:approved");
+          await this.d.gh.addLabels(a.repo, a.issue, ["agent:blocked"]);
+        } else await this.d.gh.addLabels(a.repo, a.issue, ["agent:approved"]);
         view.feedback.delete(a.issue);
         view.labelActors.delete(a.issue);
-        this.log(`${a.repo}#${a.issue}: approved by the Owner`);
+        this.log(
+          `${a.repo}#${a.issue}: approved by the Owner${a.blockers.length ? `, blocked by ${a.blockers.map((n) => `#${n}`).join(", ")}` : ""}`,
+        );
         return;
       case "reject-approval":
         await this.d.gh.removeLabel(a.repo, a.issue, "agent:approved");

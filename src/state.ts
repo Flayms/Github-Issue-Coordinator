@@ -101,10 +101,22 @@ const PROPOSALS: IssueState[] = ["proposed", "needs-refinement", "wontfix-propos
 export const inScope = (i: Item, ownerId: number, splitOffs: ReadonlySet<number> = new Set()): boolean =>
   !i.isPullRequest && (i.author.id === ownerId || splitOffs.has(i.number));
 
+/** Why an automatic Feedback round runs; a round that ends without new commits reports them (REQ-001-38). */
+export type FeedbackCause = "findings" | "checks" | "conflicts";
+
 export type Action =
   | { type: "plan"; repo: string; issues: number[] }
   | { type: "revise"; repo: string; issue: number; comments: Comment[]; bodyChanged: boolean }
-  | { type: "approve"; repo: string; issue: number; notes: string; at: string; upToCommentId: number }
+  | {
+      type: "approve";
+      repo: string;
+      issue: number;
+      notes: string;
+      at: string;
+      upToCommentId: number;
+      /** Open issues it is blocked by: then it goes straight to `agent:blocked` (REQ-001-05). */
+      blockers: number[];
+    }
   | { type: "reject-approval"; repo: string; issue: number }
   | { type: "block"; repo: string; issue: number; blockers: number[] }
   | { type: "unblock"; repo: string; issue: number }
@@ -115,20 +127,33 @@ export type Action =
   | { type: "cleanup"; repo: string; issues: number[]; prNumber: number; worktreePath: string }
   | { type: "resume-interrupted"; session: SessionRecord }
   | { type: "mark-closed"; session: SessionRecord }
-  | { type: "fail"; repo: string; issues: number[]; session?: SessionRecord; pr?: number; reason: string }
+  | {
+      type: "fail";
+      repo: string;
+      issues: number[];
+      session?: SessionRecord;
+      pr?: number;
+      reason: string;
+      /** Past maxFeedbackRounds: the head whose failing checks or conflicts are given up on, once (REQ-001-13/28). */
+      headSha?: string;
+      checksFailed?: boolean;
+      conflicted?: boolean;
+    }
   | {
       type: "feedback";
       repo: string;
       pr: number;
       issues: number[];
       text: string;
-      /** Automatic rounds count toward maxFeedbackRounds; the Owner's don't (REQ-001-12). */
+      /** Automatic rounds on findings or checks count toward maxFeedbackRounds; conflict rounds and the Owner's don't (REQ-001-12/28). */
       counted: boolean;
+      /** Causes of an automatic round; empty for a round the Owner started (REQ-001-38). */
+      causes: FeedbackCause[];
       headSha: string;
       upToCommentId: number;
       upToReviewId: number;
       checksFailed: boolean;
-      /** A merge-conflict round (REQ-001-28): the default branch has to be fetched into the Worktree first. */
+      /** The PR has merge conflicts (REQ-001-28, REQ-001-37): the default branch has to be fetched into the Worktree first. */
       conflicted: boolean;
     }
   | { type: "wake"; repo: string; issue: number; upToCommentId: number; recordNumber: number };
@@ -158,6 +183,11 @@ export function deriveActions(s: Snapshot): Action[] {
       actions.push({ type: "fail", repo: s.repo, issues: [i.number], reason: `no ${role} session to resume` });
   }
 
+  // REQ-001-05: the open issues an issue's Assessment says it is blocked by.
+  const open = new Set(s.items.map((i) => i.number));
+  const openBlockers = (n: number) =>
+    coordination(s.records?.get(n)?.assessment ?? null, "blockedBy").filter((b) => open.has(b));
+
   // REQ-001-04 / REQ-001-03: on a proposal, the Owner's /approve approves it; other feedback revises the plan.
   for (const i of issues) {
     const state = issueState(i.labels);
@@ -175,13 +205,13 @@ export function deriveActions(s: Snapshot): Action[] {
         notes: notes.filter(Boolean).join("\n\n"),
         at: approval.createdAt,
         upToCommentId: Math.max(...own.map((c) => c.id)),
+        blockers: openBlockers(i.number),
       });
     } else if (comments.length > 0 || f?.bodyChanged)
       actions.push({ type: "revise", repo: s.repo, issue: i.number, comments, bodyChanged: f?.bodyChanged ?? false });
   }
 
   // REQ-001-04: the approved label counts only when the Owner added it. REQ-001-05: blocked issues wait.
-  const open = new Set(s.items.map((i) => i.number));
   for (const i of issues) {
     const state = issueState(i.labels);
     if (state !== "approved" && state !== "blocked") continue;
@@ -196,11 +226,12 @@ export function deriveActions(s: Snapshot): Action[] {
           notes: "",
           at: s.now ?? new Date().toISOString(),
           upToCommentId: 0,
+          blockers: openBlockers(i.number),
         });
       else actions.push({ type: "reject-approval", repo: s.repo, issue: i.number });
       continue;
     }
-    const blockers = coordination(rec.assessment, "blockedBy").filter((n) => open.has(n));
+    const blockers = openBlockers(i.number);
     if (state === "approved" && blockers.length)
       actions.push({ type: "block", repo: s.repo, issue: i.number, blockers });
     if (state === "blocked" && !blockers.length) actions.push({ type: "unblock", repo: s.repo, issue: i.number });
@@ -241,11 +272,21 @@ export function deriveActions(s: Snapshot): Action[] {
         .map((x) => x.body.trim().slice("/agent".length).trim()),
       ...(f?.changesRequested ?? []).map((r) => r.body.trim() || "The Owner requested changes in a review."),
     ].filter(Boolean);
-    const checksFailed = pull.checks === "failure" && pull.headSha !== w.failedChecksSha;
     // REQ-001-28: GitHub runs no checks on a conflicted PR, so conflicts need their own round.
-    const conflicted = pull.mergeable === false && pull.headSha !== w.conflictSha;
+    // Automatic rounds stop once the issue failed; only the Owner's rounds run then (REQ-001-37).
+    const failed = w.issues.some((n) => issueState(s.items.find((i) => i.number === n)?.labels ?? []) === "failed");
+    const findings = !failed && w.pendingFeedback ? w.pendingFeedback : null;
+    const checksFailed = !failed && pull.checks === "failure" && pull.headSha !== w.failedChecksSha;
+    const newConflict = !failed && pull.mergeable === false && pull.headSha !== w.conflictSha;
+    const causes: FeedbackCause[] = [
+      ...(findings ? (["findings"] as const) : []),
+      ...(checksFailed ? (["checks"] as const) : []),
+      ...(newConflict ? (["conflicts"] as const) : []),
+    ];
+    // REQ-001-37: any round on a conflicting PR, the Owner's too, fetches the default branch and asks for the merge.
+    const conflicted = pull.mergeable === false && (newConflict || owner.length > 0);
     const auto = [
-      ...(w.pendingFeedback ? [w.pendingFeedback] : []),
+      ...(findings ? [findings] : []),
       ...(checksFailed
         ? [`Failing checks on ${pull.headSha}:\n\n${(pull.failed ?? []).map((x) => `- ${x}`).join("\n")}`]
         : []),
@@ -253,15 +294,20 @@ export function deriveActions(s: Snapshot): Action[] {
     ];
     const upToCommentId = Math.max(0, ...comments.map((x) => x.id));
     const upToReviewId = Math.max(0, ...(f?.changesRequested ?? []).map((r) => r.id));
+    // REQ-001-28: merge conflicts are not the agent's fault, so only findings and checks count.
+    const counted = !owner.length && (findings !== null || checksFailed);
     if (owner.length || auto.length) {
       withFeedback.add(w.prNumber);
-      if (!owner.length && w.feedbackRounds >= (s.maxFeedbackRounds ?? 2))
+      if (counted && w.feedbackRounds >= (s.maxFeedbackRounds ?? 2))
         actions.push({
           type: "fail",
           repo: s.repo,
           issues: w.issues,
           pr: w.prNumber,
           reason: `the PR still had problems after ${w.feedbackRounds} automatic Feedback rounds`,
+          headSha: pull.headSha,
+          checksFailed,
+          conflicted,
         });
       else
         actions.push({
@@ -270,7 +316,8 @@ export function deriveActions(s: Snapshot): Action[] {
           pr: w.prNumber,
           issues: w.issues,
           text: [...owner, ...auto].join("\n\n"),
-          counted: owner.length === 0,
+          counted,
+          causes: owner.length ? [] : causes,
           headSha: pull.headSha,
           upToCommentId,
           upToReviewId,
