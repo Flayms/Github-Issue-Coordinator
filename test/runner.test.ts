@@ -1,18 +1,28 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { claudeArgs, remoteControlName, SessionBusyError, SessionRunner, shellQuote } from "../src/runner.ts";
+import {
+  claudeArgs,
+  remoteControlName,
+  SessionBusyError,
+  SessionRunner,
+  SessionStartError,
+  shellQuote,
+} from "../src/runner.ts";
 import { Store } from "../src/store.ts";
 import type { Tmux } from "../src/tmux.ts";
 
 class FakeTmux implements Tmux {
   windows = new Map<string, { cwd: string; command: string; pane: string }>();
   keys: [string, string[]][] = [];
+  /** Makes newWindow throw, like `tmux new-window` refusing a command. */
+  failWith: string | null = null;
   listWindows() {
     return [...this.windows.keys()];
   }
   newWindow(name: string, cwd: string, command: string) {
+    if (this.failWith) throw new Error(this.failWith);
     this.windows.set(name, { cwd, command, pane: "" });
   }
   killWindow(name: string) {
@@ -49,6 +59,9 @@ afterEach(() => {
   rmSync(dir, { recursive: true });
 });
 
+/** The prompt the session's last launch handed to `claude` (REQ-001-41). */
+const promptOf = (id: number) => readFileSync(join(dir, "sessions", String(id), "prompt.md"), "utf8");
+
 const startImplementer = () =>
   runner.start({
     repo: "octo/app",
@@ -63,11 +76,10 @@ const startImplementer = () =>
   });
 
 describe("claude command line", () => {
-  test("REQ-001-18 / REQ-001-22 registers with Remote Control under its name, with model, effort and hooks; prompt last", () => {
+  test("REQ-001-18 / REQ-001-22 registers with Remote Control under its name, with model, effort and hooks; a single-value flag last", () => {
     expect(
       claudeArgs({
         name: "octo/app#5 implementer",
-        prompt: "Do it",
         settingsPath: "/s/settings.json",
         addDir: "/s",
         model: { model: "sonnet", effort: "high" },
@@ -89,14 +101,12 @@ describe("claude command line", () => {
       "octo/app#5 implementer",
       "--permission-mode",
       "dontAsk",
-      "Do it",
     ]);
   });
 
   test("REQ-001-20 resumes by Claude session id and leaves out effort when none is set", () => {
     const args = claudeArgs({
       name: "n",
-      prompt: "p",
       settingsPath: "s",
       addDir: "d",
       model: { model: "opus" },
@@ -158,7 +168,7 @@ describe("session runner", () => {
     const win = tmux.windows.get(`s${id}`);
     expect(win?.cwd).toBe("/work/app-5");
     expect(win?.command).toContain("'--remote-control' '#5 Add dark mode · Implementer · app'");
-    expect(win?.command).toContain("Implement #5");
+    expect(promptOf(id)).toContain("Implement #5");
     const settings = JSON.parse(readFileSync(join(dir, "sessions", String(id), "settings.json"), "utf8"));
     expect(settings.hooks.Stop[0].hooks[0].command).toBe(
       `'bun' '/app/src/hook.ts' 'Stop' '${join(dir, "state.db")}' '${id}' '${join(dir, "sessions", String(id))}'`,
@@ -278,7 +288,7 @@ describe("session runner", () => {
 
   test("the prompt tells the session where to write its Result", () => {
     const id = startImplementer();
-    expect(tmux.windows.get(`s${id}`)?.command).toContain(join(dir, "sessions", String(id), "result.json"));
+    expect(promptOf(id)).toContain(join(dir, "sessions", String(id), "result.json"));
   });
 
   test("REQ-001-19 refuses to inject a prompt into, or close, a session that is running", () => {
@@ -306,7 +316,7 @@ describe("session runner", () => {
     const cmd = tmux.windows.get(`s${id}`)?.command ?? "";
     expect(cmd).toContain("'--resume' 'sess-abc'");
     expect(cmd).toContain("'--remote-control' '#5 Add dark mode · Implementer · app'");
-    expect(cmd).toContain("Fix the review findings");
+    expect(promptOf(id)).toContain("Fix the review findings");
     expect(existsSync(resultPath)).toBe(false);
     expect(store.session(id)).toMatchObject({
       state: "running",
@@ -339,7 +349,8 @@ describe("session runner", () => {
     writeFileSync(resultPath, "{}");
     runner.resume(id, "The Owner wants to chat", { model: "opus" }, { keepResult: true });
     expect(existsSync(resultPath)).toBe(true);
-    expect(tmux.windows.get(`s${id}`)?.command).not.toContain("Before ending your turn, write your Result");
+    expect(promptOf(id)).toStartWith("The Owner wants to chat");
+    expect(promptOf(id)).not.toContain("Before ending your turn, write your Result");
   });
 
   test("a session that never reported its id cannot be resumed", () => {
@@ -357,6 +368,64 @@ describe("session runner", () => {
       [`s${id}`, ["Down"]],
       [`s${id}`, ["Enter"]],
     ]);
+  });
+
+  test("REQ-001-41 a long prompt reaches claude in full, as one argument, without shell interpretation", () => {
+    // tmux refuses commands over about 16 KB ("command too long"); untrusted issue text must not be run.
+    const tricky = `it's "quoted" $(touch pwned) \`touch pwned\` $HOME \\ ; | & \n`;
+    const prompt = `${tricky}${"x".repeat(64 * 1024)}\n${tricky}`;
+    const id = runner.start({
+      repo: "octo/app",
+      role: "planner",
+      kind: "issue",
+      issues: [41],
+      cwd: dir,
+      prompt,
+      model: { model: "opus" },
+    });
+    const command = tmux.windows.get(`s${id}`)?.command ?? "";
+    expect(command.length).toBeLessThan(4_000);
+
+    // Run the command line in a real shell, with a stand-in for claude that records its arguments.
+    const fake = join(dir, "fake-claude");
+    writeFileSync(fake, `#!/bin/sh\nfor a; do last=$a; done\nprintf '%s' "$last" > "${dir}/last"\n`);
+    chmodSync(fake, 0o755);
+    const p = Bun.spawnSync(["sh", "-c", command.replace("'claude'", shellQuote([fake]))], { cwd: dir });
+    expect(p.exitCode).toBe(0);
+    // One argument: a prompt split by the shell would leave only its last word here.
+    expect(readFileSync(join(dir, "last"), "utf8")).toBe(promptOf(id));
+    expect(promptOf(id)).toStartWith(prompt);
+    expect(existsSync(join(dir, "pwned"))).toBe(false);
+  });
+
+  test("REQ-001-40 a session that cannot be launched is recorded as closed, with the launch error", () => {
+    tmux.failWith = "tmux new-window failed: command too long";
+    let error: unknown;
+    try {
+      startImplementer();
+    } catch (e) {
+      error = e;
+    }
+    expect(error).toBeInstanceOf(SessionStartError);
+    expect((error as SessionStartError).message).toContain("tmux new-window failed: command too long");
+    const s = (error as SessionStartError).session;
+    expect(s).toMatchObject({ repo: "octo/app", role: "implementer", issues: [5] });
+    expect(store.session(s.id)).toMatchObject({ state: "closed", coordinatorPromptPending: false });
+    expect(store.sessions("octo/app")).toEqual([]);
+  });
+
+  test("REQ-001-40 a session that cannot be relaunched on resume is recorded as closed, with the launch error", () => {
+    const id = startImplementer();
+    store.setClaudeSessionId(id, "sess-abc");
+    store.patchSession(id, { state: "idle" });
+    tmux.failWith = "tmux new-window failed: command too long";
+    expect(() => runner.resume(id, "more", { model: "opus" })).toThrow(SessionStartError);
+    expect(store.session(id)?.state).toBe("closed");
+    // Refusals before any launch are not start failures.
+    tmux.failWith = null;
+    const busy = startImplementer();
+    expect(() => runner.resume(busy, "more", { model: "opus" })).toThrow(SessionBusyError);
+    expect(store.session(busy)?.state).toBe("running");
   });
 
   test("ignores tmux windows it does not own", () => {

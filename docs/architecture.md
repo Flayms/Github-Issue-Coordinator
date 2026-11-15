@@ -30,7 +30,7 @@ flowchart LR
 | `src/store.ts`                 | `bun:sqlite`: sessions (Role, issues, Claude session id, state), per-issue bookkeeping and Split-off issues                                      | T4 done  |
 | `src/state.ts`                 | Pure: issue state from labels; actions from labels, store and live tmux windows                                                                  | T4 done  |
 | `src/scheduler.ts`             | Pure: which queued work starts, which idle sessions close (Slots, priority, pause, live limit)                                                   | T5 done  |
-| `src/runner.ts`, `src/tmux.ts` | Start/resume/close `claude --remote-control` sessions in tmux windows `s<id>`; answer the trust dialog                                           | T6 done  |
+| `src/runner.ts`, `src/tmux.ts` | Start/resume/close `claude --remote-control` sessions in tmux windows `s<id>` (prompt via a file); answer the trust dialog                       | T6 done  |
 | `src/hook.ts`                  | Claude Code hook: session id, Owner vs. Coordinator prompts, Result validation on `Stop`, payload log                                            | T6 done  |
 | `src/prompts.ts`, `prompts/`   | Role prompts with repo overrides (contract: spec 002); permissions per Role (`dontAsk` read-only, or `auto` in the sandbox)                      | T7 done  |
 | `src/planner.ts`               | Planner pass, plan revision, Assessment comments and labels, sync after every Planner turn                                                       | T8 done  |

@@ -100,14 +100,19 @@ export class Planner {
    */
   async revise(repo: string, repoDir: string, issue: Item, feedback: IssueFeedback): Promise<number> {
     const rec = this.d.store.issue(repo, issue.number);
-    const lastComment = Math.max(rec.lastHandledCommentId, ...feedback.comments.map((c) => c.id));
-    this.d.store.updateIssue(repo, issue.number, { lastHandledCommentId: lastComment, bodyHash: bodyHash(issue.body) });
+    // REQ-001-40: the feedback counts as handled only once a session has it, so a failed start keeps it for a retry.
+    const handled = () =>
+      this.d.store.updateIssue(repo, issue.number, {
+        lastHandledCommentId: Math.max(rec.lastHandledCommentId, ...feedback.comments.map((c) => c.id)),
+        bodyHash: bodyHash(issue.body),
+      });
     const model = roleSettings(this.d.config, repo, "planner");
     const feedbackText = renderFeedback(issue, feedback);
 
     const own = this.d.store.latestSession(repo, issue.number, "planner");
     if (own?.kind === "issue" && own.claudeSessionId) {
       this.d.runner.resume(own.id, feedbackText, model);
+      handled();
       return own.id;
     }
     const context = [
@@ -118,7 +123,7 @@ export class Planner {
       rec.assessment ?? "(none)",
       feedbackText,
     ].join("\n\n");
-    return this.d.runner.start({
+    const id = this.d.runner.start({
       repo,
       role: "planner",
       kind: "issue",
@@ -128,6 +133,8 @@ export class Planner {
       prompt: renderPrompt(loadPrompt("planner", repoDir), { repo, context }),
       model,
     });
+    handled();
+    return id;
   }
 
   /** REQ-001-02/03/19/21: after any turn, bring GitHub in line with the session's Result. */

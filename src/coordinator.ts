@@ -10,7 +10,7 @@ import { Implementer, type ImplementerDeps } from "./implementer.ts";
 import { agentNote, ROLE_NAMES } from "./note.ts";
 import { bodyHash, Planner } from "./planner.ts";
 import { Reviewer, type ReviewerDeps } from "./reviewer.ts";
-import type { SessionRunner } from "./runner.ts";
+import { type SessionRunner, SessionStartError } from "./runner.ts";
 import { type LiveSession, schedule, type Work } from "./scheduler.ts";
 import { type Action, deriveActions, type IssueFeedback, inScope, issueState, type PullState } from "./state.ts";
 import type { IssueRecord, SessionRecord, Store, WorktreeRecord } from "./store.ts";
@@ -150,13 +150,12 @@ export class Coordinator {
       }
       this.syncFailures.delete(s.id);
       this.d.store.patchSession(s.id, { needsSync: false });
-      const pr = s.role === "planner" ? null : this.d.store.issue(s.repo, s.issues[0] ?? 0).prNumber;
       await this.fail(
         s.repo,
         s.issues,
         `syncing the ${s.role}'s Result to GitHub failed ${attempts} times; last error: ${error}`,
         s,
-        pr ?? undefined,
+        this.prOf(s),
       );
     }
   }
@@ -329,6 +328,7 @@ export class Coordinator {
             const id = await this.implementer.start(a.repo, members);
             this.log(`${a.repo}: implementing ${a.issues.map((n) => `#${n}`).join(", ")} (session ${id})`);
           } catch (e) {
+            if (e instanceof SessionStartError) throw e; // reported by run() (REQ-001-40)
             await this.fail(
               a.repo,
               a.issues,
@@ -527,8 +527,20 @@ export class Coordinator {
         await jobs.get(w.key)?.();
       } catch (e) {
         this.log(`${w.key} failed: ${e instanceof Error ? e.message : String(e)}`);
+        // REQ-001-40: a session that could not be launched fails its issues with the error, once.
+        if (e instanceof SessionStartError) {
+          await this.fail(e.session.repo, e.session.issues, e.message, e.session, this.prOf(e.session)).catch((f) =>
+            this.log(`${w.key}: could not report the failure: ${f instanceof Error ? f.message : String(f)}`),
+          );
+        }
       }
     }
+  }
+
+  /** The agent PR of an Implementer's or Reviewer's issues, if one is open. */
+  private prOf(s: SessionRecord): number | undefined {
+    if (s.role === "planner") return undefined;
+    return this.d.store.issue(s.repo, s.issues[0] ?? 0).prNumber ?? undefined;
   }
 
   private toLive(s: SessionRecord): LiveSession {
