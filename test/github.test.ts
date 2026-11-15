@@ -173,6 +173,14 @@ describe("GitHub client", () => {
     expect(created).toEqual(AGENT_LABELS.map((l) => l.name).filter((n) => n !== "agent:approved"));
   });
 
+  test("REQ-001-34 creates an issue and returns its number", async () => {
+    const { gh, requests } = client({
+      "POST /repos/octo/app/issues": { status: 201, body: { number: 31, id: 9001 } },
+    });
+    expect(await gh.createIssue("octo/app", { title: "Fix X", body: "Body" })).toBe(31);
+    expect(apiRequests(requests).map((r) => [r.method, r.body])).toEqual([["POST", { title: "Fix X", body: "Body" }]]);
+  });
+
   test("REQ-001-31 posts and edits comments, creates PRs as drafts and updates them", async () => {
     const { gh, requests } = client({
       "POST /repos/octo/app/issues/5/comments": { status: 201, body: { id: 77 } },

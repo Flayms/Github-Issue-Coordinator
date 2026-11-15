@@ -38,6 +38,10 @@ You see all open issues and PRs, so you can spot real dependencies; most issues 
 - `bundleWith`: issues to implement together in one branch and PR (e.g. they change the same code and would conflict).
 - `blockedBy`: open issues or PRs that must be finished first.
 
+## Split-off issues
+
+`splitOff` lists new issues for the Coordinator to create (title, body), when the issue mixes independent changes or you found a separate bug or follow-up while reading the code. Most Assessments need none. Check the open issues below first, so you don't create a duplicate. Write each body like a good issue: what and why, with the files involved. The Coordinator links it back to this issue, lists it under Coordination, and plans it on its next pass; it still needs the Owner's approval. Keep listing an issue on a revision or drop it, it is created only once either way.
+
 ## Rules
 
 - Read the code before making claims about it. Never guess at APIs or library behaviour: check the source or the official docs (WebSearch, WebFetch).

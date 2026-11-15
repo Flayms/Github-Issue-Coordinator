@@ -7,6 +7,9 @@ import type { Role } from "./config.ts";
 
 const issueRef = z.number().int().positive();
 
+/** At most this many Split-off issues per Assessment entry, against runaway splitting (REQ-001-34). */
+export const MAX_SPLIT_OFFS = 5;
+
 const plannerSchema = z.array(
   z.strictObject({
     issue: issueRef,
@@ -15,6 +18,13 @@ const plannerSchema = z.array(
     bundleWith: z.array(issueRef).describe("Issues to implement together with this one"),
     blockedBy: z.array(issueRef).describe("Issues that must be closed first"),
     questions: z.array(z.string()).describe("Questions for the Owner"),
+    splitOff: z
+      .array(z.strictObject({ title: z.string().trim().min(1), body: z.string().min(1) }))
+      .max(MAX_SPLIT_OFFS)
+      .default([])
+      .describe(
+        "New issues the Coordinator creates, split off from this one: independent changes, or a separate bug or follow-up found while reading the code",
+      ),
   }),
 );
 

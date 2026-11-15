@@ -204,6 +204,32 @@ describe("store", () => {
     }
   });
 
+  test("REQ-001-34 records Split-off issues per parent, also in a database created before they existed", () => {
+    const dir = mkdtempSync(join(tmpdir(), "store-"));
+    try {
+      const path = join(dir, "state.db");
+      const old = new Database(path, { create: true });
+      old.exec(`CREATE TABLE issues (repo TEXT NOT NULL, number INTEGER NOT NULL, PRIMARY KEY (repo, number))`);
+      old.close();
+      const s = new Store(path);
+      expect(s.splitOffs("octo/app", 5)).toEqual([]);
+      s.recordSplitOff("octo/app", 5, { number: 31, title: "Fix the parser" });
+      s.recordSplitOff("octo/app", 5, { number: 32, title: "Add tests" });
+      s.recordSplitOff("octo/other", 5, { number: 31, title: "Elsewhere" });
+      s.close();
+      const again = new Store(path);
+      expect(again.splitOffs("octo/app", 5)).toEqual([
+        { number: 31, title: "Fix the parser" },
+        { number: 32, title: "Add tests" },
+      ]);
+      expect(again.splitOffs("octo/app", 6)).toEqual([]);
+      expect(again.splitOffNumbers("octo/app")).toEqual(new Set([31, 32]));
+      again.close();
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
   test("keeps per-issue bookkeeping, merging partial updates", () => {
     const s = new Store(":memory:");
     expect(s.issue("octo/app", 5)).toEqual({

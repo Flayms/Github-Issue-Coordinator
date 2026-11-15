@@ -1,6 +1,6 @@
 # Architecture
 
-One Bun process, the Coordinator, runs a reconcile loop. Every `pollIntervalSec` it lists each configured repository's open issues and PRs (with an ETag), works out the desired action for each item from its `agent:*` labels and the local store, and hands actions to a scheduler with per-Role Slots. Agents are interactive `claude` sessions in detached tmux windows, registered with Remote Control so the Owner can follow them from the Claude app. Agents have no GitHub credentials: the Coordinator does every GitHub write. Details and rationale: `docs/specs/001-issue-coordinator/plan.md`.
+One Bun process, the Coordinator, runs a reconcile loop. Every `pollIntervalSec` it lists each configured repository's open issues and PRs (with an ETag), works out the desired action for each item from its `agent:*` labels and the local store, and hands actions to a scheduler with per-Role Slots. Agents are interactive `claude` sessions in detached tmux windows, registered with Remote Control so the Owner can follow them from the Claude app. Agents have no GitHub credentials: the Coordinator does every GitHub write, including creating the Split-off issues a Planner proposes in its Result (REQ-001-34). Details and rationale: `docs/specs/001-issue-coordinator/plan.md`.
 
 ```mermaid
 flowchart LR
@@ -27,7 +27,7 @@ flowchart LR
 | `src/labels.ts`                | The `agent:*` labels that carry state on GitHub                                                                                                  | T3 done  |
 | `src/github/app-auth.ts`       | GitHub App JWT; installation token per repository owner, cached until near expiry                                                                | T3 done  |
 | `src/github/client.ts`         | REST client: ETag polling, comments, timeline label actor, labels, PRs (incl. mergeability, draft status via GraphQL), Reviews, checks           | T3 done  |
-| `src/store.ts`                 | `bun:sqlite`: sessions (Role, issues, Claude session id, state) and per-issue bookkeeping                                                        | T4 done  |
+| `src/store.ts`                 | `bun:sqlite`: sessions (Role, issues, Claude session id, state), per-issue bookkeeping and Split-off issues                                      | T4 done  |
 | `src/state.ts`                 | Pure: issue state from labels; actions from labels, store and live tmux windows                                                                  | T4 done  |
 | `src/scheduler.ts`             | Pure: which queued work starts, which idle sessions close (Slots, priority, pause, live limit)                                                   | T5 done  |
 | `src/runner.ts`, `src/tmux.ts` | Start/resume/close `claude --remote-control` sessions in tmux windows `s<id>`; answer the trust dialog                                           | T6 done  |

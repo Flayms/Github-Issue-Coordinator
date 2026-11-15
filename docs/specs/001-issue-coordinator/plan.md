@@ -35,7 +35,7 @@ A single Bun process (`systemd` service, dedicated `agent` Linux user) runs a **
 
 ### Store
 
-`bun:sqlite` holds session ids and their state (running/idle/closed, last activity, Owner-busy), Worktree paths, the reviewed head SHAs, feedback-round counts, the last handled comment/review ids, and the usage-limit pause.
+`bun:sqlite` holds session ids and their state (running/idle/closed, last activity, Owner-busy), Worktree paths, the reviewed head SHAs, feedback-round counts, the last handled comment/review ids, the usage-limit pause, and which Split-off issues were created for which parent (REQ-001-34).
 
 ### Config sketch (`config.ts`, typed)
 

@@ -13,7 +13,7 @@ import { loadPrompt, renderPrompt } from "./prompts.ts";
 import { type PlannerResult, validateResult } from "./results.ts";
 import type { SessionRunner } from "./runner.ts";
 import type { IssueFeedback } from "./state.ts";
-import type { Store } from "./store.ts";
+import type { SplitOff, Store } from "./store.ts";
 
 export { isCommand } from "./state.ts";
 
@@ -29,12 +29,13 @@ const BODY_LIMIT = 4_000;
 
 export const bodyHash = (body: string): string => createHash("sha256").update(body).digest("hex");
 
-export function renderAssessment(a: Assessment, note: string): string {
+export function renderAssessment(a: Assessment, note: string, splitOffs: SplitOff[] = []): string {
   const parts = [note, `## Assessment: ${VERDICT_TITLES[a.verdict]}`, a.approach];
   if (a.questions.length) parts.push(`**Questions**\n\n${a.questions.map((q) => `- ${q}`).join("\n")}`);
   const notes = [
     ...a.bundleWith.map((n) => `- Do together with #${n}`),
     ...a.blockedBy.map((n) => `- Blocked by #${n}`),
+    ...splitOffs.map((s) => `- Split off #${s.number}`),
   ];
   if (notes.length) parts.push(`**Coordination**\n\n${notes.join("\n")}`);
   parts.push(
@@ -63,7 +64,7 @@ export function renderContext(c: { assess: Item[]; issues: Item[]; pulls: Item[]
 export interface PlannerDeps {
   config: Config;
   store: Store;
-  gh: Pick<GitHubClient, "addLabels" | "removeLabel" | "createComment" | "updateComment">;
+  gh: Pick<GitHubClient, "addLabels" | "removeLabel" | "createComment" | "updateComment" | "createIssue">;
   runner: Pick<SessionRunner, "start" | "resume" | "close" | "sessionDir">;
 }
 
@@ -158,7 +159,8 @@ export class Planner {
       const rec = this.d.store.issue(s.repo, a.issue);
       const json = JSON.stringify(a);
       if (rec.assessment === json && rec.assessmentCommentId !== null) continue; // nothing changed
-      const body = renderAssessment(a, note);
+      const splitOffs = await this.createSplitOffs(s.repo, a, note);
+      const body = renderAssessment(a, note, splitOffs);
       const commentId = await this.postAssessment(s.repo, a.issue, rec.assessmentCommentId, body);
       this.d.store.updateIssue(s.repo, a.issue, { assessment: json, assessmentCommentId: commentId });
 
@@ -169,6 +171,23 @@ export class Planner {
     }
     this.d.store.patchSession(sessionId, { needsSync: false });
     if (s.kind === "batch") this.d.runner.close(sessionId);
+  }
+
+  /**
+   * REQ-001-34: creates the entry's Split-off issues that weren't created for this issue before (same title,
+   * ignoring case and surrounding spaces), recording each one right away. Returns all of the issue's Split-off issues.
+   */
+  private async createSplitOffs(repo: string, a: Assessment, note: string): Promise<SplitOff[]> {
+    const key = (title: string) => title.trim().toLowerCase();
+    const known = new Set(this.d.store.splitOffs(repo, a.issue).map((s) => key(s.title)));
+    for (const p of a.splitOff) {
+      if (known.has(key(p.title))) continue;
+      known.add(key(p.title));
+      const body = `${note}\n\nSplit off from #${a.issue}.\n\n${p.body}`;
+      const number = await this.d.gh.createIssue(repo, { title: p.title, body });
+      this.d.store.recordSplitOff(repo, a.issue, { number, title: p.title });
+    }
+    return this.d.store.splitOffs(repo, a.issue);
   }
 
   /** Edits the Assessment comment in place (REQ-001-03), or posts it anew if there is none or the Owner deleted it (REQ-001-32). */

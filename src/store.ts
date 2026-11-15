@@ -36,6 +36,12 @@ export interface SessionRecord {
   title: string | null;
 }
 
+/** An issue the Coordinator created from a Planner's proposal while assessing `parent` (REQ-001-34). */
+export interface SplitOff {
+  number: number;
+  title: string;
+}
+
 /** A Worktree on record: its issues (a Bundle shares one), PR and last reviewed head. */
 export interface WorktreeRecord {
   worktreePath: string;
@@ -131,6 +137,13 @@ CREATE TABLE IF NOT EXISTS issues (
   in_feedback_round INTEGER NOT NULL DEFAULT 0,
   review_findings TEXT,
   review_history TEXT,
+  PRIMARY KEY (repo, number)
+);
+CREATE TABLE IF NOT EXISTS split_offs (
+  repo TEXT NOT NULL,
+  parent INTEGER NOT NULL,
+  number INTEGER NOT NULL,
+  title TEXT NOT NULL,
   PRIMARY KEY (repo, number)
 );
 CREATE TABLE IF NOT EXISTS meta (
@@ -408,6 +421,31 @@ export class Store {
         });
     }
     return [...byPath.values()];
+  }
+
+  /** Split-off issues created for a parent issue, oldest first (REQ-001-34). */
+  splitOffs(repo: string, parent: number): SplitOff[] {
+    return this.db
+      .query<SplitOff, [string, number]>(
+        "SELECT number, title FROM split_offs WHERE repo = ? AND parent = ? ORDER BY rowid",
+      )
+      .all(repo, parent);
+  }
+
+  recordSplitOff(repo: string, parent: number, s: SplitOff): void {
+    this.db
+      .query("INSERT OR IGNORE INTO split_offs (repo, parent, number, title) VALUES (?, ?, ?, ?)")
+      .run(repo, parent, s.number, s.title);
+  }
+
+  /** All Split-off issues of a repository; they are in scope like the Owner's issues (REQ-001-01). */
+  splitOffNumbers(repo: string): Set<number> {
+    return new Set(
+      this.db
+        .query<{ number: number }, [string]>("SELECT number FROM split_offs WHERE repo = ?")
+        .all(repo)
+        .map((r) => r.number),
+    );
   }
 
   /** End of the usage-limit pause (REQ-001-17), if one is in force or was recorded. */

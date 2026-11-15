@@ -47,6 +47,28 @@ describe("Result validation", () => {
     expect(!extra.ok && extra.problem).toContain("#7");
   });
 
+  test("REQ-001-34 a Planner entry may list up to 5 Split-off issues, each with a title and body", () => {
+    const withSplitOffs = (n: number, title = "T") =>
+      JSON.stringify([
+        {
+          issue: 5,
+          verdict: "proposed",
+          approach: "Do it",
+          bundleWith: [],
+          blockedBy: [],
+          questions: [],
+          splitOff: Array.from({ length: n }, () => ({ title, body: "B" })),
+        },
+      ]);
+    expect(validateResult("planner", withSplitOffs(5), [5]).ok).toBe(true);
+    const tooMany = validateResult("planner", withSplitOffs(6), [5]);
+    expect(!tooMany.ok && tooMany.problem).toContain("splitOff");
+    expect(validateResult("planner", withSplitOffs(1, ""), [5]).ok).toBe(false);
+    const parsed = validateResult("planner", planner([5]), [5]); // older Results without the field stay valid
+    expect(parsed.ok && (parsed.value as { splitOff: unknown[] }[])[0]?.splitOff).toEqual([]);
+    expect(resultInstructions("planner", "/r.json")).toContain("splitOff");
+  });
+
   test("REQ-001-21 instructions name the file and show the expected shape", () => {
     const text = resultInstructions("reviewer", "/state/sessions/3/result.json");
     expect(text).toContain("/state/sessions/3/result.json");
