@@ -32,6 +32,14 @@ export interface SessionRecord {
   usageLimited: boolean;
   /** The model the session runs, e.g. `claude-opus-5-5`, reported by the hooks (REQ-001-29). */
   modelId: string | null;
+  /** Title of the first issue, for the Remote Control name (REQ-001-33); null for a batch Planner and older sessions. */
+  title: string | null;
+}
+
+/** An issue the Coordinator created from a Planner's proposal while assessing `parent` (REQ-001-34). */
+export interface SplitOff {
+  number: number;
+  title: string;
 }
 
 /** A Worktree on record: its issues (a Bundle shares one), PR and last reviewed head. */
@@ -69,7 +77,7 @@ export interface IssueRecord {
   approvedAt: string | null;
   /** Notes from `/approve [notes]`, passed to the Implementer. */
   approvalNotes: string | null;
-  /** Blocking Review findings (or other feedback) waiting for a Feedback round (REQ-001-11). */
+  /** Review findings (or other feedback) waiting for a Feedback round (REQ-001-11). */
   pendingFeedback: string | null;
   /** Reviews up to this id have been handled (REQ-001-12; kept on the PR's own record). */
   lastHandledReviewId: number;
@@ -82,6 +90,10 @@ export interface IssueRecord {
   headSeenAt: string | null;
   /** 1 while a Feedback round runs; its next sync returns the issue to agent:pr-open. */
   inFeedbackRound: number;
+  /** The latest Review's findings (JSON), until the Implementer has answered them (REQ-001-35). */
+  reviewFindings: string | null;
+  /** Earlier Review findings with the Implementer's answers, for a re-review (REQ-001-36). */
+  reviewHistory: string | null;
 }
 
 const SCHEMA = `
@@ -100,7 +112,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   result_failures INTEGER NOT NULL DEFAULT 0,
   needs_sync INTEGER NOT NULL DEFAULT 0,
   usage_limited INTEGER NOT NULL DEFAULT 0,
-  model_id TEXT
+  model_id TEXT,
+  title TEXT
 );
 CREATE TABLE IF NOT EXISTS issues (
   repo TEXT NOT NULL,
@@ -122,6 +135,15 @@ CREATE TABLE IF NOT EXISTS issues (
   head_sha TEXT,
   head_seen_at TEXT,
   in_feedback_round INTEGER NOT NULL DEFAULT 0,
+  review_findings TEXT,
+  review_history TEXT,
+  PRIMARY KEY (repo, number)
+);
+CREATE TABLE IF NOT EXISTS split_offs (
+  repo TEXT NOT NULL,
+  parent INTEGER NOT NULL,
+  number INTEGER NOT NULL,
+  title TEXT NOT NULL,
   PRIMARY KEY (repo, number)
 );
 CREATE TABLE IF NOT EXISTS meta (
@@ -146,6 +168,7 @@ interface SessionRow {
   needs_sync: number;
   usage_limited: number;
   model_id: string | null;
+  title: string | null;
 }
 
 const toSession = (r: SessionRow): SessionRecord => ({
@@ -164,6 +187,7 @@ const toSession = (r: SessionRow): SessionRecord => ({
   needsSync: r.needs_sync === 1,
   usageLimited: r.usage_limited === 1,
   modelId: r.model_id ?? null,
+  title: r.title ?? null,
 });
 
 const ISSUE_COLUMNS = {
@@ -184,6 +208,8 @@ const ISSUE_COLUMNS = {
   headSha: "head_sha",
   headSeenAt: "head_seen_at",
   inFeedbackRound: "in_feedback_round",
+  reviewFindings: "review_findings",
+  reviewHistory: "review_history",
 } as const satisfies Record<Exclude<keyof IssueRecord, "repo" | "number">, string>;
 
 export class Store {
@@ -203,8 +229,14 @@ export class Store {
   /** Adds columns introduced after a store was created; CREATE TABLE IF NOT EXISTS leaves old tables as they are. */
   private migrate(): void {
     const added: Record<string, Record<string, string>> = {
-      issues: { conflict_sha: "TEXT", head_sha: "TEXT", head_seen_at: "TEXT" },
-      sessions: { model_id: "TEXT" },
+      issues: {
+        conflict_sha: "TEXT",
+        head_sha: "TEXT",
+        head_seen_at: "TEXT",
+        review_findings: "TEXT",
+        review_history: "TEXT",
+      },
+      sessions: { model_id: "TEXT", title: "TEXT" },
     };
     for (const [table, cols] of Object.entries(added)) {
       const have = new Set(
@@ -226,13 +258,20 @@ export class Store {
     this.db.close();
   }
 
-  createSession(s: Pick<SessionRecord, "repo" | "role" | "kind" | "issues">): number {
+  createSession(s: Pick<SessionRecord, "repo" | "role" | "kind" | "issues"> & { title?: string | null }): number {
     const row = this.db
-      .query<{ id: number }, Record<string, string>>(
-        `INSERT INTO sessions (repo, role, kind, issues, state, last_activity_at)
-         VALUES ($repo, $role, $kind, $issues, 'running', $at) RETURNING id`,
+      .query<{ id: number }, Record<string, string | null>>(
+        `INSERT INTO sessions (repo, role, kind, issues, title, state, last_activity_at)
+         VALUES ($repo, $role, $kind, $issues, $title, 'running', $at) RETURNING id`,
       )
-      .get({ repo: s.repo, role: s.role, kind: s.kind, issues: JSON.stringify(s.issues), at: this.stamp() });
+      .get({
+        repo: s.repo,
+        role: s.role,
+        kind: s.kind,
+        issues: JSON.stringify(s.issues),
+        title: s.title ?? null,
+        at: this.stamp(),
+      });
     if (!row) throw new Error("failed to create session");
     return row.id;
   }
@@ -333,6 +372,8 @@ export class Store {
       headSha: null,
       headSeenAt: null,
       inFeedbackRound: 0,
+      reviewFindings: null,
+      reviewHistory: null,
     };
     if (row) {
       for (const [key, col] of Object.entries(ISSUE_COLUMNS))
@@ -380,6 +421,31 @@ export class Store {
         });
     }
     return [...byPath.values()];
+  }
+
+  /** Split-off issues created for a parent issue, oldest first (REQ-001-34). */
+  splitOffs(repo: string, parent: number): SplitOff[] {
+    return this.db
+      .query<SplitOff, [string, number]>(
+        "SELECT number, title FROM split_offs WHERE repo = ? AND parent = ? ORDER BY rowid",
+      )
+      .all(repo, parent);
+  }
+
+  recordSplitOff(repo: string, parent: number, s: SplitOff): void {
+    this.db
+      .query("INSERT OR IGNORE INTO split_offs (repo, parent, number, title) VALUES (?, ?, ?, ?)")
+      .run(repo, parent, s.number, s.title);
+  }
+
+  /** All Split-off issues of a repository; they are in scope like the Owner's issues (REQ-001-01). */
+  splitOffNumbers(repo: string): Set<number> {
+    return new Set(
+      this.db
+        .query<{ number: number }, [string]>("SELECT number FROM split_offs WHERE repo = ?")
+        .all(repo)
+        .map((r) => r.number),
+    );
   }
 
   /** End of the usage-limit pause (REQ-001-17), if one is in force or was recorded. */

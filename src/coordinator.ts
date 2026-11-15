@@ -12,7 +12,7 @@ import { bodyHash, Planner } from "./planner.ts";
 import { Reviewer, type ReviewerDeps } from "./reviewer.ts";
 import type { SessionRunner } from "./runner.ts";
 import { type LiveSession, schedule, type Work } from "./scheduler.ts";
-import { type Action, deriveActions, type IssueFeedback, issueState, type PullState } from "./state.ts";
+import { type Action, deriveActions, type IssueFeedback, inScope, issueState, type PullState } from "./state.ts";
 import type { IssueRecord, SessionRecord, Store, WorktreeRecord } from "./store.ts";
 
 /** How long to wait after a usage limit before trying again; the reset time's format is still unknown. */
@@ -35,6 +35,7 @@ export interface CoordinatorDeps {
     | "removeLabel"
     | "createComment"
     | "updateComment"
+    | "createIssue"
     | "createPull"
     | "updatePull"
     | "setDraft"
@@ -89,6 +90,7 @@ export class Coordinator {
             repo,
             ownerId: this.d.config.owner.id,
             items: view.items,
+            splitOffs: this.d.store.splitOffNumbers(repo),
             sessions: this.d.store.sessions(repo),
             pendingSync: this.d.store.sessionsToSync(repo).filter((s) => s.state === "closed"),
             liveSessionIds: live,
@@ -166,8 +168,9 @@ export class Coordinator {
     if (!changed && cached) return cached;
     const feedback = new Map<number, IssueFeedback>();
     const labelActors = new Map<number, Actor | undefined>();
+    const splitOffs = this.d.store.splitOffNumbers(repo);
     for (const i of items) {
-      if (i.isPullRequest || i.author.id !== this.d.config.owner.id) continue;
+      if (!inScope(i, this.d.config.owner.id, splitOffs)) continue;
       const rec = this.d.store.issue(repo, i.number);
       // REQ-001-04: who added agent:approved, for approvals not on record yet.
       if (issueState(i.labels) === "approved" && !rec.approvedAt)
@@ -360,7 +363,8 @@ export class Coordinator {
         const oldest = assess.map((i) => i.createdAt).sort()[0] ?? now;
         this.add(queue, jobs, { key: `${a.repo} plan`, kind: "plan", role: "planner", queuedAt: oldest }, async () => {
           const dir = await this.d.clones.mainClone(a.repo);
-          const issues = view.items.filter((i) => !i.isPullRequest && i.author.id === this.d.config.owner.id);
+          const splitOffs = this.d.store.splitOffNumbers(a.repo);
+          const issues = view.items.filter((i) => inScope(i, this.d.config.owner.id, splitOffs));
           const pulls = view.items.filter((i) => i.isPullRequest);
           const id = await this.planner.startPass(a.repo, dir, assess, { issues, pulls });
           this.log(`${a.repo}: Planner pass over ${a.issues.map((n) => `#${n}`).join(", ")} (session ${id})`);
@@ -521,7 +525,7 @@ export class Coordinator {
       if (pr !== undefined)
         for (const l of ["agent:pr-open", "agent:reviewed"]) await this.d.gh.removeLabel(repo, n, l);
       await this.d.gh.addLabels(repo, n, ["agent:failed"]);
-      this.d.store.updateIssue(repo, n, { pendingFeedback: null });
+      this.d.store.updateIssue(repo, n, { pendingFeedback: null, reviewFindings: null });
       await this.d.gh.createComment(repo, n, `${note}\n\nThe Coordinator gave up on this issue${by}: ${reason}.`);
     }
     if (session) {

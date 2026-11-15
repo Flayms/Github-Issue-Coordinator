@@ -142,6 +142,11 @@ export class GitHubClient {
     }
   }
 
+  /** Creates an issue as the App (REQ-001-34) and returns its number. */
+  async createIssue(repo: string, issue: { title: string; body: string }): Promise<number> {
+    return (await this.request<{ number: number }>(repo, "POST", `/repos/${repo}/issues`, issue)).number;
+  }
+
   async createComment(repo: string, issue: number, body: string): Promise<number> {
     return (await this.request<{ id: number }>(repo, "POST", `/repos/${repo}/issues/${issue}/comments`, { body })).id;
   }

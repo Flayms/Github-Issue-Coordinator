@@ -44,6 +44,7 @@ const entry = (issue: number, extra: Partial<PlannerResult[number]> = {}): Plann
   bundleWith: [],
   blockedBy: [],
   questions: [],
+  splitOff: [],
   ...extra,
 });
 
@@ -51,6 +52,11 @@ class FakeGitHub {
   calls: unknown[][] = [];
   private nextId = 100;
   deleted = new Set<number>();
+  private nextIssue = 200;
+  async createIssue(repo: string, issue: { title: string; body: string }) {
+    this.calls.push(["createIssue", repo, issue]);
+    return this.nextIssue++;
+  }
   async addLabels(repo: string, issue: number, labels: string[]) {
     this.calls.push(["addLabels", repo, issue, labels]);
   }
@@ -80,7 +86,7 @@ class FakeRunner {
   ) {}
   start(o: StartOptions) {
     this.started.push(o);
-    const id = this.store.createSession({ repo: o.repo, role: o.role, kind: o.kind, issues: o.issues });
+    const id = this.store.createSession({ repo: o.repo, role: o.role, kind: o.kind, issues: o.issues, title: o.title });
     mkdirSync(this.sessionDir(id), { recursive: true });
     return id;
   }
@@ -129,6 +135,12 @@ describe("Assessment comment", () => {
     expect(text).toContain("- Do together with #6");
     expect(text).toContain("- Blocked by #7");
     expect(text).toContain("/approve");
+  });
+
+  test("REQ-001-34 lists the Split-off issues under Coordination", () => {
+    const text = renderAssessment(entry(5), "NOTE", [{ number: 31, title: "Fix the parser" }]);
+    expect(text).toContain("**Coordination**");
+    expect(text).toContain("- Split off #31");
   });
 
   test("leaves out empty sections", () => {
@@ -238,11 +250,11 @@ describe("plan revision", () => {
     return id;
   };
 
-  test("REQ-001-03 after a batch, feedback goes to a fresh Planner session for that issue with its current Assessment", async () => {
+  test("REQ-001-03 / REQ-001-33 after a batch, feedback goes to a fresh Planner session for that issue with its current Assessment", async () => {
     const batch = await assessed();
     store.setClaudeSessionId(batch, "sess-batch"); // resumable, but it covers several issues
     await planner.revise("octo/app", "/c", item(5), { comments: [comment(300, "Use the v2 API")], bodyChanged: false });
-    expect(runner.started.at(-1)).toMatchObject({ kind: "issue", issues: [5], role: "planner" });
+    expect(runner.started.at(-1)).toMatchObject({ kind: "issue", issues: [5], role: "planner", title: "Issue 5" });
     expect(runner.started.at(-1)?.prompt).toContain("Approach for 5");
     expect(runner.started.at(-1)?.prompt).toContain("Use the v2 API");
     expect(store.issue("octo/app", 5).lastHandledCommentId).toBe(300);
@@ -304,5 +316,53 @@ describe("plan revision", () => {
     expect(gh.of("updateComment")).toEqual([
       ["updateComment", "octo/app", 100, expect.stringContaining("v3 after chatting")],
     ]);
+  });
+});
+
+describe("Split-off issues", () => {
+  const split = (title: string) => ({ title, body: `Body: ${title}` });
+
+  test("REQ-001-34 a Planner Result's Split-off issues are created once, with the note and a back-link, and listed in the Assessment", async () => {
+    const id = await planner.startPass("octo/app", "/c", [item(5)], { issues: [], pulls: [] });
+    store.setModelId(id, "claude-opus-5-5");
+    gh.calls = [];
+    finishTurn(id, [entry(5, { splitOff: [split("Fix the parser"), split("Docs typo")] })]);
+    await planner.sync(id);
+    expect(gh.of("createIssue")).toEqual([
+      ["createIssue", "octo/app", { title: "Fix the parser", body: expect.any(String) }],
+      ["createIssue", "octo/app", { title: "Docs typo", body: expect.any(String) }],
+    ]);
+    const body = (gh.of("createIssue")[0]?.[2] as { body: string } | undefined)?.body;
+    expect(body).toStartWith("> [!Note]\n> 🤖 Claude Opus 5.5 (Planner) writing on behalf of octo\n");
+    expect(body).toContain("Split off from #5");
+    expect(body).toContain("Body: Fix the parser");
+    expect(store.splitOffs("octo/app", 5)).toEqual([
+      { number: 200, title: "Fix the parser" },
+      { number: 201, title: "Docs typo" },
+    ]);
+    expect(store.splitOffNumbers("octo/app")).toEqual(new Set([200, 201]));
+    const assessment = gh.of("createComment")[0]?.[3] as string;
+    expect(assessment).toContain("- Split off #200");
+    expect(assessment).toContain("- Split off #201");
+  });
+
+  test("REQ-001-34 a revision does not create an already created Split-off issue again, and never drops one", async () => {
+    const id = await planner.startPass("octo/app", "/c", [item(5)], { issues: [], pulls: [] });
+    finishTurn(id, [entry(5, { splitOff: [split("Fix the parser")] })]);
+    await planner.sync(id);
+    const own = await planner.revise("octo/app", "/c", item(5), { comments: [comment(300, "a")], bodyChanged: false });
+    gh.calls = [];
+    finishTurn(own, [entry(5, { approach: "v2", splitOff: [split(" fix the Parser "), split("Add tests")] })]);
+    await planner.sync(own);
+    expect(gh.of("createIssue")).toEqual([
+      ["createIssue", "octo/app", { title: "Add tests", body: expect.any(String) }],
+    ]);
+    gh.calls = [];
+    finishTurn(own, [entry(5, { approach: "v3" })]); // the Planner no longer lists them
+    await planner.sync(own);
+    expect(gh.of("createIssue")).toEqual([]);
+    const assessment = gh.of("updateComment")[0]?.[3] as string;
+    expect(assessment).toContain("- Split off #200");
+    expect(assessment).toContain("- Split off #201");
   });
 });

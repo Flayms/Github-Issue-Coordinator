@@ -11,7 +11,7 @@ A single Bun process (`systemd` service, dedicated `agent` Linux user) runs a **
 
 ### Session runner (interactive + Remote Control)
 
-- **Start:** `tmux new-window -d -c <dir> -n <name> "claude --remote-control '<repo>#<n> <role>' --model <m> --settings <hooks.json> --permission-mode <…> '<prompt>'"`.
+- **Start:** `tmux new-window -d -c <dir> -n <name> "claude --remote-control '#<n> <title> · <Role> · <repo name>' --model <m> --settings <hooks.json> --permission-mode <…> '<prompt>'"`.
 - **Resume:** kill the idle session's window and run the same command with `--resume <session_id>` and the new prompt (keeps the conversation and the phone chat; verified in the T6 smoke test).
 - **Hooks:** they call a small Bun hook script that writes events to the store.
   - `SessionStart` records the session id and the model it runs (`payload.model`; `Stop` falls back to the transcript's first assistant `message.model`), for the agent note (REQ-001-29).
@@ -25,8 +25,8 @@ A single Bun process (`systemd` service, dedicated `agent` Linux user) runs a **
 | Role        | Where it runs                                               | Writes          | Result schema                                                          |
 | ----------- | ----------------------------------------------------------- | --------------- | ---------------------------------------------------------------------- |
 | Planner     | Main clone, read-only tools                                 | —               | `[{issue, verdict, approach, bundleWith[], blockedBy[], questions[]}]` |
-| Implementer | Own Worktree (a local clone of the main clone)              | Commits locally | `{prTitle, prBody, summary}`                                           |
-| Reviewer    | Temporary detached checkout of the PR head, read-only tools | —               | `{summary, findings[{path, line, severity, blocking, body}]}`          |
+| Implementer | Own Worktree (a local clone of the main clone)              | Commits locally | `{prTitle, prBody, summary, responses?[{finding, answer, reason}]}`    |
+| Reviewer    | Temporary detached checkout of the PR head, read-only tools | —               | `{summary, findings[{path, line, severity (high/medium), body}]}`      |
 
 ### Prompts and models
 
@@ -35,7 +35,7 @@ A single Bun process (`systemd` service, dedicated `agent` Linux user) runs a **
 
 ### Store
 
-`bun:sqlite` holds session ids and their state (running/idle/closed, last activity, Owner-busy), Worktree paths, the reviewed head SHAs, feedback-round counts, the last handled comment/review ids, and the usage-limit pause.
+`bun:sqlite` holds session ids and their state (running/idle/closed, last activity, Owner-busy), Worktree paths, the reviewed head SHAs, feedback-round counts, the last handled comment/review ids, the usage-limit pause, and which Split-off issues were created for which parent (REQ-001-34).
 
 ### Config sketch (`config.ts`, typed)
 

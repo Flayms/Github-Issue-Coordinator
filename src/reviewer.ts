@@ -1,7 +1,7 @@
 /**
  * Reviewer run (REQ-001-10): a fresh read-only session on a checkout of the PR head; its findings
- * are posted as one COMMENT review. The session is closed right after (REQ-001-23). Blocking
- * findings are kept for a Feedback round (REQ-001-11); without them the PR leaves draft (REQ-001-31).
+ * are posted as one COMMENT review. The session is closed right after (REQ-001-23). Every finding
+ * is kept for a Feedback round (REQ-001-11); without findings the PR leaves draft (REQ-001-31).
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -15,7 +15,7 @@ import type { SessionRunner } from "./runner.ts";
 import type { Store } from "./store.ts";
 import type { Worktrees } from "./worktrees.ts";
 
-type Finding = ReviewerResult["findings"][number];
+export type Finding = ReviewerResult["findings"][number];
 
 export interface ReviewerDeps {
   config: Config;
@@ -25,8 +25,14 @@ export interface ReviewerDeps {
   worktrees: Pick<Worktrees, "reviewCheckout" | "reviewPath" | "head" | "remove">;
 }
 
-export const renderFinding = (f: Finding): string =>
-  `- **${f.severity}**${f.blocking ? " (blocking)" : ""} \`${f.path}:${f.line}\`: ${f.body}`;
+export const renderFinding = (f: Finding): string => `**${f.severity}** \`${f.path}:${f.line}\`: ${f.body}`;
+
+/** The Feedback round's text: every finding, numbered so the Implementer can answer each one (REQ-001-35). */
+const feedbackText = (findings: Finding[]): string =>
+  [
+    "Review findings. Answer each one by its number in `responses` of your Result: `fixed`, or `declined` with the reason.",
+    ...findings.map((f, i) => `${i + 1}. ${renderFinding(f)}`),
+  ].join("\n\n");
 
 export class Reviewer {
   constructor(private readonly d: ReviewerDeps) {}
@@ -43,6 +49,14 @@ export class Reviewer {
       const a = this.d.store.issue(repo, n).assessment;
       if (a) parts.push(`## Approved Assessment of #${n}`, (JSON.parse(a) as { approach: string }).approach);
     }
+    // REQ-001-36: a re-review sees the earlier findings and the Implementer's answers.
+    const history = this.d.store.issue(repo, numbers[0] ?? 0).reviewHistory;
+    if (history)
+      parts.push(
+        "## Earlier Reviews and the Implementer's answers",
+        history,
+        "Raise a declined finding again only if you say why its reason is wrong.",
+      );
     parts.push(
       "## Pull request",
       `PR #${pr}, head commit \`${headSha}\` (checked out here). Compare it with the default branch: \`git diff origin/HEAD...HEAD\`.`,
@@ -52,6 +66,7 @@ export class Reviewer {
       role: "reviewer",
       kind: "issue",
       issues: numbers,
+      title: issues[0]?.title,
       cwd: path,
       prompt: renderPrompt(loadPrompt("reviewer", path), { repo, context: parts.join("\n\n") }),
       model: roleSettings(this.d.config, repo, "reviewer"),
@@ -94,31 +109,31 @@ export class Reviewer {
     const comments = result.findings.map((f) => ({
       path: f.path,
       line: f.line,
-      body: `**${f.severity}**${f.blocking ? " (blocking)" : ""}: ${f.body}`,
+      body: `**${f.severity}**: ${f.body}`,
     }));
     try {
       await this.d.gh.createReview(s.repo, pr, { commitId: sha, body, comments });
     } catch (e) {
       // A finding outside the diff makes GitHub reject the whole review; post them in the body instead.
       if (!(e instanceof GitHubError && e.status === 422)) throw e;
-      const listed = `${body}\n\n### Findings\n\n${result.findings.map(renderFinding).join("\n")}`;
+      const listed = `${body}\n\n### Findings\n\n${result.findings.map((f) => `- ${renderFinding(f)}`).join("\n")}`;
       await this.d.gh.createReview(s.repo, pr, { commitId: sha, body: listed, comments: [] });
     }
 
-    const blocking = result.findings.filter((f) => f.blocking);
+    // REQ-001-11: every posted finding is one to fix, so any finding starts a Feedback round.
+    const { findings } = result;
     for (const n of s.issues) {
       this.d.store.updateIssue(s.repo, n, {
         reviewedHeadSha: sha,
-        pendingFeedback: blocking.length
-          ? `Blocking Review findings:\n\n${blocking.map(renderFinding).join("\n")}`
-          : null,
+        pendingFeedback: findings.length ? feedbackText(findings) : null,
+        reviewFindings: findings.length ? JSON.stringify(findings) : null,
       });
       await this.d.gh.removeLabel(s.repo, n, "agent:reviewing");
-      await this.d.gh.addLabels(s.repo, n, [blocking.length ? "agent:pr-open" : "agent:reviewed"]);
+      await this.d.gh.addLabels(s.repo, n, [findings.length ? "agent:pr-open" : "agent:reviewed"]);
     }
-    if (!blocking.length) {
+    if (!findings.length) {
       await this.d.gh.addLabels(s.repo, pr, ["agent:reviewed"]);
-      // REQ-001-31: only a reviewed head without blocking findings leaves draft.
+      // REQ-001-31: only a reviewed head without findings leaves draft.
       await this.d.gh.setDraft(s.repo, pr, false);
     }
     this.finish(sessionId, checkout);

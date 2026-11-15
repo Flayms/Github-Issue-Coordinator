@@ -99,7 +99,7 @@ class FakeRunner {
   ) {}
   start(o: StartOptions) {
     this.started.push(o);
-    const id = this.store.createSession({ repo: o.repo, role: o.role, kind: o.kind, issues: o.issues });
+    const id = this.store.createSession({ repo: o.repo, role: o.role, kind: o.kind, issues: o.issues, title: o.title });
     mkdirSync(this.sessionDir(id), { recursive: true });
     return id;
   }
@@ -159,7 +159,7 @@ const finish = (
 };
 
 describe("Implementer run", () => {
-  test("REQ-001-06 / REQ-001-09 labels the Bundle in progress and starts a fresh session in one new Worktree", async () => {
+  test("REQ-001-06 / REQ-001-09 / REQ-001-33 labels the Bundle in progress and starts a fresh session in one new Worktree", async () => {
     const id = await impl.start("octo/app", [item(5), item(6)]);
     expect(wt.created).toEqual([["octo/app", [5, 6], "Issue 5"]]);
     expect(gh.of("addLabels")).toEqual([
@@ -177,6 +177,7 @@ describe("Implementer run", () => {
         role: "implementer",
         kind: "issue",
         issues: [5, 6],
+        title: "Issue 5",
         cwd: "/wt/5",
         model: { model: "sonnet" },
         sandboxDomains: ["registry.npmjs.org", "pypi.org", "files.pythonhosted.org"],
@@ -283,7 +284,7 @@ describe("Implementer run", () => {
     ]);
   });
 
-  test("REQ-001-11 a Feedback round without a resumable session starts a fresh one in the existing Worktree", async () => {
+  test("REQ-001-11 / REQ-001-33 a Feedback round without a resumable session starts a fresh one in the existing Worktree", async () => {
     const id = await impl.start("octo/app", [item(5)]); // never reported a Claude session id
     wt.ahead = 1;
     finish(id);
@@ -293,6 +294,7 @@ describe("Implementer run", () => {
     expect(runner.started.at(-1)).toMatchObject({
       role: "implementer",
       issues: [5],
+      title: "Issue 5",
       cwd: "/wt/5",
       sandboxDomains: ["registry.npmjs.org", "pypi.org", "files.pythonhosted.org"],
     });
@@ -327,6 +329,102 @@ describe("Implementer run", () => {
     finish(id, { prTitle: "Dark mode", prBody: "Adds a toggle.", summary: "Answered a question" });
     await impl.sync(id);
     expect(gh.of("setDraft")).toEqual([]);
+  });
+
+  const reviewed = (findings: unknown[]) => {
+    for (const n of [5])
+      store.updateIssue("octo/app", n, { reviewedHeadSha: "h1", reviewFindings: JSON.stringify(findings) });
+  };
+  const crash = { path: "src/a.ts", line: 3, severity: "high", body: "Crashes on empty input" };
+  const naming = { path: "src/b.ts", line: 9, severity: "medium", body: "Breaks the naming convention\nsee AGENTS.md" };
+  const answered = (responses: unknown[]) => ({
+    prTitle: "Dark mode",
+    prBody: "Adds a toggle.",
+    summary: "Fixed it",
+    responses,
+  });
+
+  test("REQ-001-35 the sync after a round on Review findings posts the answers as one PR comment, each finding quoted next to its answer", async () => {
+    const id = await withPr();
+    store.setModelId(id, "claude-opus-5-5");
+    reviewed([crash, naming]);
+    await impl.feedbackRound("octo/app", 77, [5], "Review findings");
+    gh.calls = [];
+    wt.headSha = "h2";
+    finish(
+      id,
+      answered([
+        { finding: 1, answer: "fixed", reason: "Added a guard and a test" },
+        { finding: 2, answer: "declined", reason: "The name is in the glossary" },
+      ]),
+    );
+    await impl.sync(id);
+    const comments = gh.of("createComment");
+    expect(comments).toHaveLength(1);
+    const [, pr, body] = comments[0] as [string, number, string];
+    expect(pr).toBe(77);
+    expect(body).toStartWith("> [!Note]\n> 🤖 Claude Opus 5.5 (Implementer) writing on behalf of octo\n");
+    expect(body).toContain("## Answers to the Review findings");
+    expect(body).toContain(
+      "1. **high** `src/a.ts:3`\n\n   > Crashes on empty input\n\n   **Fixed**: Added a guard and a test",
+    );
+    expect(body).toContain(
+      "   > Breaks the naming convention\n   > see AGENTS.md\n\n   **Declined**: The name is in the glossary",
+    );
+    expect(body).not.toContain("waits for the Owner");
+    const rec = store.issue("octo/app", 5);
+    expect(rec.reviewFindings).toBeNull();
+    expect(rec.reviewHistory).toContain("**Declined**: The name is in the glossary");
+    expect(rec.reviewHistory).toContain("Crashes on empty input");
+  });
+
+  test("REQ-001-36 answers of later rounds are added to the history", async () => {
+    const id = await withPr();
+    store.updateIssue("octo/app", 5, { reviewHistory: "Earlier round" });
+    reviewed([crash]);
+    await impl.feedbackRound("octo/app", 77, [5], "Review findings");
+    wt.headSha = "h2";
+    finish(id, answered([{ finding: 1, answer: "fixed", reason: "Guarded" }]));
+    await impl.sync(id);
+    const history = store.issue("octo/app", 5).reviewHistory ?? "";
+    expect(history).toStartWith("Earlier round");
+    expect(history).toContain("Guarded");
+  });
+
+  test("REQ-001-35 a round whose Result leaves a finding unanswered is not synced", async () => {
+    const id = await withPr();
+    reviewed([crash, naming]);
+    await impl.feedbackRound("octo/app", 77, [5], "Review findings");
+    gh.calls = [];
+    finish(id, answered([{ finding: 1, answer: "fixed", reason: "Guarded" }]));
+    await impl.sync(id);
+    expect(gh.of("createComment")).toEqual([]);
+    expect(gh.of("updatePull")).toEqual([]);
+  });
+
+  test("REQ-001-31 / REQ-001-35 a round that declines every finding without new commits stays draft at agent:pr-open and says it waits for the Owner", async () => {
+    const id = await withPr();
+    reviewed([crash]);
+    await impl.feedbackRound("octo/app", 77, [5], "Review findings");
+    gh.calls = [];
+    finish(id, answered([{ finding: 1, answer: "declined", reason: "Input is never empty here" }]));
+    await impl.sync(id);
+    expect(gh.of("setDraft")).toEqual([]);
+    expect(gh.of("addLabels")).toEqual([["addLabels", 5, ["agent:pr-open"]]]);
+    const [, , body] = gh.of("createComment")[0] as [string, number, string];
+    expect(body).toContain("**Declined**: Input is never empty here");
+    expect(body).toContain("No new commits in this round");
+    expect(body).toContain("`/agent <text>`");
+    expect(store.issue("octo/app", 5).inFeedbackRound).toBe(0);
+  });
+
+  test("REQ-001-35 a round without Review findings (e.g. failing checks) posts no answers comment", async () => {
+    const id = await withPr();
+    await impl.feedbackRound("octo/app", 77, [5], "Failing checks");
+    gh.calls = [];
+    finish(id);
+    await impl.sync(id);
+    expect(gh.of("createComment")).toEqual([]);
   });
 
   test("REQ-001-14 cleanup removes the Worktree, closes the sessions and clears the agent labels", async () => {

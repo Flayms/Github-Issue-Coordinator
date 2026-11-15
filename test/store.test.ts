@@ -35,6 +35,7 @@ describe("store", () => {
           needsSync: false,
           usageLimited: false,
           modelId: null,
+          title: null,
         },
       ]);
       b.close();
@@ -61,6 +62,39 @@ describe("store", () => {
       expect(s.session(id)?.modelId).toBeNull();
       s.setModelId(id, "claude-opus-5-5");
       expect(s.session(id)?.modelId).toBe("claude-opus-5-5");
+      s.close();
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  test("REQ-001-33 keeps the session's issue title, also in a database created before it existed", () => {
+    const dir = mkdtempSync(join(tmpdir(), "store-"));
+    try {
+      const path = join(dir, "state.db");
+      const old = new Database(path, { create: true });
+      old.exec(
+        `CREATE TABLE sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, repo TEXT NOT NULL, role TEXT NOT NULL,
+         kind TEXT NOT NULL, issues TEXT NOT NULL, claude_session_id TEXT, state TEXT NOT NULL,
+         resume_attempts INTEGER NOT NULL DEFAULT 0, last_activity_at TEXT NOT NULL, owner_messaged_at TEXT,
+         coordinator_prompt_pending INTEGER NOT NULL DEFAULT 0, result_failures INTEGER NOT NULL DEFAULT 0,
+         needs_sync INTEGER NOT NULL DEFAULT 0, usage_limited INTEGER NOT NULL DEFAULT 0, model_id TEXT)`,
+      );
+      old.exec(
+        `INSERT INTO sessions (repo, role, kind, issues, state, last_activity_at)
+         VALUES ('octo/app', 'reviewer', 'issue', '[4]', 'idle', '2026-11-10T10:00:00Z')`,
+      );
+      old.close();
+      const s = new Store(path);
+      expect(s.session(1)?.title).toBeNull();
+      const id = s.createSession({
+        repo: "octo/app",
+        role: "implementer",
+        kind: "issue",
+        issues: [5],
+        title: "Fix it",
+      });
+      expect(s.session(id)?.title).toBe("Fix it");
       s.close();
     } finally {
       rmSync(dir, { recursive: true });
@@ -161,7 +195,36 @@ describe("store", () => {
       const s = new Store(path);
       s.updateIssue("octo/app", 5, { conflictSha: "h1", headSha: "h1", headSeenAt: "2026-11-13T10:00:00.000Z" });
       expect(s.issue("octo/app", 5)).toMatchObject({ worktreePath: "/wt/5", conflictSha: "h1", headSha: "h1" });
+      // REQ-001-35 / REQ-001-36: the Review findings and their history are migrated too.
+      s.updateIssue("octo/app", 5, { reviewFindings: "[]", reviewHistory: "Earlier" });
+      expect(s.issue("octo/app", 5)).toMatchObject({ reviewFindings: "[]", reviewHistory: "Earlier" });
       s.close();
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  test("REQ-001-34 records Split-off issues per parent, also in a database created before they existed", () => {
+    const dir = mkdtempSync(join(tmpdir(), "store-"));
+    try {
+      const path = join(dir, "state.db");
+      const old = new Database(path, { create: true });
+      old.exec(`CREATE TABLE issues (repo TEXT NOT NULL, number INTEGER NOT NULL, PRIMARY KEY (repo, number))`);
+      old.close();
+      const s = new Store(path);
+      expect(s.splitOffs("octo/app", 5)).toEqual([]);
+      s.recordSplitOff("octo/app", 5, { number: 31, title: "Fix the parser" });
+      s.recordSplitOff("octo/app", 5, { number: 32, title: "Add tests" });
+      s.recordSplitOff("octo/other", 5, { number: 31, title: "Elsewhere" });
+      s.close();
+      const again = new Store(path);
+      expect(again.splitOffs("octo/app", 5)).toEqual([
+        { number: 31, title: "Fix the parser" },
+        { number: 32, title: "Add tests" },
+      ]);
+      expect(again.splitOffs("octo/app", 6)).toEqual([]);
+      expect(again.splitOffNumbers("octo/app")).toEqual(new Set([31, 32]));
+      again.close();
     } finally {
       rmSync(dir, { recursive: true });
     }
@@ -189,6 +252,8 @@ describe("store", () => {
       headSha: null,
       headSeenAt: null,
       inFeedbackRound: 0,
+      reviewFindings: null,
+      reviewHistory: null,
     });
     s.updateIssue("octo/app", 5, { assessmentCommentId: 77, lastHandledCommentId: 12 });
     s.updateIssue("octo/app", 5, { feedbackRounds: 1 });

@@ -24,8 +24,18 @@ export class SessionBusyError extends Error {
 
 export const shellQuote = (args: string[]): string => args.map((a) => `'${a.replace(/'/g, `'\\''`)}'`).join(" ");
 
-export function remoteControlName(s: Pick<SessionRecord, "repo" | "role" | "kind" | "issues">): string {
-  return s.kind === "batch" ? `${s.repo} planner` : `${s.repo}#${s.issues[0]} ${s.role}`;
+const TITLE_LIMIT = 50;
+
+/** REQ-001-33: `#<n> <issue title> · <Role> · <repo name>`, so the Owner sees the context in the Claude app. */
+export function remoteControlName(s: Pick<SessionRecord, "repo" | "role" | "kind" | "issues" | "title">): string {
+  const repoName = s.repo.split("/").pop() ?? s.repo;
+  const role = s.role.charAt(0).toUpperCase() + s.role.slice(1);
+  if (s.kind === "batch") return `${role} · ${s.issues.map((n) => `#${n}`).join(", ")} · ${repoName}`;
+  // Sessions stored before titles were kept (REQ-001-18's name).
+  if (!s.title) return `${s.repo}#${s.issues[0]} ${s.role}`;
+  const title = s.title.length > TITLE_LIMIT ? `${s.title.slice(0, TITLE_LIMIT - 1)}…` : s.title;
+  const more = s.issues.length > 1 ? ` (+${s.issues.length - 1})` : "";
+  return `#${s.issues[0]} ${title}${more} · ${role} · ${repoName}`;
 }
 
 export function claudeArgs(o: {
@@ -52,6 +62,8 @@ export interface StartOptions {
   role: Role;
   kind: "batch" | "issue";
   issues: number[];
+  /** Title of the first issue, shown in the Remote Control name (REQ-001-33). */
+  title?: string | null;
   cwd: string;
   prompt: string;
   model: RoleSettings;
@@ -80,7 +92,13 @@ export class SessionRunner {
   }
 
   start(opts: StartOptions): number {
-    const id = this.o.store.createSession({ repo: opts.repo, role: opts.role, kind: opts.kind, issues: opts.issues });
+    const id = this.o.store.createSession({
+      repo: opts.repo,
+      role: opts.role,
+      kind: opts.kind,
+      issues: opts.issues,
+      title: opts.title,
+    });
     const dir = this.sessionDir(id);
     mkdirSync(dir, { recursive: true });
     const hooks = Object.fromEntries(

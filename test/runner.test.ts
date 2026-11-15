@@ -55,6 +55,7 @@ const startImplementer = () =>
     role: "implementer",
     kind: "issue",
     issues: [5],
+    title: "Add dark mode",
     cwd: "/work/app-5",
     prompt: "Implement #5",
     model: { model: "sonnet", effort: "high" },
@@ -107,12 +108,42 @@ describe("claude command line", () => {
     expect(args).not.toContain("--allowedTools");
   });
 
-  test("REQ-001-18 names sessions <repo>#<issue> <role>, and a batch Planner <repo> planner", () => {
-    expect(remoteControlName({ repo: "octo/app", role: "reviewer", kind: "issue", issues: [9] })).toBe(
-      "octo/app#9 reviewer",
+  test("REQ-001-33 names an issue's session after the issue, its Role and the repository", () => {
+    expect(
+      remoteControlName({ repo: "octo/app", role: "reviewer", kind: "issue", issues: [9], title: "Fix login" }),
+    ).toBe("#9 Fix login · Reviewer · app");
+  });
+
+  test("REQ-001-33 a Bundle's session adds how many more issues it covers", () => {
+    expect(
+      remoteControlName({
+        repo: "octo/app",
+        role: "implementer",
+        kind: "issue",
+        issues: [5, 6, 7],
+        title: "Dark mode",
+      }),
+    ).toBe("#5 Dark mode (+2) · Implementer · app");
+  });
+
+  test("REQ-001-33 a batch Planner lists its issues", () => {
+    expect(
+      remoteControlName({ repo: "octo/app", role: "planner", kind: "batch", issues: [1, 2, 3], title: null }),
+    ).toBe("Planner · #1, #2, #3 · app");
+  });
+
+  test("REQ-001-33 truncates long titles to 50 characters with an ellipsis", () => {
+    const title = `${"A".repeat(49)}BCDEF`;
+    const name = remoteControlName({ repo: "octo/app", role: "planner", kind: "issue", issues: [4], title });
+    expect(name).toBe(`#4 ${"A".repeat(49)}… · Planner · app`);
+    expect(remoteControlName({ repo: "o/a", role: "planner", kind: "issue", issues: [4], title: "B".repeat(50) })).toBe(
+      `#4 ${"B".repeat(50)} · Planner · a`,
     );
-    expect(remoteControlName({ repo: "octo/app", role: "planner", kind: "batch", issues: [1, 2] })).toBe(
-      "octo/app planner",
+  });
+
+  test("REQ-001-33 a session stored without a title keeps the old name", () => {
+    expect(remoteControlName({ repo: "octo/app", role: "reviewer", kind: "issue", issues: [9], title: null })).toBe(
+      "octo/app#9 reviewer",
     );
   });
 
@@ -126,7 +157,7 @@ describe("session runner", () => {
     const id = startImplementer();
     const win = tmux.windows.get(`s${id}`);
     expect(win?.cwd).toBe("/work/app-5");
-    expect(win?.command).toContain("'--remote-control' 'octo/app#5 implementer'");
+    expect(win?.command).toContain("'--remote-control' '#5 Add dark mode · Implementer · app'");
     expect(win?.command).toContain("Implement #5");
     const settings = JSON.parse(readFileSync(join(dir, "sessions", String(id), "settings.json"), "utf8"));
     expect(settings.hooks.Stop[0].hooks[0].command).toBe(
@@ -265,7 +296,7 @@ describe("session runner", () => {
     expect(store.session(id)?.state).toBe("closed");
   });
 
-  test("REQ-001-20 resumes a closed or idle session with --resume, a fresh Result file and the new prompt", () => {
+  test("REQ-001-20 / REQ-001-33 resumes a closed or idle session with --resume, its name, a fresh Result file and the new prompt", () => {
     const id = startImplementer();
     store.setClaudeSessionId(id, "sess-abc");
     store.patchSession(id, { state: "idle", resultFailures: 2, usageLimited: true });
@@ -274,6 +305,7 @@ describe("session runner", () => {
     runner.resume(id, "Fix the review findings", { model: "opus" });
     const cmd = tmux.windows.get(`s${id}`)?.command ?? "";
     expect(cmd).toContain("'--resume' 'sess-abc'");
+    expect(cmd).toContain("'--remote-control' '#5 Add dark mode · Implementer · app'");
     expect(cmd).toContain("Fix the review findings");
     expect(existsSync(resultPath)).toBe(false);
     expect(store.session(id)).toMatchObject({

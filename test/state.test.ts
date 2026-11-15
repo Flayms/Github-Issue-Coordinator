@@ -31,6 +31,7 @@ const session = (s: Partial<SessionRecord> & Pick<SessionRecord, "role" | "issue
   needsSync: false,
   usageLimited: false,
   modelId: null,
+  title: null,
   ...s,
 });
 
@@ -360,7 +361,7 @@ describe("deriveActions", () => {
   const fb = (comments: { id: number; body: string }[], changesRequested: { id: number; body: string }[] = []) =>
     new Map([[9, { comments: comments.map((x) => c(x.id, x.body)), changesRequested }]]);
 
-  test("REQ-001-11 blocking findings start a counted Feedback round", () => {
+  test("REQ-001-11 Review findings start a counted Feedback round", () => {
     const actions = deriveActions(
       snap({ items: prItems(), worktrees: wt("h2", { pendingFeedback: "Blocking: crash" }), pulls: passing }),
     );
@@ -442,6 +443,13 @@ describe("deriveActions", () => {
       ).filter((a) => a.type === "review");
     expect(at("2026-11-11T11:59:00.000Z")).toEqual([]);
     expect(at("2026-11-11T11:58:00.000Z")).toEqual([expect.objectContaining({ type: "review", headSha: "h2" })]);
+  });
+
+  test("REQ-001-31 after a round that declined the findings without new commits, the reviewed head waits for the Owner", () => {
+    const actions = deriveActions(
+      snap({ items: prItems(), worktrees: wt("h2", { feedbackRounds: 1 }), pulls: passing }),
+    );
+    expect(actions).toEqual([]);
   });
 
   test("REQ-001-11 after maxFeedbackRounds automatic rounds the PR is labelled agent:failed instead", () => {
@@ -533,6 +541,30 @@ describe("deriveActions", () => {
           issue(2, [], { author: { login: "octo", id: 7 } }),
           issue(3, [], { isPullRequest: true }),
         ],
+      }),
+    );
+    expect(actions).toEqual([]);
+  });
+
+  test("REQ-001-01 / REQ-001-34 a Split-off issue on record is in scope like an Owner issue; other bot issues are not", () => {
+    const bot = { login: "coordinator[bot]", id: 900 };
+    const actions = deriveActions(
+      snap({
+        items: [issue(31, [], { author: bot }), issue(32, [], { author: bot })],
+        splitOffs: new Set([31]),
+      }),
+    );
+    expect(actions).toEqual([{ type: "plan", repo: "octo/app", issues: [31] }]);
+  });
+
+  test("REQ-001-04 / REQ-001-34 on a Split-off issue only the Owner's comments count", () => {
+    const bot = { login: "coordinator[bot]", id: 900 };
+    const foreign = { id: 1, body: "/approve", author: bot, createdAt: "c", updatedAt: "c" };
+    const actions = deriveActions(
+      snap({
+        items: [issue(31, ["agent:proposed"], { author: bot })],
+        splitOffs: new Set([31]),
+        feedback: new Map([[31, { comments: [foreign], bodyChanged: false }]]),
       }),
     );
     expect(actions).toEqual([]);

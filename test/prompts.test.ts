@@ -61,6 +61,10 @@ describe("prompts (REQ-002)", () => {
     expectAll(prompt("planner"), [/already fixed/i, /duplicate/i, /git log/, /would change the plan/i, /default/i]);
   });
 
+  test("REQ-002-08 the Planner prompt says when to split off an issue and to check open issues first", () => {
+    expectAll(prompt("planner"), [/splitOff/, /independent changes/i, /follow-up/i, /open issues/i, /duplicate/i]);
+  });
+
   test("REQ-002-03 the Implementer prompt owns the how and stops when the approved scope is wrong", () => {
     expectAll(prompt("implementer"), [
       /You decide [*_]how[*_]/,
@@ -84,7 +88,7 @@ describe("prompts (REQ-002)", () => {
     ]);
   });
 
-  test("REQ-002-05 the Reviewer prompt checks against the Assessment with a checklist and concrete blocking findings", () => {
+  test("REQ-002-05 the Reviewer prompt checks against the Assessment with a checklist and well-founded findings", () => {
     expectAll(prompt("reviewer"), [
       /Assessment/,
       /requirements/i,
@@ -98,6 +102,29 @@ describe("prompts (REQ-002)", () => {
       /redesign/i,
       /failure scenario/i,
     ]);
+  });
+
+  test("REQ-002-09 the Reviewer prompt reports only findings worth fixing, without blocking or low severity", () => {
+    const text = prompt("reviewer");
+    expectAll(text, [
+      /worth fixing|fixed before merg/i,
+      /failure scenario/i,
+      /acceptance criteri/i,
+      /missing test/i,
+      /security/i,
+      /conventions/i,
+      /nits/i,
+      /taste/i,
+      /speculat/i,
+      /`high` or `medium`/,
+      /`summary` only/,
+      /declined/i,
+    ]);
+    expect(text).not.toMatch(/blocking/i);
+  });
+
+  test("REQ-001-35 the Implementer prompt asks to answer each Review finding in `responses`", () => {
+    expectAll(prompt("implementer"), [/`responses`/, /`fixed`/, /`declined`/, /reason/i]);
   });
 
   test("REQ-002-06 every default prompt has the shared rules", () => {
