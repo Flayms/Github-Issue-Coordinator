@@ -4,9 +4,10 @@ One folder per feature: `docs/specs/NNN-name/` with `spec.md` and, for tier 3 wo
 
 ## Index
 
-| Spec                                                   | Area | Status |
-| ------------------------------------------------------ | ---- | ------ |
-| [001-issue-coordinator](001-issue-coordinator/spec.md) | Core | Draft  |
+| Spec                                                   | Area  | Status      |
+| ------------------------------------------------------ | ----- | ----------- |
+| [001-issue-coordinator](001-issue-coordinator/spec.md) | Core  | Draft       |
+| [002-role-prompts](002-role-prompts/spec.md)           | Roles | Implemented |
 
 ## Conventions
 

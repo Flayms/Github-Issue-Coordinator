@@ -38,6 +38,8 @@ const READ_ONLY = [
   "Bash(git show:*)",
   "Bash(git diff:*)",
   "Bash(git status:*)",
+  // REQ-002-07: list tracked files. Not `git grep`: `-O<cmd>` runs any command; the Grep tool searches content.
+  "Bash(git ls-files:*)",
   "WebSearch",
   "WebFetch",
 ];

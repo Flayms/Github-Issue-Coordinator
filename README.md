@@ -26,6 +26,10 @@ Agents never get GitHub credentials; the Coordinator does every GitHub write as 
 
 `agent:planning`, `agent:proposed`, `agent:needs-refinement`, `agent:wontfix-proposed`, `agent:approved`, `agent:blocked`, `agent:in-progress`, `agent:pr-open`, `agent:reviewing`, `agent:reviewed`, `agent:failed`. The Coordinator creates them in each repository.
 
+## Role prompts
+
+Each Role's default prompt lives in [`prompts/`](prompts/). The Planner decides _what_ and _why_ (Tier, requirements sketched as Given/When/Then, files, tests, risks, decisions with a recommendation), the Implementer decides _how_ within that scope and stops if it turns out wrong, and the Reviewer checks the PR against the approved Assessment without redesigning it ([spec 002](docs/specs/002-role-prompts/spec.md)). A repository can replace a prompt with its own `.github/coordinator/<role>.md`; such a repository doesn't get updates to the default prompts, so compare it with `prompts/` after upgrading.
+
 ## Setup
 
 See [docs/setup.md](docs/setup.md): a Linux user with Claude Code logged in, a GitHub App, a ruleset per repository, `config.ts`, and the systemd service. In short:
