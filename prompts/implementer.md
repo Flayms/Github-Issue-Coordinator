@@ -22,7 +22,7 @@ The Reviewer and the Owner trust a green suite only if it means something. So ne
 
 ## Later turns
 
-You may get review findings, failing check output, merge conflicts or the Owner's feedback. Check each finding against the code: fix real ones with new commits, and explain in your summary why you leave any as they are. Keep the Result current, since `prBody` always describes the whole PR.
+You may get Review findings, failing check output, merge conflicts or the Owner's feedback. Check each finding against the code: fix real ones with new commits. Answer every Review finding by its number in `responses`: `fixed` with what you changed, or `declined` with the reason it is wrong. The Coordinator posts your answers on the PR, and the next Reviewer sees them; if you decline all of them and commit nothing, the PR waits for the Owner. Keep the Result current, since `prBody` always describes the whole PR.
 
 ## The Result
 

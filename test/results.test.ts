@@ -21,7 +21,7 @@ describe("Result validation", () => {
     );
     const review = {
       summary: "S",
-      findings: [{ path: "a.ts", line: 3, severity: "high", blocking: true, body: "Bug" }],
+      findings: [{ path: "a.ts", line: 3, severity: "high", body: "Bug" }],
     };
     expect(validateResult("reviewer", JSON.stringify(review), [9]).ok).toBe(true);
   });
@@ -85,6 +85,33 @@ describe("Result validation", () => {
     const text = resultInstructions("reviewer", "/state/sessions/3/result.json");
     expect(text).toContain("/state/sessions/3/result.json");
     expect(text).toContain("findings");
-    expect(text).toContain("blocking");
+    expect(text).not.toContain("blocking");
+  });
+
+  test("REQ-002-09 a Reviewer finding has severity high or medium and no blocking field", () => {
+    const review = (f: Record<string, unknown>) =>
+      JSON.stringify({ summary: "S", findings: [{ path: "a.ts", line: 3, severity: "medium", body: "Bug", ...f }] });
+    expect(validateResult("reviewer", review({}), [9]).ok).toBe(true);
+    expect(validateResult("reviewer", review({ severity: "low" }), [9]).ok).toBe(false);
+    expect(validateResult("reviewer", review({ blocking: true }), [9]).ok).toBe(false);
+  });
+
+  test("REQ-001-35 in a Feedback round with Review findings, the Implementer must answer each one", () => {
+    const impl = (responses?: unknown[]) =>
+      JSON.stringify({ prTitle: "T", prBody: "B", summary: "S", ...(responses ? { responses } : {}) });
+    const fixed = (finding: number) => ({ finding, answer: "fixed", reason: "Added a guard" });
+    expect(validateResult("implementer", impl(), [5]).ok).toBe(true);
+    expect(
+      validateResult("implementer", impl([fixed(1), { finding: 2, answer: "declined", reason: "Wrong" }]), [5], 2).ok,
+    ).toBe(true);
+    const missing = validateResult("implementer", impl([fixed(1)]), [5], 2);
+    expect(!missing.ok && missing.problem).toContain("2");
+    expect(!missing.ok && missing.problem).toContain("responses");
+    expect(validateResult("implementer", impl(), [5], 1).ok).toBe(false);
+    expect(validateResult("implementer", impl([fixed(1), fixed(3)]), [5], 1).ok).toBe(false);
+    expect(validateResult("implementer", impl([{ finding: 1, answer: "maybe", reason: "x" }]), [5], 1).ok).toBe(false);
+    expect(validateResult("implementer", impl([{ finding: 1, answer: "declined", reason: "" }]), [5], 1).ok).toBe(
+      false,
+    );
   });
 });

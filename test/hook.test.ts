@@ -89,6 +89,22 @@ describe("hook", () => {
     expect(store.session(id)).toMatchObject({ state: "running", resultFailures: 1, needsSync: false });
   });
 
+  test("REQ-001-35 in a Feedback round on Review findings, a Result that does not answer every finding blocks the stop", () => {
+    const f = { path: "a.ts", line: 1, severity: "high", body: "Bug" };
+    store.updateIssue("octo/app", 5, { inFeedbackRound: 1, reviewFindings: JSON.stringify([f, f]) });
+    writeResult({ ...validResult, responses: [{ finding: 1, answer: "fixed", reason: "Done" }] });
+    const out = hook("Stop");
+    expect(out.stdout && JSON.parse(out.stdout)).toEqual({ decision: "block", reason: expect.stringContaining("2") });
+    writeResult({
+      ...validResult,
+      responses: [
+        { finding: 1, answer: "fixed", reason: "Done" },
+        { finding: 2, answer: "declined", reason: "Not a bug" },
+      ],
+    });
+    expect(hook("Stop")).toEqual({});
+  });
+
   test("REQ-001-21 Claude's own stop_hook_active retry still counts toward the limit, and after 3 failures the turn ends", () => {
     hook("Stop");
     hook("Stop", { stop_hook_active: true });
