@@ -422,12 +422,12 @@ describe("GitHub client", () => {
     await expect(gh.setDraft("octo/app", 9, false)).rejects.toThrow("Resource not accessible by integration");
   });
 
-  test("REQ-001-46 requests a review from the given users", async () => {
-    const { gh, requests } = client({ "POST /repos/octo/app/pulls/9/requested_reviewers": { body: {} } });
-    await gh.requestReviewers("octo/app", 9, ["octo"]);
-    const call = apiRequests(requests).find((r) => r.url.pathname === "/repos/octo/app/pulls/9/requested_reviewers");
+  test("REQ-001-52 adds the given users as assignees of an issue or PR", async () => {
+    const { gh, requests } = client({ "POST /repos/octo/app/issues/9/assignees": { body: {} } });
+    await gh.addAssignees("octo/app", 9, ["octo"]);
+    const call = apiRequests(requests).find((r) => r.url.pathname === "/repos/octo/app/issues/9/assignees");
     expect(call?.method).toBe("POST");
-    expect(call?.body).toEqual({ reviewers: ["octo"] });
+    expect(call?.body).toEqual({ assignees: ["octo"] });
   });
 
   test("REQ-001-12 lists PR reviews with their author and state", async () => {

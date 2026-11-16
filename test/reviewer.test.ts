@@ -30,7 +30,7 @@ const item = (number: number): Item => ({
 class FakeGitHub {
   calls: unknown[][] = [];
   rejectInline = false;
-  rejectReviewers = false;
+  rejectAssignees = false;
   async addLabels(_r: string, issue: number, labels: string[]) {
     this.calls.push(["addLabels", issue, labels]);
   }
@@ -44,10 +44,10 @@ class FakeGitHub {
   async setDraft(_r: string, pr: number, draft: boolean) {
     this.calls.push(["setDraft", pr, draft]);
   }
-  async requestReviewers(_r: string, pr: number, reviewers: string[]) {
-    if (this.rejectReviewers)
-      throw new GitHubError(422, "POST", "/requested_reviewers", "Reviews may only be requested from collaborators");
-    this.calls.push(["requestReviewers", pr, reviewers]);
+  async addAssignees(_r: string, issue: number, assignees: string[]) {
+    if (this.rejectAssignees)
+      throw new GitHubError(403, "POST", "/assignees", "Resource not accessible by integration");
+    this.calls.push(["addAssignees", issue, assignees]);
   }
   async createReview(_r: string, pr: number, review: { commitId: string; body: string; comments: ReviewComment[] }) {
     if (this.rejectInline && review.comments.length)
@@ -240,33 +240,31 @@ describe("Reviewer run", () => {
     expect(gh.of("setDraft")).toEqual([]);
   });
 
-  test("REQ-001-46 a Review without findings requests a review from the Owner", async () => {
+  test("REQ-001-52 a Review without findings assigns the Owner to the PR after it leaves draft", async () => {
     const id = await reviewer.start("octo/app", 9, [item(5)], "h1");
     finish(id, []);
     await reviewer.sync(id);
-    expect(gh.of("requestReviewers")).toEqual([["requestReviewers", 9, ["octo"]]]);
+    expect(gh.of("addAssignees")).toEqual([["addAssignees", 9, ["octo"]]]);
     expect(gh.calls.findIndex((c) => c[0] === "setDraft")).toBeLessThan(
-      gh.calls.findIndex((c) => c[0] === "requestReviewers"),
+      gh.calls.findIndex((c) => c[0] === "addAssignees"),
     );
   });
 
-  test("REQ-001-46 a Review with any finding requests no review", async () => {
+  test("REQ-001-52 a Review with any finding assigns nobody", async () => {
     const id = await reviewer.start("octo/app", 9, [item(5)], "h1");
     finish(id, [finding("medium")]);
     await reviewer.sync(id);
-    expect(gh.of("requestReviewers")).toEqual([]);
+    expect(gh.of("addAssignees")).toEqual([]);
   });
 
-  test("REQ-001-46 a refused review request is logged; the PR is still ready and nothing fails", async () => {
-    gh.rejectReviewers = true;
+  test("REQ-001-52 a refused assignment is logged; the PR is still ready and nothing fails", async () => {
+    gh.rejectAssignees = true;
     const id = await reviewer.start("octo/app", 9, [item(5)], "h1");
     finish(id, []);
     await reviewer.sync(id);
     expect(gh.of("setDraft")).toEqual([["setDraft", 9, false]]);
     expect(gh.calls.flatMap((c) => (c[0] === "addLabels" ? (c[2] as string[]) : []))).not.toContain("agent:failed");
-    expect(
-      logs.some((m) => m.includes("PR #9") && m.includes("Reviews may only be requested from collaborators")),
-    ).toBe(true);
+    expect(logs.some((m) => m.includes("PR #9") && m.includes("Resource not accessible by integration"))).toBe(true);
     expect(runner.closed).toEqual([id]);
   });
 
