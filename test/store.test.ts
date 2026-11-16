@@ -310,6 +310,7 @@ describe("store", () => {
       reviewFindings: null,
       reviewHistory: null,
       replyTo: [],
+      screenshots: null,
     });
     s.updateIssue("octo/app", 5, { assessmentCommentId: 77, lastHandledCommentId: 12 });
     s.updateIssue("octo/app", 5, { feedbackRounds: 1 });

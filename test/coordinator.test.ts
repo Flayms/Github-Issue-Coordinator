@@ -169,6 +169,9 @@ class FakeWorktrees {
   remove(path: string) {
     this.removed.push(path);
   }
+  async publishScreenshots() {
+    return "c0ffee";
+  }
   async reviewCheckout(_repo: string, pr: number) {
     return `/reviews/${pr}`;
   }

@@ -85,11 +85,18 @@ The Owner gets plans they can approve on a phone, code that matches those plans,
 - **Then** the Planner writes a brief `reply` in its Result: a few lines on what changed and why, or why nothing changed (REQ-001-40)
 - **And** it leaves `reply` out on any other turn
 
+### REQ-002-11 The Implementer shows its UI changes
+
+- **Given** the default Implementer prompt and a repository whose conventions ask for screenshots of UI changes
+- **When** the Implementer changes a page
+- **Then** it captures the pages its change affects with the host's headless browser, saves them in `.coordinator/screenshots/` and lists them in `screenshots` with a caption each (REQ-001-48)
+- **And** if it can't capture them, it says so and why in `prBody` instead of failing the task
+
 ## Out of scope
 
 - Letting the Reviewer run the test suite or linters (it would execute the PR's code; REQ-001-25 stays as it is).
 - Updating prompts that a repository has overridden in `.github/coordinator/<role>.md` (REQ-001-22).
-- Changing the Result schemas, apart from the Reviewer's findings (REQ-002-09); the Planner's `splitOff` field belongs to REQ-001-34, `reply` to REQ-001-40.
+- Changing the Result schemas, apart from the Reviewer's findings (REQ-002-09); the Planner's `splitOff` field belongs to REQ-001-34, `reply` to REQ-001-40, the Implementer's `screenshots` to REQ-001-48.
 
 ## Assumptions
 
@@ -110,4 +117,5 @@ The Owner gets plans they can approve on a phone, code that matches those plans,
 | REQ-002-08 | `prompts > REQ-002-08 the Planner prompt says when to split off an issue and to check open issues first`                                            | pass (wording only; quality via a real run)              |
 | REQ-002-09 | `prompts > REQ-002-09 the Reviewer prompt reports only findings worth fixing, without blocking or low severity`; `Result validation > REQ-002-09 …` | pass (wording and schema; quality via a real run)        |
 | REQ-002-10 | `prompts > REQ-002-10 the Planner prompt asks for a brief reply on a revision the Owner's comments started`                                         | pass (wording only; quality via a real run)              |
+| REQ-002-11 | `prompts > REQ-002-11 the Implementer prompt captures Screenshots of UI changes when the conventions ask, or says why not`                          | pass (wording only; quality via a real run)              |
 | all        | manual: one real run per Role                                                                                                                       | open (to be done by the Owner on this PR via dogfooding) |

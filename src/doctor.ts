@@ -70,6 +70,17 @@ if (existsSync("/etc/apparmor.d/bwrap-userns-restrict") && existsSync("/etc/appa
   );
 }
 
+// REQ-001-48: the Implementer captures Screenshots of UI changes with the host's headless browser.
+const browser = ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"].find((b) => Bun.which(b));
+const browserVersion = browser ? run([browser, "--version"]) : undefined;
+report(
+  browserVersion?.ok ? "ok" : "warn",
+  "headless browser for Screenshots",
+  browserVersion?.ok
+    ? `${browser}: ${browserVersion.out}`
+    : "no working Chrome or Chromium found; Implementers can't capture Screenshots of UI changes (see docs/setup.md step 1)",
+);
+
 const auth = run(["claude", "auth", "status"]);
 try {
   const s = JSON.parse(auth.out) as { loggedIn?: boolean; subscriptionType?: string };

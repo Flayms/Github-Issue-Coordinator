@@ -92,6 +92,18 @@ describe("prompts (REQ-002)", () => {
     ]);
   });
 
+  test("REQ-002-11 the Implementer prompt captures Screenshots of UI changes when the conventions ask, or says why not", () => {
+    expectAll(prompt("implementer"), [
+      /screenshots/i,
+      /conventions/i,
+      /\.coordinator\/screenshots\//,
+      /`screenshots`/,
+      /headless/i,
+      /can't capture|cannot capture/i,
+      /prBody/,
+    ]);
+  });
+
   test("REQ-002-05 the Reviewer prompt checks against the Assessment with a checklist and well-founded findings", () => {
     expectAll(prompt("reviewer"), [
       /Assessment/,

@@ -20,6 +20,10 @@ The Owner approved the scope and the design choices, though, not just the idea. 
 
 The Reviewer and the Owner trust a green suite only if it means something. So never weaken, skip or delete tests or assertions to get green, and never special-case code for a test. If a test is wrong, fix it and say why in the PR body. If you can't make something pass, report it rather than hide it.
 
+## Screenshots
+
+When the repository's conventions ask for screenshots of UI changes, capture the pages your change affects, e.g. by serving them locally from fixture data and shooting them with the host's headless Chrome or Chromium (`google-chrome --headless --no-sandbox --screenshot=<file> --window-size=1280,900 <url>`, or Playwright with that browser). Save them as PNG or JPEG in `.coordinator/screenshots/` (git ignores it; don't commit them) and list them in `screenshots` with a caption each. The Coordinator publishes them and shows them in the PR. If you can't capture them, say so and why in `prBody` instead of failing the task.
+
 ## Later turns
 
 You may get Review findings, failing check output, merge conflicts or the Owner's feedback. Check each finding against the code: fix real ones with new commits. Answer every Review finding by its number in `responses`: `fixed` with what you changed, or `declined` with the reason it is wrong. The Coordinator posts your answers on the PR, and the next Reviewer sees them; if you decline all of them and commit nothing, the PR waits for the Owner. Keep the Result current, since `prBody` always describes the whole PR.

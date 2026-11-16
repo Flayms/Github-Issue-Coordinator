@@ -100,6 +100,8 @@ export interface IssueRecord {
   reviewHistory: string | null;
   /** The Owner's comments whose revision still owes them a Reply (REQ-001-40); empty when none is pending. */
   replyTo: number[];
+  /** The PR body's last `## Screenshots` section (REQ-001-50), kept for turns without Screenshots. */
+  screenshots: string | null;
 }
 
 const SCHEMA = `
@@ -146,6 +148,7 @@ CREATE TABLE IF NOT EXISTS issues (
   review_history TEXT,
   reply_to TEXT,
   auto_round TEXT,
+  screenshots TEXT,
   PRIMARY KEY (repo, number)
 );
 CREATE TABLE IF NOT EXISTS split_offs (
@@ -223,6 +226,7 @@ const ISSUE_COLUMNS = {
   reviewFindings: "review_findings",
   reviewHistory: "review_history",
   replyTo: "reply_to",
+  screenshots: "screenshots",
 } as const satisfies Record<Exclude<keyof IssueRecord, "repo" | "number">, string>;
 
 export class Store {
@@ -250,6 +254,7 @@ export class Store {
         review_history: "TEXT",
         reply_to: "TEXT",
         auto_round: "TEXT",
+        screenshots: "TEXT",
       },
       sessions: { model_id: "TEXT", title: "TEXT", started_at: "TEXT" },
     };
@@ -391,6 +396,7 @@ export class Store {
       reviewFindings: null,
       reviewHistory: null,
       replyTo: [],
+      screenshots: null,
     };
     if (row) {
       for (const [key, col] of Object.entries(ISSUE_COLUMNS))

@@ -10,8 +10,18 @@ export const gitAuthArgs = (token: string): string[] => [
   `http.https://github.com/.extraheader=AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`,
 ];
 
-export function git(cwd: string, args: string[]): string {
-  const p = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+export function git(
+  cwd: string,
+  args: string[],
+  opts: { env?: Record<string, string>; stdin?: Uint8Array } = {},
+): string {
+  const p = Bun.spawnSync(["git", ...args], {
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+    env: opts.env ? { ...process.env, ...opts.env } : undefined,
+    stdin: opts.stdin,
+  });
   if (p.exitCode !== 0)
     throw new Error(
       `git ${args.filter((a) => !a.includes("extraheader")).join(" ")} failed: ${p.stderr.toString().trim()}`,
