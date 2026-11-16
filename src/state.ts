@@ -187,16 +187,37 @@ export function deriveActions(s: Snapshot): Action[] {
   // REQ-001-39: an Implementer issue with Review findings on record waits for its Feedback round below.
   const owners = [...s.sessions, ...(s.pendingSync ?? [])];
   const awaitingRound = (n: number) => (s.worktrees ?? []).some((w) => w.pendingFeedback && w.issues.includes(n));
-  for (const i of issues) {
-    const role = IN_FLIGHT[issueState(i.labels)];
-    if (role === "implementer" && awaitingRound(i.number)) continue;
-    if (role && !owners.some((x) => x.role === role && x.issues.includes(i.number)))
-      actions.push({ type: "fail", repo: s.repo, issues: [i.number], reason: `no ${role} session to resume` });
-  }
 
   // REQ-001-40: issues with an open agent PR are never planned or implemented again.
   const agent = agentPulls(s.repo, s.openPulls ?? []);
   const withPull = new Set(agent.flatMap((p) => p.issues));
+
+  // REQ-001-41: an open agent PR without a Worktree on record for any of its issues, and no session
+  // on them, is re-attached; one whose issues are all closed or out of scope is only reported.
+  // Queued after the other actions, but known here: a stale in-flight label on an issue being
+  // re-attached is replaced, so it must not fail the issue.
+  const ours = new Set(issues.map((i) => i.number));
+  const busyIssue = (n: number) => owners.some((x) => x.issues.includes(n));
+  const orphans: Action[] = [];
+  for (const p of agent) {
+    const recorded = (s.worktrees ?? []).some(
+      (w) => w.prNumber === p.number || w.issues.some((n) => p.issues.includes(n)),
+    );
+    if (recorded || p.issues.some(busyIssue)) continue;
+    const attach = p.issues.filter((n) => ours.has(n));
+    if (attach.length)
+      orphans.push({ type: "reattach", repo: s.repo, pr: p.number, branch: p.headRef, issues: attach });
+    else orphans.push({ type: "orphan-closed", repo: s.repo, pr: p.number, issues: p.issues });
+  }
+  const reattaching = new Set(orphans.flatMap((a) => (a.type === "reattach" ? a.issues : [])));
+
+  for (const i of issues) {
+    const role = IN_FLIGHT[issueState(i.labels)];
+    if (role === "implementer" && awaitingRound(i.number)) continue;
+    if (reattaching.has(i.number)) continue; // REQ-001-41
+    if (role && !owners.some((x) => x.role === role && x.issues.includes(i.number)))
+      actions.push({ type: "fail", repo: s.repo, issues: [i.number], reason: `no ${role} session to resume` });
+  }
 
   // REQ-001-05: the open issues an issue's Assessment says it is blocked by.
   const open = new Set(s.items.map((i) => i.number));
@@ -391,20 +412,7 @@ export function deriveActions(s: Snapshot): Action[] {
       });
   }
 
-  // REQ-001-41: an open agent PR without a Worktree on record for any of its issues, and no session
-  // on them, is re-attached; one whose issues are all closed or out of scope is only reported.
-  const ours = new Set(issues.map((i) => i.number));
-  const busyIssue = (n: number) => owners.some((x) => x.issues.includes(n));
-  for (const p of agent) {
-    const recorded = (s.worktrees ?? []).some(
-      (w) => w.prNumber === p.number || w.issues.some((n) => p.issues.includes(n)),
-    );
-    if (recorded || p.issues.some(busyIssue)) continue;
-    const attach = p.issues.filter((n) => ours.has(n));
-    if (attach.length)
-      actions.push({ type: "reattach", repo: s.repo, pr: p.number, branch: p.headRef, issues: attach });
-    else actions.push({ type: "orphan-closed", repo: s.repo, pr: p.number, issues: p.issues });
-  }
+  actions.push(...orphans);
 
   // REQ-001-02: one Planner pass over all new issues; REQ-001-40: not those with an open agent PR.
   const fresh = issues.filter((i) => issueState(i.labels) === "new" && !withPull.has(i.number)).map((i) => i.number);

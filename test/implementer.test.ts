@@ -490,7 +490,7 @@ describe("Implementer run", () => {
     expect([5, 6].map((n) => store.issue("octo/app", n).prNumber)).toEqual([null, null]);
   });
 
-  test("REQ-001-41 re-attaching records the PR and Worktree, labels the issues agent:pr-open and says so on the PR", async () => {
+  test("REQ-001-41 re-attaching records the PR and Worktree, replaces every other agent label with agent:pr-open and says so on the PR", async () => {
     store.updateIssue("octo/app", 5, { inFeedbackRound: 1, pendingFeedback: "old", reviewFindings: "[]" });
     expect(await impl.reattach("octo/app", 34, "agent/5-x", [5, 6])).toBe("/wt/5");
     for (const n of [5, 6]) {
@@ -512,11 +512,20 @@ describe("Implementer run", () => {
         "agent:wontfix-proposed",
         "agent:approved",
         "agent:blocked",
+        "agent:planning",
+        "agent:in-progress",
+        "agent:reviewing",
+        "agent:reviewed",
+        "agent:failed",
       ]);
     }
     expect(gh.of("addLabels")).toEqual([
       ["addLabels", 5, ["agent:pr-open"]],
       ["addLabels", 6, ["agent:pr-open"]],
+    ]);
+    expect(gh.of("removeLabel").filter((c) => c[1] === 34)).toEqual([
+      ["removeLabel", 34, "agent:reviewed"],
+      ["removeLabel", 34, "agent:failed"],
     ]);
     const comments = gh.of("createComment");
     expect(comments).toEqual([["createComment", 34, expect.stringContaining("re-attached this PR")]]);

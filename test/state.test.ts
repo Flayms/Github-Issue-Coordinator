@@ -871,6 +871,13 @@ describe("agent PRs without a Worktree on record", () => {
     expect(actions).toEqual([{ type: "reattach", repo: "octo/app", pr: 34, branch: "agent/5-fix-it", issues: [5] }]);
   });
 
+  test("REQ-001-41 an issue being re-attached with a stale in-flight label and no session is not failed", () => {
+    for (const label of ["agent:planning", "agent:in-progress", "agent:reviewing"]) {
+      const actions = deriveActions(snap({ items: [issue(5, [label])], openPulls: [openPull(34, "agent/5-fix-it")] }));
+      expect(actions).toEqual([{ type: "reattach", repo: "octo/app", pr: 34, branch: "agent/5-fix-it", issues: [5] }]);
+    }
+  });
+
   test("REQ-001-41 a PR whose issues have a Worktree on record is not re-attached", () => {
     for (const w of [record, { ...record, prNumber: null }, { ...record, issues: [6], prNumber: 34 }]) {
       const actions = deriveActions(

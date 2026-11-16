@@ -24,13 +24,21 @@ export interface AutoRound {
   headSha: string;
   causes: FeedbackCause[];
 }
-/** Labels a re-attached issue loses: it is past planning and approval (REQ-001-41). */
+/**
+ * Labels a re-attached issue loses: every agent label but `agent:pr-open`. A stale one would win over
+ * it (REQ-001-16): `agent:failed` would stop automatic rounds, an in-flight one would fail the issue (REQ-001-41).
+ */
 const CLEARED_ON_REATTACH = [
   "agent:proposed",
   "agent:needs-refinement",
   "agent:wontfix-proposed",
   "agent:approved",
   "agent:blocked",
+  "agent:planning",
+  "agent:in-progress",
+  "agent:reviewing",
+  "agent:reviewed",
+  "agent:failed",
 ];
 const CLEARED_ON_CLEANUP = ["agent:in-progress", "agent:pr-open", "agent:reviewing", "agent:reviewed", "agent:failed"];
 
@@ -101,6 +109,7 @@ export class Implementer {
       for (const l of CLEARED_ON_REATTACH) await this.d.gh.removeLabel(repo, n, l);
       await this.d.gh.addLabels(repo, n, ["agent:pr-open"]);
     }
+    for (const l of ["agent:reviewed", "agent:failed"]) await this.d.gh.removeLabel(repo, pr, l);
     const note = agentNote({ owner: this.d.config.owner.login });
     await this.d.gh.createComment(
       repo,

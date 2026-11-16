@@ -543,6 +543,21 @@ describe("reconcile loop", () => {
     expect(runner.started[0]?.prompt).toContain("Feedback round on PR #34");
   });
 
+  test("REQ-001-41 a re-attached issue with stale agent:failed or agent:in-progress labels ends up only agent:pr-open, and automatic rounds resume", async () => {
+    gh.items = [item(5, ["agent:failed", "agent:in-progress"])];
+    gh.openPulls = [orphan()];
+    gh.checkState = "failure";
+    await coordinator.tick();
+    expect(gh.items[0]?.labels).toEqual(["agent:pr-open"]);
+    expect(gh.calls).not.toContainEqual(["addLabels", 5, ["agent:failed"]]);
+    expect(gh.calls.filter((c) => c[0] === "createComment")).toEqual([
+      ["createComment", 34, expect.stringContaining("re-attached")],
+    ]);
+    await coordinator.tick();
+    expect(runner.started).toMatchObject([{ role: "implementer", issues: [5], cwd: "/wt/5" }]);
+    expect(runner.started[0]?.prompt).toContain("Failing checks");
+  });
+
   test("REQ-001-41 a listed PR that GitHub reports closed, or with another branch, is not re-attached", async () => {
     gh.items = [item(5)];
     gh.openPulls = [orphan()];
