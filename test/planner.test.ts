@@ -37,6 +37,8 @@ const comment = (id: number, body: string): Comment => ({
   updatedAt: "c",
 });
 
+const none = { issues: [] as Item[], pulls: [] as Item[] };
+
 const entry = (issue: number, extra: Partial<PlannerResult[number]> = {}): PlannerResult[number] => ({
   issue,
   verdict: "proposed",
@@ -63,8 +65,11 @@ class FakeGitHub {
   async removeLabel(repo: string, issue: number, label: string) {
     this.calls.push(["removeLabel", repo, issue, label]);
   }
+  failCreateComment = 0;
   async createComment(repo: string, issue: number, body: string) {
     this.calls.push(["createComment", repo, issue, body]);
+    if (this.failCreateComment-- > 0)
+      throw new GitHubError(502, "POST", `/repos/${repo}/issues/${issue}/comments`, "Bad Gateway");
     return this.nextId++;
   }
   async updateComment(repo: string, id: number, body: string) {
@@ -242,6 +247,7 @@ describe("Planner pass", () => {
 });
 
 describe("plan revision", () => {
+  const assessmentsPosted = () => gh.of("createComment").filter((c) => String(c[3]).includes("## Assessment"));
   const assessed = async () => {
     const id = await planner.startPass("octo/app", "/c", [item(5)], { issues: [], pulls: [] });
     finishTurn(id, [entry(5)]);
@@ -253,33 +259,54 @@ describe("plan revision", () => {
   test("REQ-001-03 / REQ-001-33 after a batch, feedback goes to a fresh Planner session for that issue with its current Assessment", async () => {
     const batch = await assessed();
     store.setClaudeSessionId(batch, "sess-batch"); // resumable, but it covers several issues
-    await planner.revise("octo/app", "/c", item(5), { comments: [comment(300, "Use the v2 API")], bodyChanged: false });
+    await planner.revise(
+      "octo/app",
+      "/c",
+      item(5),
+      { comments: [comment(300, "Use the v2 API")], bodyChanged: false },
+      none,
+    );
     expect(runner.started.at(-1)).toMatchObject({ kind: "issue", issues: [5], role: "planner", title: "Issue 5" });
     expect(runner.started.at(-1)?.prompt).toContain("Approach for 5");
     expect(runner.started.at(-1)?.prompt).toContain("Use the v2 API");
     expect(store.issue("octo/app", 5).lastHandledCommentId).toBe(300);
   });
 
-  test("REQ-001-03 later feedback resumes that issue's own Planner session, and an edited body is mentioned", async () => {
+  test("REQ-001-03 a later comment resumes that issue's own Planner session", async () => {
     await assessed();
-    const own = await planner.revise("octo/app", "/c", item(5), { comments: [comment(300, "a")], bodyChanged: false });
+    const own = await planner.revise(
+      "octo/app",
+      "/c",
+      item(5),
+      { comments: [comment(300, "a")], bodyChanged: false },
+      none,
+    );
     store.setClaudeSessionId(own, "sess-own");
     store.patchSession(own, { state: "idle" });
-    const again = await planner.revise("octo/app", "/c", item(5, { body: "New body" }), {
-      comments: [],
-      bodyChanged: true,
-    });
+    const again = await planner.revise(
+      "octo/app",
+      "/c",
+      item(5),
+      { comments: [comment(301, "b")], bodyChanged: false },
+      none,
+    );
     expect(again).toBe(own);
-    expect(runner.resumed).toEqual([[own, expect.stringContaining("New body")]]);
-    expect(store.issue("octo/app", 5).bodyHash).toBe(bodyHash("New body"));
+    expect(runner.resumed).toEqual([[own, expect.stringContaining("b")]]);
+    expect(store.issue("octo/app", 5).lastHandledCommentId).toBe(301);
   });
 
   test("REQ-001-03 the revised Assessment edits the existing comment in place and updates the label", async () => {
     await assessed();
-    const own = await planner.revise("octo/app", "/c", item(5), { comments: [comment(300, "a")], bodyChanged: false });
+    const own = await planner.revise(
+      "octo/app",
+      "/c",
+      item(5),
+      { comments: [comment(300, "a")], bodyChanged: false },
+      none,
+    );
     finishTurn(own, [entry(5, { verdict: "wontfix-proposed", approach: "Not worth it" })]);
     await planner.sync(own);
-    expect(gh.of("createComment")).toEqual([]);
+    expect(assessmentsPosted()).toEqual([]); // the Reply (REQ-001-40) is the only new comment
     expect(gh.of("updateComment")).toEqual([
       ["updateComment", "octo/app", 100, expect.stringContaining("Not worth it")],
     ]);
@@ -290,10 +317,16 @@ describe("plan revision", () => {
   test("REQ-001-32 a deleted Assessment comment is posted again and edited from then on", async () => {
     await assessed();
     gh.deleted.add(100); // the Owner deleted the Assessment comment
-    const own = await planner.revise("octo/app", "/c", item(5), { comments: [comment(300, "a")], bodyChanged: false });
+    const own = await planner.revise(
+      "octo/app",
+      "/c",
+      item(5),
+      { comments: [comment(300, "a")], bodyChanged: false },
+      none,
+    );
     finishTurn(own, [entry(5, { approach: "v2" })]);
     await planner.sync(own);
-    expect(gh.of("createComment")).toEqual([["createComment", "octo/app", 5, expect.stringContaining("v2")]]);
+    expect(assessmentsPosted()).toEqual([["createComment", "octo/app", 5, expect.stringContaining("v2")]]);
     expect(store.issue("octo/app", 5).assessmentCommentId).toBe(101);
     expect(gh.of("addLabels")).toEqual([["addLabels", "octo/app", 5, ["agent:proposed"]]]);
     gh.calls = [];
@@ -304,7 +337,13 @@ describe("plan revision", () => {
 
   test("REQ-001-19 a turn the Owner started is synced too, and an unchanged Result touches nothing on GitHub", async () => {
     await assessed();
-    const own = await planner.revise("octo/app", "/c", item(5), { comments: [comment(300, "a")], bodyChanged: false });
+    const own = await planner.revise(
+      "octo/app",
+      "/c",
+      item(5),
+      { comments: [comment(300, "a")], bodyChanged: false },
+      none,
+    );
     finishTurn(own, [entry(5, { approach: "v2" })]);
     await planner.sync(own);
     gh.calls = [];
@@ -316,6 +355,179 @@ describe("plan revision", () => {
     expect(gh.of("updateComment")).toEqual([
       ["updateComment", "octo/app", 100, expect.stringContaining("v3 after chatting")],
     ]);
+  });
+});
+
+describe("replies to the Owner's comments", () => {
+  const ASSESSMENT_URL = "https://github.com/octo/app/issues/5#issuecomment-100";
+  const commentUrl = (id: number) => `https://github.com/octo/app/issues/5#issuecomment-${id}`;
+  const assessed = async () => {
+    const id = await planner.startPass("octo/app", "/c", [item(5)], { issues: [], pulls: [] });
+    store.setModelId(id, "claude-opus-5-5");
+    finishTurn(id, [entry(5)]);
+    await planner.sync(id);
+    gh.calls = [];
+    return id;
+  };
+  const replies = () => gh.of("createComment");
+
+  test("REQ-001-40 a revision a comment started edits the Assessment and posts one reply that links the comment and the Assessment", async () => {
+    await assessed();
+    const own = await planner.revise(
+      "octo/app",
+      "/c",
+      item(5),
+      { comments: [comment(300, "Use v2")], bodyChanged: false },
+      none,
+    );
+    expect(runner.started.at(-1)?.prompt).toContain("reply");
+    store.setModelId(own, "claude-opus-5-5");
+    finishTurn(own, [entry(5, { approach: "v2", reply: "Switched to the v2 API, as you asked." })]);
+    await planner.sync(own);
+    expect(gh.of("updateComment")).toEqual([["updateComment", "octo/app", 100, expect.stringContaining("v2")]]);
+    expect(replies()).toEqual([["createComment", "octo/app", 5, expect.any(String)]]);
+    const reply = replies()[0]?.[3] as string;
+    expect(reply).toStartWith("> [!Note]\n> 🤖 Claude Opus 5.5 (Planner) writing on behalf of octo\n");
+    expect(reply).toContain(commentUrl(300));
+    expect(reply).toContain(ASSESSMENT_URL);
+    expect(reply).toContain("Switched to the v2 API, as you asked.");
+    expect(store.issue("octo/app", 5).replyTo).toEqual([]);
+  });
+
+  test("REQ-001-40 the reply is posted even when the Assessment did not change, and links every comment of the turn", async () => {
+    await assessed();
+    const own = await planner.revise(
+      "octo/app",
+      "/c",
+      item(5),
+      { comments: [comment(300, "Why not v1?"), comment(301, "And tests?")], bodyChanged: false },
+      none,
+    );
+    finishTurn(own, [entry(5, { reply: "v1 is deprecated; tests are already planned." })]);
+    await planner.sync(own);
+    expect(gh.of("updateComment")).toEqual([]);
+    expect(replies()).toHaveLength(1);
+    expect(replies()[0]?.[3]).toContain(commentUrl(300));
+    expect(replies()[0]?.[3]).toContain(commentUrl(301));
+    expect(replies()[0]?.[3]).toContain("v1 is deprecated");
+  });
+
+  test("REQ-001-40 a turn no comment started posts no reply: the Owner chatting, or the first pass", async () => {
+    await assessed();
+    expect(store.issue("octo/app", 5).replyTo).toEqual([]);
+    const own = await planner.revise(
+      "octo/app",
+      "/c",
+      item(5),
+      { comments: [comment(300, "a")], bodyChanged: false },
+      none,
+    );
+    finishTurn(own, [entry(5, { approach: "v2", reply: "Done." })]);
+    await planner.sync(own);
+    gh.calls = [];
+    finishTurn(own, [entry(5, { approach: "v3 after chatting", reply: "Done." })]); // the Owner chatted from the phone
+    await planner.sync(own);
+    expect(gh.of("updateComment")).toHaveLength(1);
+    expect(replies()).toEqual([]);
+  });
+
+  test("REQ-001-40 a Result without a reply still gets a one-line reply with the links", async () => {
+    await assessed();
+    const own = await planner.revise(
+      "octo/app",
+      "/c",
+      item(5),
+      { comments: [comment(300, "a")], bodyChanged: false },
+      none,
+    );
+    finishTurn(own, [entry(5, { approach: "v2" })]);
+    await planner.sync(own);
+    const reply = replies()[0]?.[3] as string;
+    expect(reply).toContain(commentUrl(300));
+    expect(reply).toContain(ASSESSMENT_URL);
+    expect(reply).toContain("Took your feedback into account");
+  });
+
+  test("REQ-001-40 / REQ-001-27 a failed reply is posted on the retry, and only once", async () => {
+    await assessed();
+    const own = await planner.revise(
+      "octo/app",
+      "/c",
+      item(5),
+      { comments: [comment(300, "a")], bodyChanged: false },
+      none,
+    );
+    finishTurn(own, [entry(5, { approach: "v2", reply: "Done." })]);
+    gh.failCreateComment = 1;
+    await expect(planner.sync(own)).rejects.toThrow();
+    gh.calls = [];
+    await planner.sync(own);
+    expect(replies()).toHaveLength(1);
+    gh.calls = [];
+    store.patchSession(own, { needsSync: true });
+    await planner.sync(own);
+    expect(replies()).toEqual([]);
+  });
+
+  test("REQ-001-41 an edited issue is planned from scratch: the live session is closed, a fresh one gets all open issues and PRs but not the old Assessment", async () => {
+    await assessed();
+    const own = await planner.revise(
+      "octo/app",
+      "/c",
+      item(5),
+      { comments: [comment(300, "a")], bodyChanged: false },
+      none,
+    );
+    store.setClaudeSessionId(own, "sess-own");
+    finishTurn(own, [entry(5, { approach: "Old plan", reply: "ok" })]);
+    await planner.sync(own);
+    gh.calls = [];
+    const fresh = await planner.revise(
+      "octo/app",
+      "/c",
+      item(5, { body: "New body" }),
+      { comments: [], bodyChanged: true },
+      { issues: [item(5), item(6)], pulls: [item(9, { isPullRequest: true, title: "Fix" })] },
+    );
+    expect(runner.closed).toContain(own);
+    expect(runner.resumed).toEqual([]);
+    expect(fresh).not.toBe(own);
+    expect(runner.started.at(-1)).toMatchObject({ kind: "issue", issues: [5], title: "Issue 5" });
+    const prompt = runner.started.at(-1)?.prompt as string;
+    expect(prompt).toContain("New body");
+    expect(prompt).toContain("- #6 Issue 6");
+    expect(prompt).toContain("- #9 Fix");
+    expect(prompt).not.toContain("Old plan");
+    expect(prompt).not.toContain("Current Assessment");
+    expect(prompt).not.toContain("The Owner's feedback");
+    expect(store.issue("octo/app", 5).bodyHash).toBe(bodyHash("New body"));
+
+    finishTurn(fresh, [entry(5, { verdict: "needs-refinement", approach: "New plan", questions: ["?"] })]);
+    await planner.sync(fresh);
+    expect(gh.of("updateComment")).toEqual([["updateComment", "octo/app", 100, expect.stringContaining("New plan")]]);
+    expect(replies()).toEqual([]);
+    expect(gh.of("addLabels")).toEqual([["addLabels", "octo/app", 5, ["agent:needs-refinement"]]]);
+  });
+
+  test("REQ-001-41 / REQ-001-40 comments from the same poll go into the fresh session as feedback and get a reply", async () => {
+    await assessed();
+    const fresh = await planner.revise(
+      "octo/app",
+      "/c",
+      item(5, { body: "New body" }),
+      { comments: [comment(300, "Also support YAML")], bodyChanged: true },
+      none,
+    );
+    const prompt = runner.started.at(-1)?.prompt as string;
+    expect(prompt).toContain("New body");
+    expect(prompt).toContain("Also support YAML");
+    expect(prompt).not.toContain("Approach for 5");
+    expect(store.issue("octo/app", 5).lastHandledCommentId).toBe(300);
+    finishTurn(fresh, [entry(5, { approach: "New plan with YAML", reply: "Added YAML." })]);
+    await planner.sync(fresh);
+    expect(gh.of("updateComment")).toEqual([["updateComment", "octo/app", 100, expect.any(String)]]);
+    expect(replies()).toHaveLength(1);
+    expect(replies()[0]?.[3]).toContain(commentUrl(300));
   });
 });
 
@@ -350,7 +562,13 @@ describe("Split-off issues", () => {
     const id = await planner.startPass("octo/app", "/c", [item(5)], { issues: [], pulls: [] });
     finishTurn(id, [entry(5, { splitOff: [split("Fix the parser")] })]);
     await planner.sync(id);
-    const own = await planner.revise("octo/app", "/c", item(5), { comments: [comment(300, "a")], bodyChanged: false });
+    const own = await planner.revise(
+      "octo/app",
+      "/c",
+      item(5),
+      { comments: [comment(300, "a")], bodyChanged: false },
+      none,
+    );
     gh.calls = [];
     finishTurn(own, [entry(5, { approach: "v2", splitOff: [split(" fix the Parser "), split("Add tests")] })]);
     await planner.sync(own);

@@ -113,6 +113,33 @@ describe("GitHub client", () => {
     expect(apiRequests(requests)[1]?.headers.get("if-none-match")).toBe('"v1"');
   });
 
+  test("REQ-001-42 lists open PRs with head branch, head repository and body, polling with the ETag", async () => {
+    const raw = (number: number, repo: string | null, body: string | null) => ({
+      number,
+      body,
+      head: { ref: `agent/${number}-x`, repo: repo === null ? null : { full_name: repo } },
+    });
+    const { gh, requests } = client({
+      "GET /repos/octo/app/pulls": (req) =>
+        req.headers.get("if-none-match") === '"p1"'
+          ? { status: 304 }
+          : {
+              body: [raw(5, "octo/app", "Closes #5"), raw(6, "mallory/app", null), raw(7, null, "")],
+              headers: { etag: '"p1"' },
+            },
+    });
+    const first = await gh.listOpenPulls("octo/app");
+    expect(first).toEqual([
+      { number: 5, headRef: "agent/5-x", headRepo: "octo/app", body: "Closes #5" },
+      { number: 6, headRef: "agent/6-x", headRepo: "mallory/app", body: "" },
+      { number: 7, headRef: "agent/7-x", headRepo: null, body: "" },
+    ]);
+    expect(await gh.listOpenPulls("octo/app")).toEqual(first);
+    const calls = apiRequests(requests);
+    expect(calls[0]?.url.searchParams.get("state")).toBe("open");
+    expect(calls[1]?.headers.get("if-none-match")).toBe('"p1"');
+  });
+
   test("REQ-001-04 finds who added a label most recently from the issue timeline", async () => {
     const { gh } = client({
       "GET /repos/octo/app/issues/5/timeline": {
@@ -238,7 +265,23 @@ describe("GitHub client", () => {
         headRef: "agent/5-x",
         baseRef: "main",
         mergeable,
+        state: "open",
       });
+    }
+  });
+
+  test("REQ-001-14 reads whether a PR is open, closed or merged", async () => {
+    for (const [state, merged, expected] of [
+      ["open", false, "open"],
+      ["closed", false, "closed"],
+      ["closed", true, "merged"],
+    ] as const) {
+      const { gh } = client({
+        "GET /repos/octo/app/pulls/9": {
+          body: { number: 9, node_id: "PR_9", state, merged, head: { sha: "abc", ref: "b" }, base: { ref: "main" } },
+        },
+      });
+      expect((await gh.getPull("octo/app", 9)).state).toBe(expected);
     }
   });
 

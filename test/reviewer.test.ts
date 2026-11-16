@@ -193,14 +193,14 @@ describe("Reviewer run", () => {
     expect(store.issue("octo/app", 5).reviewFindings).toBeNull();
   });
 
-  test("REQ-001-11 every finding, a single medium one too, is kept numbered for a Feedback round and the issue goes back to agent:pr-open", async () => {
+  test("REQ-001-11 / REQ-001-39 every finding, a single medium one too, is kept numbered for a Feedback round and the issue goes straight to agent:in-progress", async () => {
     const id = await reviewer.start("octo/app", 9, [item(5), item(6)], "h1");
     gh.calls = [];
     finish(id, [finding("high"), finding("medium", 7, "Missing test for REQ-001-11")]);
     await reviewer.sync(id);
     expect(gh.of("addLabels")).toEqual([
-      ["addLabels", 5, ["agent:pr-open"]],
-      ["addLabels", 6, ["agent:pr-open"]],
+      ["addLabels", 5, ["agent:in-progress"]],
+      ["addLabels", 6, ["agent:in-progress"]],
     ]);
     const pending = store.issue("octo/app", 5).pendingFeedback ?? "";
     expect(pending).toContain("1. **high** `src/a.ts:3`: Crashes on empty input");

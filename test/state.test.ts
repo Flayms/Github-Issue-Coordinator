@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ChecksState, Item } from "../src/github/client.ts";
-import { deriveActions, issueState, type Snapshot } from "../src/state.ts";
+import { deriveActions, issueState, type OpenPull, type Snapshot } from "../src/state.ts";
 import type { SessionRecord, WorktreeRecord } from "../src/store.ts";
 
 const OWNER = { login: "octo", id: 42 };
@@ -246,55 +246,6 @@ describe("deriveActions", () => {
     ]);
   });
 
-  test("REQ-001-14 a Worktree whose PR is no longer open is cleaned up", () => {
-    const actions = deriveActions(
-      snap({
-        items: [issue(5, ["agent:pr-open"]), issue(10, [], { isPullRequest: true, author: { login: "bot", id: 1 } })],
-        worktrees: [
-          {
-            issues: [5, 6],
-            prNumber: 9,
-            worktreePath: "/wt/5",
-            reviewedHeadSha: null,
-            feedbackRounds: 0,
-            pendingFeedback: null,
-            failedChecksSha: null,
-            conflictSha: null,
-            headSha: null,
-            headSeenAt: null,
-          },
-          {
-            issues: [7],
-            prNumber: 10,
-            worktreePath: "/wt/7",
-            reviewedHeadSha: null,
-            feedbackRounds: 0,
-            pendingFeedback: null,
-            failedChecksSha: null,
-            conflictSha: null,
-            headSha: null,
-            headSeenAt: null,
-          },
-          {
-            issues: [8],
-            prNumber: null,
-            worktreePath: "/wt/8",
-            reviewedHeadSha: null,
-            feedbackRounds: 0,
-            pendingFeedback: null,
-            failedChecksSha: null,
-            conflictSha: null,
-            headSha: null,
-            headSeenAt: null,
-          },
-        ],
-      }),
-    );
-    expect(actions).toEqual([
-      { type: "cleanup", repo: "octo/app", issues: [5, 6], prNumber: 9, worktreePath: "/wt/5" },
-    ]);
-  });
-
   const pr = (n: number) => issue(n, [], { isPullRequest: true, author: { login: "bot", id: 1 } });
   const wt = (reviewedHeadSha: string | null = null, extra: Partial<WorktreeRecord> = {}): WorktreeRecord[] => [
     {
@@ -319,9 +270,57 @@ describe("deriveActions", () => {
     failed: [],
     mergeable: true,
     headSeenAt: SEEN,
+    state: "open",
     ...extra,
   });
   type Pull = NonNullable<Snapshot["pulls"]> extends ReadonlyMap<number, infer P> ? P : never;
+
+  test("REQ-001-14 a Worktree is cleaned up once GitHub reports its PR merged or closed", () => {
+    const worktrees = [
+      ...wt(null, { issues: [5, 6], prNumber: 9, worktreePath: "/wt/5" }),
+      ...wt(null, { issues: [7], prNumber: 10, worktreePath: "/wt/7" }),
+      ...wt(null, { issues: [8], prNumber: null, worktreePath: "/wt/8" }),
+    ];
+    const actions = deriveActions(
+      snap({
+        // PR #10 is still in the (stale) list; what counts is the PR's own state.
+        items: [issue(5, ["agent:pr-open"]), pr(10)],
+        worktrees,
+        pulls: new Map([
+          [9, pullOf("h1", "pending", { state: "merged" })],
+          [10, pullOf("h1", "pending", { state: "closed" })],
+        ]),
+      }),
+    );
+    expect(actions).toEqual([
+      { type: "cleanup", repo: "octo/app", issues: [5, 6], prNumber: 9, worktreePath: "/wt/5" },
+      { type: "cleanup", repo: "octo/app", issues: [7], prNumber: 10, worktreePath: "/wt/7" },
+    ]);
+  });
+
+  test("REQ-001-14 a PR missing from the open list but open on GitHub keeps its Worktree and gets a Review", () => {
+    const actions = deriveActions(
+      snap({ items: [issue(5, ["agent:pr-open"])], worktrees: wt(), pulls: new Map([[9, pullOf("h1", "success")]]) }),
+    );
+    expect(actions).toEqual([{ type: "review", repo: "octo/app", pr: 9, issues: [5], headSha: "h1" }]);
+  });
+
+  test("REQ-001-14 a PR missing from the open list but open on GitHub still gets Feedback rounds", () => {
+    const actions = deriveActions(
+      snap({
+        items: [issue(5, ["agent:pr-open"])],
+        worktrees: wt(),
+        pulls: new Map([[9, pullOf("h2", "pending", { mergeable: false })]]),
+      }),
+    );
+    expect(actions).toEqual([expect.objectContaining({ type: "feedback", pr: 9, conflicted: true })]);
+  });
+
+  test("REQ-001-14 a PR whose state could not be fetched is neither cleaned up nor reviewed", () => {
+    expect(deriveActions(snap({ items: [issue(5, ["agent:pr-open"])], worktrees: wt(), pulls: new Map() }))).toEqual(
+      [],
+    );
+  });
 
   test("REQ-001-10 an agent PR whose head is unreviewed and whose checks passed (or has none) gets a Review", () => {
     for (const checks of ["success", "none"] as const) {
@@ -547,6 +546,49 @@ describe("deriveActions", () => {
     ]);
   });
 
+  test("REQ-001-39 an agent:in-progress issue with Review findings on record and no Implementer session gets its round, not agent:failed", () => {
+    const actions = deriveActions(
+      snap({
+        items: [issue(5, ["agent:in-progress"]), pr(9)],
+        worktrees: wt("h2", { pendingFeedback: "Blocking: crash" }),
+        pulls: passing,
+      }),
+    );
+    expect(actions).toEqual([expect.objectContaining({ type: "feedback", pr: 9, issues: [5], counted: true })]);
+  });
+
+  test("REQ-001-39 / REQ-001-11 past maxFeedbackRounds such an issue fails once, for the round limit", () => {
+    const actions = deriveActions(
+      snap({
+        items: [issue(5, ["agent:in-progress"]), pr(9)],
+        worktrees: wt("h2", { pendingFeedback: "x", feedbackRounds: 2 }),
+        pulls: passing,
+        maxFeedbackRounds: 2,
+      }),
+    );
+    expect(actions).toEqual([
+      {
+        type: "fail",
+        repo: "octo/app",
+        issues: [5],
+        pr: 9,
+        headSha: "h2",
+        checksFailed: false,
+        conflicted: false,
+        reason: "the PR still had problems after 2 automatic Feedback rounds",
+      },
+    ]);
+  });
+
+  test("REQ-001-07 / REQ-001-39 an agent:in-progress issue without Review findings on record and no session still fails", () => {
+    const actions = deriveActions(
+      snap({ items: [issue(5, ["agent:in-progress"]), pr(9)], worktrees: wt("h2"), pulls: passing }),
+    );
+    expect(actions).toEqual([
+      { type: "fail", repo: "octo/app", issues: [5], reason: "no implementer session to resume" },
+    ]);
+  });
+
   test("REQ-001-12 the Owner's /agent comment or changes-requested review starts an uncounted round, even past the limit", () => {
     const actions = deriveActions(
       snap({
@@ -733,5 +775,145 @@ describe("deriveActions", () => {
         reason: "session never reported its id, so it cannot be resumed",
       },
     ]);
+  });
+});
+
+describe("agent PRs without a Worktree on record", () => {
+  const openPull = (number: number, headRef: string, extra: Partial<OpenPull> = {}): OpenPull => ({
+    number,
+    headRef,
+    headRepo: "octo/app",
+    body: "",
+    ...extra,
+  });
+  const approvedRecord = new Map([
+    [
+      5,
+      {
+        approvedAt: "2026-11-11T09:00:00Z",
+        assessment: JSON.stringify({ issue: 5, verdict: "proposed", approach: "A", bundleWith: [], blockedBy: [] }),
+      },
+    ],
+  ]);
+  const record: WorktreeRecord = {
+    issues: [5],
+    prNumber: 34,
+    worktreePath: "/wt/5",
+    reviewedHeadSha: null,
+    feedbackRounds: 0,
+    pendingFeedback: null,
+    failedChecksSha: null,
+    conflictSha: null,
+    headSha: null,
+    headSeenAt: null,
+  };
+
+  test("REQ-001-42 a new issue with an open agent PR named after it is not planned", () => {
+    const actions = deriveActions(
+      snap({ items: [issue(5), issue(6)], openPulls: [openPull(34, "agent/5-fix-it")], worktrees: [record] }),
+    );
+    expect(actions).toEqual([{ type: "plan", repo: "octo/app", issues: [6] }]);
+  });
+
+  test("REQ-001-42 an issue an agent PR closes is not planned, whatever the branch number", () => {
+    const actions = deriveActions(
+      snap({
+        items: [issue(5), issue(6), issue(7)],
+        openPulls: [openPull(34, "agent/5-bundle", { body: "note\n\nCloses #5\ncloses #6\nFixes: #99" })],
+        worktrees: [{ ...record, issues: [5, 6] }],
+      }),
+    );
+    expect(actions).toEqual([{ type: "plan", repo: "octo/app", issues: [7] }]);
+  });
+
+  test("REQ-001-42 an approved issue with an open agent PR starts no Implementer, nor joins a Bundle", () => {
+    const actions = deriveActions(
+      snap({
+        items: [issue(5, ["agent:approved"]), issue(6, ["agent:approved"])],
+        records: new Map([
+          ...approvedRecord,
+          [
+            6,
+            {
+              approvedAt: "2026-11-11T10:00:00Z",
+              assessment: JSON.stringify({ issue: 6, verdict: "proposed", approach: "A", bundleWith: [5] }),
+            },
+          ],
+        ]),
+        openPulls: [openPull(34, "agent/5-fix-it")],
+        worktrees: [record],
+      }),
+    );
+    expect(actions).toEqual([{ type: "implement", repo: "octo/app", issues: [6], approvedAt: "2026-11-11T10:00:00Z" }]);
+  });
+
+  test("REQ-001-42 a PR from a fork, or from a branch not named agent/<n>-…, is not an agent PR", () => {
+    const actions = deriveActions(
+      snap({
+        items: [issue(5), issue(6)],
+        openPulls: [
+          openPull(34, "agent/5-fix-it", { headRepo: "mallory/app", body: "Closes #6" }),
+          openPull(35, "agent/5-fix-it", { headRepo: null }),
+          openPull(36, "feature/6", { body: "Closes #6" }),
+          openPull(37, "agent/x-5", { body: "" }),
+        ],
+      }),
+    );
+    expect(actions).toEqual([{ type: "plan", repo: "octo/app", issues: [5, 6] }]);
+  });
+
+  test("REQ-001-43 an open agent PR with no Worktree on record is re-attached, for its open issues in scope", () => {
+    const actions = deriveActions(
+      snap({
+        items: [issue(5, ["agent:proposed"]), issue(7, [], { author: { login: "mallory", id: 666 } })],
+        openPulls: [openPull(34, "agent/5-fix-it", { body: "Closes #5\nCloses #6\nCloses #7" })],
+      }),
+    );
+    expect(actions).toEqual([{ type: "reattach", repo: "octo/app", pr: 34, branch: "agent/5-fix-it", issues: [5] }]);
+  });
+
+  test("REQ-001-43 an issue being re-attached with a stale in-flight label and no session is not failed", () => {
+    for (const label of ["agent:planning", "agent:in-progress", "agent:reviewing"]) {
+      const actions = deriveActions(snap({ items: [issue(5, [label])], openPulls: [openPull(34, "agent/5-fix-it")] }));
+      expect(actions).toEqual([{ type: "reattach", repo: "octo/app", pr: 34, branch: "agent/5-fix-it", issues: [5] }]);
+    }
+  });
+
+  test("REQ-001-43 a PR whose issues have a Worktree on record is not re-attached", () => {
+    for (const w of [record, { ...record, prNumber: null }, { ...record, issues: [6], prNumber: 34 }]) {
+      const actions = deriveActions(
+        snap({
+          items: [issue(5, ["agent:pr-open"]), issue(6, ["agent:pr-open"])],
+          openPulls: [openPull(34, "agent/5-fix-it", { body: "Closes #5" })],
+          worktrees: [w],
+        }),
+      );
+      expect(actions.filter((a) => a.type === "reattach")).toEqual([]);
+    }
+  });
+
+  test("REQ-001-43 a PR whose issue has an open session, or one still to be synced, is not re-attached", () => {
+    for (const s of [
+      {
+        sessions: [session({ role: "planner", kind: "batch", issues: [4, 5], state: "idle" })],
+        liveSessionIds: new Set([1]),
+      },
+      { pendingSync: [session({ role: "implementer", issues: [5], state: "closed" })] },
+    ]) {
+      const actions = deriveActions(
+        snap({ items: [issue(5, ["agent:proposed"])], openPulls: [openPull(34, "agent/5-fix-it")], ...s }),
+      );
+      expect(actions.filter((a) => a.type === "reattach")).toEqual([]);
+    }
+  });
+
+  test("REQ-001-43 an orphaned agent PR whose issues are all closed or out of scope is only reported", () => {
+    const actions = deriveActions(
+      snap({
+        items: [issue(7, [], { author: { login: "mallory", id: 666 } })],
+        openPulls: [openPull(34, "agent/5-fix-it", { body: "Closes #7" })],
+      }),
+    );
+    expect(actions).toEqual([{ type: "orphan-closed", repo: "octo/app", pr: 34, issues: [5, 7] }]);
   });
 });

@@ -1,6 +1,6 @@
 # Architecture
 
-One Bun process, the Coordinator, runs a reconcile loop. Every `pollIntervalSec` it lists each configured repository's open issues and PRs (with an ETag), works out the desired action for each item from its `agent:*` labels and the local store, and hands actions to a scheduler with per-Role Slots. Agents are interactive `claude` sessions in detached tmux windows, registered with Remote Control so the Owner can follow them from the Claude app. Agents have no GitHub credentials: the Coordinator does every GitHub write, including creating the Split-off issues a Planner proposes in its Result (REQ-001-34). Details and rationale: `docs/specs/001-issue-coordinator/plan.md`.
+One Bun process, the Coordinator, runs a reconcile loop. Every `pollIntervalSec` it lists each configured repository's open issues and PRs, and the head branches of its open PRs (both with an ETag), works out the desired action for each item from its `agent:*` labels and the local store, and hands actions to a scheduler with per-Role Slots. Agents are interactive `claude` sessions in detached tmux windows, registered with Remote Control so the Owner can follow them from the Claude app. Agents have no GitHub credentials: the Coordinator does every GitHub write, including creating the Split-off issues a Planner proposes in its Result (REQ-001-34). Details and rationale: `docs/specs/001-issue-coordinator/plan.md`.
 
 ```mermaid
 flowchart LR
@@ -17,29 +17,29 @@ At the end of every tick the Coordinator publishes a Tick snapshot (issues, agen
 
 ## Modules
 
-| Module                         | Responsibility                                                                                                                                   | Status   |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
-| `src/index.ts`                 | Entry point (`bun start`): wires everything, runs the loop, checks for dialogs every 3s                                                          | T15 done |
-| `src/coordinator.ts`           | Reconcile loop: sync finished turns, poll (incl. head, checks and mergeability of agent PRs), derive, schedule across repos, execute             | T15 done |
-| `src/git.ts`                   | Main clone per repo, reset to the default branch; the App token is passed per command, never stored                                              | T15 done |
-| `src/implementer.ts`           | Implementer start (Bundle, Worktree, limited context), push + PR after every turn, cleanup after merge/close                                     | T11 done |
-| `src/reviewer.ts`              | Reviewer start on a PR-head checkout, one COMMENT review, labels, session closed afterwards                                                      | T12 done |
-| `src/note.ts`                  | The agent note heading every comment, PR and review                                                                                              | T11 done |
-| `src/worktrees.ts`             | Worktree per issue/Bundle (local clone + branch + setup), push, fetch of the default branch for merge-conflict rounds, review checkouts, removal | T10 done |
-| `src/doctor.ts`                | `bun run doctor`: read-only setup check (tools, login, config, GitHub App, repo access)                                                          | T14      |
-| `src/config.ts`                | Load and validate `config.ts`; resolve a Role's model and effort per repository                                                                  | T2 done  |
-| `src/labels.ts`                | The `agent:*` labels that carry state on GitHub                                                                                                  | T3 done  |
-| `src/github/app-auth.ts`       | GitHub App JWT; installation token per repository owner, cached until near expiry                                                                | T3 done  |
-| `src/github/client.ts`         | REST client: ETag polling, comments, timeline label actor, labels, PRs (incl. mergeability, draft status via GraphQL), Reviews, checks           | T3 done  |
-| `src/store.ts`                 | `bun:sqlite`: sessions (Role, issues, Claude session id, state), per-issue bookkeeping and Split-off issues                                      | T4 done  |
-| `src/state.ts`                 | Pure: issue state from labels; actions from labels, store and live tmux windows                                                                  | T4 done  |
-| `src/scheduler.ts`             | Pure: which queued work starts, which idle sessions close (Slots, priority, pause, live limit)                                                   | T5 done  |
-| `src/runner.ts`, `src/tmux.ts` | Start/resume/close `claude --remote-control` sessions in tmux windows `s<id>`; answer the trust dialog                                           | T6 done  |
-| `src/hook.ts`                  | Claude Code hook: session id, Owner vs. Coordinator prompts, Result validation on `Stop`, payload log                                            | T6 done  |
-| `src/prompts.ts`, `prompts/`   | Role prompts with repo overrides (contract: spec 002); permissions per Role (`dontAsk` read-only, or `auto` in the sandbox)                      | T7 done  |
-| `src/planner.ts`               | Planner pass, plan revision, Assessment comments and labels, sync after every Planner turn                                                       | T8 done  |
-| `src/results.ts`               | Result schemas per Role and the instructions shown to sessions                                                                                   | T6 done  |
-| `src/dashboard/`               | Read-only dashboard (spec 003): `server.ts` (`Bun.serve`, token, GET only), `view.ts` (pure view model), `html.ts` (escaped HTML, no script)     | done     |
+| Module                         | Responsibility                                                                                                                                                                        | Status   |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| `src/index.ts`                 | Entry point (`bun start`): wires everything, runs the loop, checks for dialogs every 3s                                                                                               | T15 done |
+| `src/coordinator.ts`           | Reconcile loop: sync finished turns, poll (incl. head, checks and mergeability of agent PRs), derive, schedule across repos, execute                                                  | T15 done |
+| `src/git.ts`                   | Main clone per repo, reset to the default branch; the App token is passed per command, never stored                                                                                   | T15 done |
+| `src/implementer.ts`           | Implementer start (Bundle, Worktree, limited context), push + PR after every turn, cleanup after merge/close, re-attach of orphaned agent PRs                                         | T11 done |
+| `src/reviewer.ts`              | Reviewer start on a PR-head checkout, one COMMENT review, labels, session closed afterwards                                                                                           | T12 done |
+| `src/note.ts`                  | The agent note heading every comment, PR and review                                                                                                                                   | T11 done |
+| `src/worktrees.ts`             | Worktree per issue/Bundle (local clone + new or existing remote branch + setup), push, fetch of the default branch for merge-conflict rounds, review checkouts, removal               | T10 done |
+| `src/doctor.ts`                | `bun run doctor`: read-only setup check (tools, login, config, GitHub App, repo access)                                                                                               | T14      |
+| `src/config.ts`                | Load and validate `config.ts`; resolve a Role's model and effort per repository                                                                                                       | T2 done  |
+| `src/labels.ts`                | The `agent:*` labels that carry state on GitHub                                                                                                                                       | T3 done  |
+| `src/github/app-auth.ts`       | GitHub App JWT; installation token per repository owner, cached until near expiry                                                                                                     | T3 done  |
+| `src/github/client.ts`         | REST client: ETag polling (open items; open PRs with head branch), comments, timeline label actor, labels, PRs (incl. state, mergeability, draft status via GraphQL), Reviews, checks | T3 done  |
+| `src/store.ts`                 | `bun:sqlite`: sessions (Role, issues, Claude session id, state), per-issue bookkeeping and Split-off issues                                                                           | T4 done  |
+| `src/state.ts`                 | Pure: issue state from labels; actions from labels, store and live tmux windows                                                                                                       | T4 done  |
+| `src/scheduler.ts`             | Pure: which queued work starts, which idle sessions close (Slots, priority, pause, live limit)                                                                                        | T5 done  |
+| `src/runner.ts`, `src/tmux.ts` | Start/resume/close `claude --remote-control` sessions in tmux windows `s<id>`; answer the trust dialog                                                                                | T6 done  |
+| `src/hook.ts`                  | Claude Code hook: session id, Owner vs. Coordinator prompts, Result validation on `Stop`, payload log                                                                                 | T6 done  |
+| `src/prompts.ts`, `prompts/`   | Role prompts with repo overrides (contract: spec 002); permissions per Role (`dontAsk` read-only, or `auto` in the sandbox)                                                           | T7 done  |
+| `src/planner.ts`               | Planner pass, plan revision (from scratch on a body edit), Assessment comments, Replies and labels, sync after every Planner turn                                                     | T8 done  |
+| `src/results.ts`               | Result schemas per Role and the instructions shown to sessions                                                                                                                        | T6 done  |
+| `src/dashboard/`               | Read-only dashboard (spec 003): `server.ts` (`Bun.serve`, token, GET only), `view.ts` (pure view model), `html.ts` (escaped HTML, no script)                                          | done     |
 
 ## Tech Stack
 

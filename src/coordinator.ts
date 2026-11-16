@@ -37,6 +37,7 @@ export interface CoordinatorDeps {
   gh: Pick<
     GitHubClient,
     | "listOpenItems"
+    | "listOpenPulls"
     | "listComments"
     | "labelActor"
     | "addLabels"
@@ -104,6 +105,8 @@ export class Coordinator {
   private readonly views = new Map<string, RepoView>();
   /** Failed sync attempts in a row per session; kept in memory, so a restart allows a few more (REQ-001-27). */
   private readonly syncFailures = new Map<number, number>();
+  /** Orphaned agent PRs already reported as having no open issue to re-attach to (REQ-001-43). */
+  private readonly reportedOrphans = new Set<string>();
   private readonly now: () => Date;
   private readonly log: (m: string) => void;
   private last: TickSnapshot | undefined;
@@ -134,7 +137,7 @@ export class Coordinator {
         try {
           const view = await this.poll(repo);
           const worktrees = this.d.store.worktrees(repo);
-          const pulls = await this.pulls(repo, view, worktrees);
+          const pulls = await this.pulls(repo, worktrees);
           pullStates.set(repo, pulls);
           const actions = deriveActions({
             repo,
@@ -151,6 +154,7 @@ export class Coordinator {
             worktrees,
             pulls,
             prFeedback: view.prFeedback,
+            openPulls: await this.d.gh.listOpenPulls(repo),
             maxFeedbackRounds: this.d.config.limits.maxFeedbackRounds,
             checksGraceSeconds: this.d.config.checksGraceSeconds,
           });
@@ -458,6 +462,18 @@ export class Coordinator {
         if (await this.implementer.cleanup(a.repo, a.issues, a.worktreePath))
           this.log(`${a.repo}: PR #${a.prNumber} is closed; cleaned up ${a.issues.map((n) => `#${n}`).join(", ")}`);
         return;
+      case "reattach":
+        await this.reattach(a.repo, a.pr, a.branch, a.issues);
+        return;
+      case "orphan-closed": {
+        const key = `${a.repo}#${a.pr}`;
+        if (this.reportedOrphans.has(key)) return;
+        this.reportedOrphans.add(key);
+        this.log(
+          `${a.repo}: PR #${a.pr} is an agent PR without a Worktree, but its issues (${a.issues.map((n) => `#${n}`).join(", ")}) are closed or out of scope; not re-attached`,
+        );
+        return;
+      }
       case "resume-interrupted": {
         const s = a.session;
         this.add(
@@ -505,10 +521,16 @@ export class Coordinator {
           { key: `${a.repo}#${a.issue} revise`, kind: "revise", role: "planner", queuedAt: now, sessionId },
           async () => {
             const dir = await this.d.clones.mainClone(a.repo);
-            const id = await this.planner.revise(a.repo, dir, issue, {
-              comments: a.comments,
-              bodyChanged: a.bodyChanged,
-            });
+            const splitOffs = this.d.store.splitOffNumbers(a.repo);
+            const issues = view.items.filter((i) => inScope(i, this.d.config.owner.id, splitOffs));
+            const pulls = view.items.filter((i) => i.isPullRequest);
+            const id = await this.planner.revise(
+              a.repo,
+              dir,
+              issue,
+              { comments: a.comments, bodyChanged: a.bodyChanged },
+              { issues, pulls },
+            );
             view.feedback.delete(a.issue);
             this.log(`${a.repo}#${a.issue}: revising the plan (session ${id})`);
           },
@@ -519,15 +541,49 @@ export class Coordinator {
   }
 
   /**
-   * Head, checks and mergeability of open agent PRs. Read on every tick: a check finishing does not
-   * change the issue list, so the ETag poll would not notice it (REQ-001-10, REQ-001-28). Records when
-   * each head was first seen, for the checks grace period.
+   * REQ-001-43: re-attach an orphaned agent PR, once GitHub reports the PR itself open on the same
+   * branch: the open list may lag behind a PR just closed (REQ-001-14). Failures (maxWorktrees
+   * reached, a folder in the way) are logged and retried on a later tick.
    */
-  private async pulls(repo: string, view: RepoView, worktrees: WorktreeRecord[]) {
+  private async reattach(repo: string, pr: number, branch: string, issues: number[]) {
+    try {
+      const pull = await this.d.gh.getPull(repo, pr);
+      if (pull.state !== "open" || pull.headRef !== branch) return;
+      const path = await this.implementer.reattach(repo, pr, branch, issues);
+      this.log(`${repo}: re-attached PR #${pr} to ${issues.map((n) => `#${n}`).join(", ")} in ${path}`);
+    } catch (e) {
+      this.log(`${repo}: could not re-attach PR #${pr}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  /**
+   * State, head, checks and mergeability of every agent PR on record. Read on every tick: a check
+   * finishing does not change the issue list, so the ETag poll would not notice it (REQ-001-10,
+   * REQ-001-28). Fetched per PR rather than taken from the list, which can be cached or lag behind a
+   * PR just opened (REQ-001-14). A failed fetch is logged and the PR left out until the next tick.
+   * Records when each head was first seen, for the checks grace period.
+   */
+  private async pulls(repo: string, worktrees: WorktreeRecord[]) {
     const out = new Map<number, PullState>();
     for (const w of worktrees) {
-      if (w.prNumber === null || !view.items.some((i) => i.number === w.prNumber)) continue;
-      const pull = await this.d.gh.getPull(repo, w.prNumber);
+      if (w.prNumber === null) continue;
+      let pull: Awaited<ReturnType<CoordinatorDeps["gh"]["getPull"]>>;
+      try {
+        pull = await this.d.gh.getPull(repo, w.prNumber);
+      } catch (e) {
+        this.log(`${repo}: could not read PR #${w.prNumber}: ${e instanceof Error ? e.message : String(e)}`);
+        continue;
+      }
+      if (pull.state !== "open") {
+        out.set(w.prNumber, {
+          headSha: pull.headSha,
+          checks: "none",
+          mergeable: pull.mergeable,
+          headSeenAt: "",
+          state: pull.state,
+        });
+        continue;
+      }
       const checks = await this.d.gh.checks(repo, pull.headSha);
       let headSeenAt = w.headSeenAt;
       if (w.headSha !== pull.headSha || !headSeenAt) {
@@ -541,6 +597,7 @@ export class Coordinator {
         mergeable: pull.mergeable,
         headSeenAt,
         baseRef: pull.baseRef,
+        state: pull.state,
       });
     }
     return out;

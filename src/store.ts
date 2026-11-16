@@ -98,6 +98,8 @@ export interface IssueRecord {
   reviewFindings: string | null;
   /** Earlier Review findings with the Implementer's answers, for a re-review (REQ-001-36). */
   reviewHistory: string | null;
+  /** The Owner's comments whose revision still owes them a Reply (REQ-001-40); empty when none is pending. */
+  replyTo: number[];
 }
 
 const SCHEMA = `
@@ -142,6 +144,7 @@ CREATE TABLE IF NOT EXISTS issues (
   in_feedback_round INTEGER NOT NULL DEFAULT 0,
   review_findings TEXT,
   review_history TEXT,
+  reply_to TEXT,
   auto_round TEXT,
   PRIMARY KEY (repo, number)
 );
@@ -219,6 +222,7 @@ const ISSUE_COLUMNS = {
   autoRound: "auto_round",
   reviewFindings: "review_findings",
   reviewHistory: "review_history",
+  replyTo: "reply_to",
 } as const satisfies Record<Exclude<keyof IssueRecord, "repo" | "number">, string>;
 
 export class Store {
@@ -244,6 +248,7 @@ export class Store {
         head_seen_at: "TEXT",
         review_findings: "TEXT",
         review_history: "TEXT",
+        reply_to: "TEXT",
         auto_round: "TEXT",
       },
       sessions: { model_id: "TEXT", title: "TEXT", started_at: "TEXT" },
@@ -385,10 +390,12 @@ export class Store {
       autoRound: null,
       reviewFindings: null,
       reviewHistory: null,
+      replyTo: [],
     };
     if (row) {
       for (const [key, col] of Object.entries(ISSUE_COLUMNS))
         (rec as unknown as Record<string, unknown>)[key] = row[col];
+      rec.replyTo = typeof row.reply_to === "string" ? JSON.parse(row.reply_to) : [];
     }
     return rec;
   }
@@ -400,7 +407,11 @@ export class Store {
     const sets = entries.map(([k]) => `${ISSUE_COLUMNS[k as keyof typeof ISSUE_COLUMNS]} = ?`).join(", ");
     this.db
       .query(`UPDATE issues SET ${sets} WHERE repo = ? AND number = ?`)
-      .run(...(entries.map(([, v]) => v) as (string | number | null)[]), repo, number);
+      .run(
+        ...(entries.map(([, v]) => (Array.isArray(v) ? JSON.stringify(v) : v)) as (string | number | null)[]),
+        repo,
+        number,
+      );
   }
 
   /** Worktrees on record (REQ-001-14), grouped by path, with their issues and PR. */

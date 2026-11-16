@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseConfig } from "../src/config.ts";
 import { Coordinator, USAGE_LIMIT_PAUSE_MIN } from "../src/coordinator.ts";
-import type { Comment, Item } from "../src/github/client.ts";
+import type { Comment, Item, OpenPull } from "../src/github/client.ts";
 import type { StartOptions } from "../src/runner.ts";
 import { Store } from "../src/store.ts";
 
@@ -42,6 +42,11 @@ class FakeGitHub {
     const changed = this.changed;
     this.changed = false;
     return { changed, items: this.items };
+  }
+  /** Open PRs with their head branch (REQ-001-42). */
+  openPulls: OpenPull[] = [];
+  async listOpenPulls() {
+    return this.openPulls;
   }
   async listComments(_repo: string, issue: number, opts: { afterId?: number } = {}) {
     this.commentFetches++;
@@ -93,9 +98,15 @@ class FakeGitHub {
   heads = new Map<number, string>();
   checkState: "none" | "pending" | "success" | "failure" = "success";
   mergeable: boolean | null = true;
+  /** PRs not listed here are open (REQ-001-14). */
+  pullStates = new Map<number, "open" | "closed" | "merged">();
+  /** PRs whose fetch fails, e.g. a network error. */
+  failingPulls = new Set<number>();
   async getPull(_r: string, pr: number) {
+    if (this.failingPulls.has(pr)) throw new Error(`GitHub GET /repos/octo/app/pulls/${pr} failed with 502`);
     const headSha = this.heads.get(pr) ?? "h1";
     return {
+      state: this.pullStates.get(pr) ?? "open",
       number: pr,
       nodeId: `PR_${pr}`,
       draft: true,
@@ -128,6 +139,12 @@ class FakeWorktrees {
   room = true;
   hasRoom() {
     return this.room;
+  }
+  attached: [number[], string][] = [];
+  async attach(_repo: string, issues: number[], branch: string) {
+    if (!this.room) throw new Error("maxWorktrees (5) reached");
+    this.attached.push([issues, branch]);
+    return { path: `/wt/${issues[0]}`, branch };
   }
   async create(_repo: string, issues: number[]) {
     return { path: `/wt/${issues[0]}`, branch: `agent/${issues[0]}-x` };
@@ -203,8 +220,10 @@ let gh: FakeGitHub;
 let runner: FakeRunner;
 let worktrees: FakeWorktrees;
 let coordinator: Coordinator;
+let logs: string[];
 
 beforeEach(() => {
+  logs = [];
   dir = mkdtempSync(join(tmpdir(), "coord-"));
   now = new Date("2026-11-11T10:00:00Z");
   store = new Store(":memory:", () => now);
@@ -219,7 +238,7 @@ beforeEach(() => {
     worktrees,
     clones: { mainClone: async (repo: string) => `/clones/${repo}` },
     now: () => now,
-    log: () => {},
+    log: (m) => logs.push(m),
   });
 });
 afterEach(() => {
@@ -280,13 +299,43 @@ describe("reconcile loop", () => {
     expect(runner.started.at(-1)).toMatchObject({ kind: "issue", issues: [5] });
     expect(runner.started.at(-1)?.prompt).toContain("Use v2");
 
-    // The revision turn ends with nothing new on GitHub: the same feedback is not handed over again.
-    store.patchSession(runner.started.length, { state: "idle" });
+    // REQ-001-40: the revised Assessment is edited in place, and a Reply below the comment says what changed.
+    gh.calls = [];
+    finishPlanner(2, [5]);
     await coordinator.tick();
+    expect(gh.calls.filter((c) => c[0] === "updateComment")).toHaveLength(0); // same Assessment
+    const replies = gh.calls.filter((c) => c[0] === "createComment");
+    expect(replies).toEqual([["createComment", 5, expect.stringContaining("#issuecomment-901")]]);
+
+    // The revision turn ends with nothing new on GitHub: the same feedback is not handed over again.
     gh.changed = true;
     await coordinator.tick();
     expect(runner.started).toHaveLength(2);
     expect(runner.resumed).toEqual([]);
+  });
+
+  test("REQ-001-41 an edited issue description is planned from scratch, with the open issues as context", async () => {
+    gh.items = [item(5), item(6)];
+    await coordinator.tick();
+    finishPlanner(1, [5, 6]);
+    await coordinator.tick();
+
+    const edited = gh.items.find((i) => i.number === 5);
+    if (edited) edited.body = "A whole new plan, please";
+    gh.changed = true;
+    await coordinator.tick();
+    expect(runner.started).toHaveLength(2);
+    expect(runner.started.at(-1)).toMatchObject({ kind: "issue", issues: [5] });
+    const prompt = runner.started.at(-1)?.prompt as string;
+    expect(prompt).toContain("A whole new plan, please");
+    expect(prompt).toContain("- #6 Issue 6");
+    expect(prompt).not.toContain("A5");
+
+    gh.calls = [];
+    finishPlanner(2, [5], "needs-refinement");
+    await coordinator.tick();
+    expect(gh.calls.filter((c) => c[0] === "updateComment")).toHaveLength(1);
+    expect(gh.calls.filter((c) => c[0] === "createComment")).toEqual([]);
   });
 
   test("REQ-001-34 a Split-off issue is planned like an Owner issue, and the Owner's /approve approves it", async () => {
@@ -402,6 +451,7 @@ describe("reconcile loop", () => {
     expect(runner.started.filter((s) => s.role === "implementer")).toHaveLength(1);
 
     gh.items = gh.items.filter((i) => i.number !== 70 && i.number !== 5); // merged, issue closed
+    gh.pullStates.set(70, "merged");
     gh.changed = true;
     await coordinator.tick();
     expect(worktrees.removed).toEqual(["/wt/5"]);
@@ -427,6 +477,7 @@ describe("reconcile loop", () => {
     expect(gh.items[0]?.labels).toEqual(["agent:pr-open"]);
 
     gh.items = gh.items.filter((i) => i.number !== 70); // closed unmerged; the issue stays open
+    gh.pullStates.set(70, "closed");
     gh.changed = true;
     await coordinator.tick(); // cleanup
     expect(gh.items[0]?.labels).toEqual([]);
@@ -453,6 +504,124 @@ describe("reconcile loop", () => {
     runner.live.add(id);
     return id;
   };
+
+  test("REQ-001-14 a PR missing from a cached (304) or lagging list right after it was opened keeps its Worktree and gets a Review", async () => {
+    const id = implementerDone();
+    gh.items = gh.items.filter((i) => i.number !== 70); // GitHub's list doesn't show the new PR yet
+    gh.checkState = "success";
+    await coordinator.tick(); // sync opens PR #70
+    expect(gh.calls).toContainEqual(["createPull", "T"]);
+    expect(store.issue("octo/app", 5).prNumber).toBe(70);
+    gh.changed = false; // 304: the cached view without PR #70
+    await coordinator.tick();
+    expect(worktrees.removed).toEqual([]);
+    expect(store.issue("octo/app", 5).worktreePath).toBe("/wt/5");
+    expect(gh.items[0]?.labels).toEqual(["agent:reviewing"]); // not cleared by a cleanup
+    expect(logs.join("\n")).not.toContain("is closed");
+    expect(runner.started.filter((s) => s.role === "reviewer")).toMatchObject([{ issues: [5] }]);
+    expect(store.session(id)?.state).not.toBe("closed");
+  });
+
+  test("REQ-001-14 when a PR can't be fetched nothing is cleaned up; the fetch is logged and retried next tick", async () => {
+    gh.items = [item(5, ["agent:pr-open"])];
+    store.updateIssue("octo/app", 5, { worktreePath: "/wt/5", prNumber: 70 });
+    gh.pullStates.set(70, "closed");
+    gh.failingPulls.add(70);
+    await coordinator.tick();
+    expect(worktrees.removed).toEqual([]);
+    expect(logs.join("\n")).toContain("pulls/70 failed with 502");
+
+    gh.failingPulls.clear();
+    await coordinator.tick();
+    expect(worktrees.removed).toEqual(["/wt/5"]);
+    expect(store.issue("octo/app", 5)).toMatchObject({ worktreePath: null, prNumber: null });
+  });
+
+  const orphan = (): OpenPull => ({ number: 34, headRef: "agent/5-x", headRepo: "octo/app", body: "B\n\nCloses #5" });
+
+  test("REQ-001-42 / REQ-001-43 a new issue with an orphaned agent PR is not planned; the PR is re-attached and reviewed", async () => {
+    gh.items = [item(5), item(34, [], { isPullRequest: true, author: { login: "bot", id: 1 } })];
+    gh.openPulls = [orphan()];
+    await coordinator.tick();
+    expect(gh.calls).not.toContainEqual(["addLabels", 5, ["agent:planning"]]);
+    expect(runner.started.filter((x) => x.role === "planner")).toEqual([]);
+    expect(worktrees.attached).toEqual([[[5], "agent/5-x"]]);
+    expect(store.issue("octo/app", 5)).toMatchObject({ worktreePath: "/wt/5", prNumber: 34 });
+    expect(gh.items[0]?.labels).toEqual(["agent:pr-open"]);
+    const comments = () => gh.calls.filter((c) => c[0] === "createComment");
+    expect(comments()).toEqual([["createComment", 34, expect.stringContaining("re-attached")]]);
+    expect(logs.join("\n")).toContain("re-attached PR #34");
+
+    await coordinator.tick();
+    expect(runner.started.filter((x) => x.role === "reviewer")).toMatchObject([{ issues: [5] }]);
+    expect(gh.items[0]?.labels).toEqual(["agent:reviewing"]);
+    await coordinator.tick();
+    expect(worktrees.attached).toHaveLength(1);
+    expect(comments()).toHaveLength(1);
+  });
+
+  test("REQ-001-43 an approved issue's orphaned PR is re-attached instead of starting an Implementer; Feedback rounds resume", async () => {
+    gh.items = [item(5, ["agent:approved"])];
+    store.updateIssue("octo/app", 5, { approvedAt: "2026-11-11T09:00:00Z" });
+    gh.openPulls = [orphan()];
+    gh.checkState = "failure";
+    await coordinator.tick();
+    expect(runner.started).toEqual([]);
+    expect(gh.items[0]?.labels).toEqual(["agent:pr-open"]);
+    await coordinator.tick();
+    expect(runner.started).toMatchObject([{ role: "implementer", issues: [5], cwd: "/wt/5" }]);
+    expect(runner.started[0]?.prompt).toContain("Feedback round on PR #34");
+  });
+
+  test("REQ-001-43 a re-attached issue with stale agent:failed or agent:in-progress labels ends up only agent:pr-open, and automatic rounds resume", async () => {
+    gh.items = [item(5, ["agent:failed", "agent:in-progress"])];
+    gh.openPulls = [orphan()];
+    gh.checkState = "failure";
+    await coordinator.tick();
+    expect(gh.items[0]?.labels).toEqual(["agent:pr-open"]);
+    expect(gh.calls).not.toContainEqual(["addLabels", 5, ["agent:failed"]]);
+    expect(gh.calls.filter((c) => c[0] === "createComment")).toEqual([
+      ["createComment", 34, expect.stringContaining("re-attached")],
+    ]);
+    await coordinator.tick();
+    expect(runner.started).toMatchObject([{ role: "implementer", issues: [5], cwd: "/wt/5" }]);
+    expect(runner.started[0]?.prompt).toContain("Failing checks");
+  });
+
+  test("REQ-001-43 a listed PR that GitHub reports closed, or with another branch, is not re-attached", async () => {
+    gh.items = [item(5)];
+    gh.openPulls = [orphan()];
+    gh.pullStates.set(34, "closed"); // the open list lags behind
+    await coordinator.tick();
+    gh.pullStates.clear();
+    gh.openPulls = [{ ...orphan(), headRef: "agent/5-other" }]; // getPull says agent/5-x
+    await coordinator.tick();
+    expect(worktrees.attached).toEqual([]);
+    expect(store.issue("octo/app", 5).prNumber).toBeNull();
+    expect(gh.calls.filter((c) => c[0] === "createComment")).toEqual([]);
+  });
+
+  test("REQ-001-43 while maxWorktrees is reached nothing is re-attached; a later tick does it", async () => {
+    gh.items = [item(5)];
+    gh.openPulls = [orphan()];
+    worktrees.room = false;
+    await coordinator.tick();
+    expect(store.issue("octo/app", 5).prNumber).toBeNull();
+    expect(gh.items[0]?.labels).toEqual([]);
+    expect(logs.join("\n")).toContain("maxWorktrees");
+    worktrees.room = true;
+    await coordinator.tick();
+    expect(store.issue("octo/app", 5).prNumber).toBe(34);
+  });
+
+  test("REQ-001-43 an orphaned agent PR whose issues are all closed is logged once", async () => {
+    gh.items = [];
+    gh.openPulls = [orphan()];
+    await coordinator.tick();
+    await coordinator.tick();
+    expect(logs.filter((l) => l.includes("PR #34"))).toHaveLength(1);
+    expect(worktrees.attached).toEqual([]);
+  });
 
   test("REQ-001-27 a failed sync is retried on the next tick", async () => {
     const id = implementerDone();
@@ -604,6 +773,34 @@ describe("reconcile loop", () => {
     expect(reReview).not.toBe(review);
     expect(reReview?.prompt).toContain("No test for empty input");
     expect(reReview?.prompt).toContain("**Fixed**: Added a test for empty input");
+  });
+
+  test("REQ-001-39 Review findings take the issue from agent:reviewing to agent:in-progress without agent:pr-open, also across a restart", async () => {
+    const impl = prOpen({ reviewedHeadSha: null });
+    await coordinator.tick();
+    const reviewId = impl + 1;
+    expect(runner.started.at(-1)?.role).toBe("reviewer");
+    writeFileSync(
+      join(runner.sessionDir(reviewId), "result.json"),
+      JSON.stringify({ summary: "S", findings: [{ path: "a.ts", line: 1, severity: "high", body: "crash" }] }),
+    );
+    store.patchSession(reviewId, { state: "idle", needsSync: true });
+    // A restart closed the Implementer's window before its round could start.
+    runner.live.delete(impl);
+    gh.calls = [];
+    await coordinator.tick();
+    expect(gh.items[0]?.labels).toEqual(["agent:in-progress"]);
+    await coordinator.tick();
+    await coordinator.tick();
+    expect(runner.resumed).toEqual([[impl, expect.stringContaining("crash")]]);
+    const labels = gh.calls.filter((c) => (c[0] === "addLabels" || c[0] === "removeLabel") && c[1] === 5);
+    expect(labels.filter((c) => c[0] === "addLabels")).toEqual([
+      ["addLabels", 5, ["agent:in-progress"]],
+      ["addLabels", 5, ["agent:in-progress"]],
+    ]);
+    expect(labels).toContainEqual(["removeLabel", 5, "agent:reviewing"]);
+    expect(labels).not.toContainEqual(["addLabels", 5, ["agent:failed"]]); // the round only clears it (REQ-001-37)
+    expect(gh.items[0]?.labels).toEqual(["agent:in-progress"]);
   });
 
   test("REQ-001-11 past maxFeedbackRounds the PR and its issue are labelled agent:failed", async () => {

@@ -52,7 +52,14 @@ const pull = (number: number, issues: number[], state: Partial<NonNullable<RepoS
   labels: [],
   issues,
   feedbackRounds: 1,
-  state: { headSha: "h", checks: "success" as const, mergeable: true, headSeenAt: "t", ...state },
+  state: {
+    headSha: "h",
+    checks: "success" as const,
+    mergeable: true,
+    headSeenAt: "t",
+    state: "open" as const,
+    ...state,
+  },
 });
 
 const snapshot = (s: Partial<TickSnapshot> = {}): TickSnapshot => ({

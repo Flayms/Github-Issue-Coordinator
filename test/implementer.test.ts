@@ -68,6 +68,9 @@ class FakeWorktrees {
   hasRoom() {
     return this.room;
   }
+  async attach(_repo: string, issues: number[], branch: string) {
+    return { path: `/wt/${issues[0]}`, branch };
+  }
   async create(repo: string, issues: number[], title: string) {
     this.created.push([repo, issues, title]);
     return { path: `/wt/${issues[0]}`, branch: `agent/${issues[0]}-x` };
@@ -469,9 +472,10 @@ describe("Implementer run", () => {
     expect(gh.of("createComment")).toEqual([]);
   });
 
-  test("REQ-001-14 cleanup removes the Worktree, closes the sessions and clears the agent labels", async () => {
+  test("REQ-001-14 cleanup removes the Worktree, closes the sessions, clears the agent labels and the PR on record", async () => {
     const id = await impl.start("octo/app", [item(5), item(6)]);
     store.patchSession(id, { state: "idle" });
+    for (const n of [5, 6]) store.updateIssue("octo/app", n, { prNumber: 77 });
     gh.calls = [];
     expect(await impl.cleanup("octo/app", [5, 6], "/wt/5")).toBe(true);
     expect(wt.removed).toEqual(["/wt/5"]);
@@ -483,6 +487,50 @@ describe("Implementer run", () => {
         .map((c) => c[2]),
     ).toEqual(["agent:in-progress", "agent:pr-open", "agent:reviewing", "agent:reviewed", "agent:failed"]);
     expect(store.issue("octo/app", 5).worktreePath).toBeNull();
+    expect([5, 6].map((n) => store.issue("octo/app", n).prNumber)).toEqual([null, null]);
+  });
+
+  test("REQ-001-43 re-attaching records the PR and Worktree, replaces every other agent label with agent:pr-open and says so on the PR", async () => {
+    store.updateIssue("octo/app", 5, { inFeedbackRound: 1, pendingFeedback: "old", reviewFindings: "[]" });
+    expect(await impl.reattach("octo/app", 34, "agent/5-x", [5, 6])).toBe("/wt/5");
+    for (const n of [5, 6]) {
+      expect(store.issue("octo/app", n)).toMatchObject({
+        worktreePath: "/wt/5",
+        prNumber: 34,
+        inFeedbackRound: 0,
+        pendingFeedback: null,
+        reviewFindings: null,
+      });
+      expect(
+        gh
+          .of("removeLabel")
+          .filter((c) => c[1] === n)
+          .map((c) => c[2]),
+      ).toEqual([
+        "agent:proposed",
+        "agent:needs-refinement",
+        "agent:wontfix-proposed",
+        "agent:approved",
+        "agent:blocked",
+        "agent:planning",
+        "agent:in-progress",
+        "agent:reviewing",
+        "agent:reviewed",
+        "agent:failed",
+      ]);
+    }
+    expect(gh.of("addLabels")).toEqual([
+      ["addLabels", 5, ["agent:pr-open"]],
+      ["addLabels", 6, ["agent:pr-open"]],
+    ]);
+    expect(gh.of("removeLabel").filter((c) => c[1] === 34)).toEqual([
+      ["removeLabel", 34, "agent:reviewed"],
+      ["removeLabel", 34, "agent:failed"],
+    ]);
+    const comments = gh.of("createComment");
+    expect(comments).toEqual([["createComment", 34, expect.stringContaining("re-attached this PR")]]);
+    expect(comments[0]?.[2]).toStartWith("> [!Note]\n> 🤖 Coordinator writing on behalf of");
+    expect(comments[0]?.[2]).toContain("`agent/5-x`");
   });
 
   test("REQ-001-19 cleanup waits while the Owner is chatting with the session", async () => {

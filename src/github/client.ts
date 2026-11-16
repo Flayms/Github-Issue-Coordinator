@@ -57,7 +57,20 @@ export interface Pull {
   baseRef: string;
   /** False when the PR has merge conflicts; null while GitHub is still computing it (REQ-001-28). */
   mergeable: boolean | null;
+  /** Whether the PR is still open, closed without merging, or merged (REQ-001-14). */
+  state: PullStatus;
 }
+
+/** An open PR as listed by the pulls endpoint, with its head branch (REQ-001-42). */
+export interface OpenPull {
+  number: number;
+  headRef: string;
+  /** `owner/name` of the head repository; differs for a fork, null if the fork was deleted. */
+  headRepo: string | null;
+  body: string;
+}
+
+export type PullStatus = "open" | "closed" | "merged";
 
 interface RawUser {
   login: string;
@@ -78,6 +91,7 @@ interface Page<T> {
 export class GitHubClient {
   private readonly fetch: Fetch;
   private readonly etagCache = new Map<string, { etag: string; items: Item[] }>();
+  private readonly pullsCache = new Map<string, { etag: string; pulls: OpenPull[] }>();
 
   constructor(private readonly opts: { auth: AppAuth; fetch?: Fetch }) {
     this.fetch = opts.fetch ?? fetch;
@@ -96,6 +110,25 @@ export class GitHubClient {
     const items = raw.map(toItem);
     if (first.etag) this.etagCache.set(repo, { etag: first.etag, items });
     return { changed: true, items };
+  }
+
+  /**
+   * All open PRs with their head branch and repository, which the issues list lacks (REQ-001-42).
+   * Polled with the ETag like `listOpenItems`; on 304 the cached list is returned.
+   */
+  async listOpenPulls(repo: string): Promise<OpenPull[]> {
+    const path = `/repos/${repo}/pulls?state=open&per_page=100`;
+    const cached = this.pullsCache.get(repo);
+    const first = await this.page<RawOpenPull[]>(repo, path, cached?.etag);
+    if (first.notModified && cached) return cached.pulls;
+    const pulls = [...first.data, ...(await this.rest<RawOpenPull>(repo, first.next))].map((p) => ({
+      number: p.number,
+      headRef: p.head.ref,
+      headRepo: p.head.repo?.full_name ?? null,
+      body: p.body ?? "",
+    }));
+    if (first.etag) this.pullsCache.set(repo, { etag: first.etag, pulls });
+    return pulls;
   }
 
   /** Comments on an issue or PR, oldest first; with `afterId`, only newer ones. */
@@ -201,7 +234,7 @@ export class GitHubClient {
     return raw.map((r) => ({ id: r.id, state: r.state, body: r.body ?? "", author: actor(r.user) }));
   }
 
-  /** A PR's head commit, branches, mergeability and draft status (REQ-001-10, REQ-001-28, REQ-001-31). */
+  /** A PR's head commit, branches, mergeability, draft status and state (REQ-001-10, -14, -28, -31). */
   async getPull(repo: string, pr: number): Promise<Pull> {
     const r = await this.request<RawPull>(repo, "GET", `/repos/${repo}/pulls/${pr}`);
     return {
@@ -212,6 +245,7 @@ export class GitHubClient {
       headRef: r.head.ref,
       baseRef: r.base.ref,
       mergeable: r.mergeable ?? null,
+      state: r.merged || r.merged_at ? "merged" : r.state === "closed" ? "closed" : "open",
     };
   }
 
@@ -336,6 +370,15 @@ interface RawPull {
   head: { sha: string; ref: string };
   base: { ref: string };
   mergeable?: boolean | null;
+  state: "open" | "closed";
+  merged?: boolean;
+  merged_at?: string | null;
+}
+
+interface RawOpenPull {
+  number: number;
+  body: string | null;
+  head: { ref: string; repo: { full_name: string } | null };
 }
 
 interface RawCheckRun {
