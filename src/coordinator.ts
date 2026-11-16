@@ -3,6 +3,7 @@
  * schedules them across repositories and executes them. State lives in labels and the store, so a
  * tick can start from scratch after a restart (REQ-001-16).
  */
+import { allPausedUntil } from "./accounts.ts";
 import { type Config, type Role, roleSettings } from "./config.ts";
 import { recordEvent, refs } from "./events.ts";
 import type { Clones } from "./git.ts";
@@ -66,7 +67,7 @@ export interface CoordinatorDeps {
 /** What the last tick saw and decided, for the dashboard (spec 003). Published in one piece at the end of a tick. */
 export interface TickSnapshot {
   finishedAt: string;
-  /** Usage-limit pause (REQ-001-17), if one is on record. */
+  /** While every Account is paused by a usage limit, when the first is free again (REQ-001-17). */
   pausedUntil: string | null;
   repos: RepoSnapshot[];
   /** Open sessions; `live` says whether their tmux window is alive. */
@@ -124,6 +125,16 @@ export class Coordinator {
     this.planner = new Planner({ ...d, log: this.log });
     this.implementer = new Implementer({ ...d, log: this.log });
     this.reviewer = new Reviewer({ ...d, log: this.log });
+    d.store.adoptLegacyPause(this.accountNames()[0] as string);
+  }
+
+  private accountNames(): string[] {
+    return this.d.config.accounts.map((a) => a.name);
+  }
+
+  /** REQ-001-17: while every Account is paused, when the first one is free again. */
+  private allPausedUntil(): string | undefined {
+    return allPausedUntil(this.d.config.accounts, (n) => this.d.store.pausedUntil(n), this.now());
   }
 
   /** The last tick's snapshot; undefined before the first tick ended (REQ-003-06). */
@@ -228,7 +239,7 @@ export class Coordinator {
     );
     return {
       finishedAt: this.now().toISOString(),
-      pausedUntil: this.d.store.pausedUntil() ?? null,
+      pausedUntil: this.allPausedUntil() ?? null,
       repos,
       sessions,
       queue,
@@ -236,16 +247,21 @@ export class Coordinator {
     };
   }
 
-  /** REQ-001-19 / REQ-001-27: sync every turn that ended, retrying failures; REQ-001-17: a usage limit pauses new work. */
+  /** REQ-001-19 / REQ-001-27: sync every turn that ended, retrying failures; REQ-001-17: a usage limit pauses its Account. */
   private async syncTurns(): Promise<void> {
     for (const { name: repo } of this.d.config.repos) {
       for (const s of this.d.store.sessions(repo)) {
         if (s.usageLimited) {
+          // Sessions from before spec 004 ran on Claude's default folder, now the first Account's place.
+          const account = s.account ?? (this.accountNames()[0] as string);
           const until = new Date(Date.parse(s.lastActivityAt) + USAGE_LIMIT_PAUSE_MIN * 60_000).toISOString();
-          const current = this.d.store.pausedUntil();
+          const current = this.d.store.pausedUntil(account);
           if (!current || current < until) {
-            this.d.store.setPausedUntil(until);
-            this.log(`${repo}: usage limit reached in session ${s.id}; pausing until ${until}`);
+            this.d.store.setPausedUntil(account, until);
+            const all = this.allPausedUntil();
+            this.log(
+              `${repo}: usage limit reached in session ${s.id}; Account ${account} is paused until ${until}${all ? `; every Account is paused, new work waits until ${all}` : ""}`,
+            );
           }
         }
       }
@@ -642,7 +658,7 @@ export class Coordinator {
     );
   }
 
-  /** REQ-001-17: continue sessions cut off by the usage limit once the pause is over. */
+  /** REQ-001-17: continue sessions cut off by the usage limit, on an Account that isn't paused. */
   private queueUsageLimited(repo: string, queue: Work[], jobs: Map<string, Job>) {
     for (const s of this.d.store.sessions(repo).filter((x) => x.usageLimited && x.state !== "running")) {
       this.add(
@@ -658,7 +674,7 @@ export class Coordinator {
         async () => {
           this.d.runner.resume(
             s.id,
-            "The usage limit has reset. Continue where you left off.",
+            "Your last turn was cut off by the usage limit. Continue where you left off.",
             roleSettings(this.d.config, s.repo, s.role),
           );
         },
@@ -691,7 +707,7 @@ export class Coordinator {
       sessions,
       limits: this.d.config.limits,
       now: this.now(),
-      pausedUntil: this.d.store.pausedUntil(),
+      pausedUntil: this.allPausedUntil(),
     });
     for (const id of plan.close) {
       try {
