@@ -15,7 +15,7 @@ fi
 
 echo "== System packages (tmux, git, sandbox: bubblewrap + socat)"
 apt-get update -qq
-apt-get install -y -qq tmux git bubblewrap socat curl unzip >/dev/null
+apt-get install -y -qq tmux git gh bubblewrap socat curl unzip >/dev/null
 
 echo "== User $AGENT"
 if id "$AGENT" &>/dev/null; then

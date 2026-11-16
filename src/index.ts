@@ -8,6 +8,7 @@ import { loadDashboardToken, startDashboard } from "./dashboard/server.ts";
 import { Clones } from "./git.ts";
 import { AppAuth } from "./github/app-auth.ts";
 import { GitHubClient } from "./github/client.ts";
+import { ReadTokens } from "./github/read-tokens.ts";
 import { SessionRunner } from "./runner.ts";
 import { Store } from "./store.ts";
 import { TmuxCli } from "./tmux.ts";
@@ -34,6 +35,8 @@ async function main() {
   const dashboardToken = loadDashboardToken(config);
   const auth = new AppAuth({ appId: config.github.appId, privateKey });
   const gh = new GitHubClient({ auth });
+  // REQ-001-55: agents read GitHub with a read-only token of the same installation.
+  const readTokens = new ReadTokens((repo) => auth.readTokenFor(repo), log);
   const dbPath = join(stateDir, "state.db");
   const store = new Store(dbPath);
   const runner = new SessionRunner({
@@ -45,6 +48,7 @@ async function main() {
     // REQ-001-26 / REQ-004-02: the App key's folder and every Account's Claude login.
     secretPaths: secretPaths(config, homedir()),
     accounts: config.accounts,
+    readToken: (repo) => readTokens.get(repo),
   });
   const clones = new Clones({ root: join(stateDir, "clones"), token: (repo) => auth.tokenFor(repo) });
   const worktrees = new Worktrees({
@@ -78,6 +82,9 @@ async function main() {
 
   const dialogs = setInterval(() => runner.answerDialogs(), DIALOG_CHECK_MS);
   while (!stopping) {
+    // REQ-001-55: tokens expire after an hour; renewed before sessions start and for those already running.
+    await readTokens.refresh(config.repos.map((r) => r.name));
+    runner.refreshGitHubAccess();
     await coordinator.tick();
     for (let waited = 0; waited < config.pollIntervalSec * 1000 && !stopping; waited += 500) await Bun.sleep(500);
   }

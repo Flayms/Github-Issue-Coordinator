@@ -53,7 +53,7 @@ Keep the docs up to date when something changes.
 
 ## Git
 
-Stay on the current branch. commit or push only if explicitly asked for.
+When a change is done (Definition of Done met), commit, push and open a PR. Never push to `main`: work on a branch from the latest `main` (stay on the current branch if it isn't merged yet), and the Owner merges.
 
 ## Note
 

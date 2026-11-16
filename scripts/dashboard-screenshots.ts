@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { findBrowser, isPng } from "../src/browser.ts";
+import { findBrowser, isPng, screenshotEnv } from "../src/browser.ts";
 import { asset } from "../src/dashboard/assets.ts";
 import { renderConfig } from "../src/dashboard/config-html.ts";
 import { renderDashboard } from "../src/dashboard/html.ts";
@@ -114,7 +114,7 @@ function serveMock() {
  * `--disable-gpu` leaves the page without WebGL, so it shows the static gradient instead of a random
  * frame of the animated background (REQ-003-14). The virtual time budget lets the fonts and the script load.
  */
-function shoot(browser: string, base: string, shot: Shot, profile: string): void {
+function shoot(browser: string, base: string, shot: Shot, work: string): void {
   const file = join(IMAGES_DIR, shot.file);
   const p = Bun.spawnSync(
     [
@@ -124,14 +124,15 @@ function shoot(browser: string, base: string, shot: Shot, profile: string): void
       "--no-proxy-server",
       "--disable-gpu",
       "--hide-scrollbars",
-      `--user-data-dir=${profile}`,
+      `--user-data-dir=${join(work, "profile")}`,
       `--window-size=${shot.width},${shot.height}`,
       `--force-device-scale-factor=${shot.scale}`,
       "--virtual-time-budget=3000",
       `--screenshot=${file}`,
       `${base}${shot.page}`,
     ],
-    { stdout: "pipe", stderr: "pipe", timeout: 60_000 },
+    // Config and cache in the temp folder too, as for the doctor (REQ-001-53): the sandbox's home is read-only.
+    { env: { ...process.env, ...screenshotEnv(work) }, stdout: "pipe", stderr: "pipe", timeout: 60_000 },
   );
   if (p.exitCode !== 0 || !isPng(file))
     throw new Error(
@@ -145,12 +146,12 @@ async function main(): Promise<void> {
   if (!browser) throw new Error("no Chrome or Chromium on PATH (google-chrome, chromium, …); see docs/setup.md");
   mkdirSync(IMAGES_DIR, { recursive: true });
   const server = serveMock();
-  const profile = mkdtempSync(join(tmpdir(), "dashboard-screenshots-"));
+  const work = mkdtempSync(join(tmpdir(), "dashboard-screenshots-"));
   try {
-    for (const shot of SHOTS) shoot(browser, `http://127.0.0.1:${server.port}`, shot, profile);
+    for (const shot of SHOTS) shoot(browser, `http://127.0.0.1:${server.port}`, shot, work);
   } finally {
     await server.stop(true);
-    rmSync(profile, { recursive: true, force: true });
+    rmSync(work, { recursive: true, force: true });
   }
   writeFileSync(FINGERPRINT_FILE, `${fingerprint(currentInputs())}\n`);
   console.log(`wrote ${relative(ROOT, FINGERPRINT_FILE)}`);

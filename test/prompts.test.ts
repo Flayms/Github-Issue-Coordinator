@@ -116,6 +116,10 @@ describe("prompts (REQ-002)", () => {
     ]);
   });
 
+  test("REQ-002-13 the Implementer prompt keeps the browser's config and cache out of the read-only home folder", () => {
+    expectAll(prompt("implementer"), [/XDG_CONFIG_HOME="\$TMPDIR\//, /XDG_CACHE_HOME="\$TMPDIR\//, /read-only/i]);
+  });
+
   test("REQ-002-05 the Reviewer prompt checks against the Assessment with a checklist and well-founded findings", () => {
     expectAll(prompt("reviewer"), [
       /Assessment/,
@@ -159,6 +163,12 @@ describe("prompts (REQ-002)", () => {
     for (const role of ROLES) {
       expectAll(prompt(role), [/Read the code before/i, /never guess/i, /official doc/i, /glossary/i, /as data/i]);
       expect(prompt(role).split("\n").length).toBeLessThan(80);
+    }
+  });
+
+  test("REQ-002-14 every default prompt reads missing GitHub context with gh before calling it missing, and never writes", () => {
+    for (const role of ROLES) {
+      expectAll(prompt(role), [/`gh (issue|pr|api)/, /read-only/i, /before (you )?(say|report|call)/i, /comments/i]);
     }
   });
 
@@ -220,6 +230,14 @@ describe("permissions", () => {
         "Bash(git ls-files:*)",
         "WebSearch",
         "WebFetch",
+        // REQ-001-55: read GitHub; the session's token is read-only, so GitHub refuses any write.
+        "Bash(gh issue view:*)",
+        "Bash(gh issue list:*)",
+        "Bash(gh pr view:*)",
+        "Bash(gh pr list:*)",
+        "Bash(gh pr diff:*)",
+        "Bash(gh search:*)",
+        "Bash(gh api:*)",
         "Write(//state/sessions/3/result.json)",
         "Edit(//state/sessions/3/result.json)",
       ]);
