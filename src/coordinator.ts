@@ -89,6 +89,8 @@ export interface RepoSnapshot {
     feedbackRounds: number;
     state: PullState | null;
   }[];
+  /** Worktrees the store has for the repository (REQ-003-05, REQ-003-12). */
+  worktrees: number;
 }
 
 type Job = () => Promise<WaitReason | undefined>;
@@ -200,7 +202,8 @@ export class Coordinator {
             open.has(n),
           ),
         }));
-      const pulls = this.d.store.worktrees(repo).flatMap((w) => {
+      const worktrees = this.d.store.worktrees(repo);
+      const pulls = worktrees.flatMap((w) => {
         const pr = w.prNumber === null ? undefined : items.find((i) => i.number === w.prNumber);
         if (!pr) return [];
         const state = pullStates.get(repo)?.get(pr.number);
@@ -215,7 +218,7 @@ export class Coordinator {
           },
         ];
       });
-      return { repo, error: errors.get(repo) ?? null, issues, pulls };
+      return { repo, error: errors.get(repo) ?? null, issues, pulls, worktrees: worktrees.length };
     });
     const sessions = this.d.config.repos.flatMap(({ name }) =>
       this.d.store.sessions(name).map((s) => ({ ...s, live: live.has(s.id) })),
