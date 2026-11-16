@@ -233,6 +233,16 @@ class FakeRunner {
     return new Set(this.live);
   }
   answerDialogs() {}
+  screens = new Map<number, string>();
+  screen(id: number) {
+    return this.screens.get(id) ?? "";
+  }
+  abandoned: number[] = [];
+  abandon(id: number) {
+    this.abandoned.push(id);
+    this.live.delete(id);
+    this.store.patchSession(id, { state: "closed", coordinatorPromptPending: false });
+  }
 }
 
 let dir: string;
@@ -1045,6 +1055,55 @@ describe("reconcile loop", () => {
     gh.changed = true;
     await coordinator.tick();
     expect(runner.resumed).toHaveLength(1);
+  });
+
+  describe("REQ-001-57 a session that does not start says why", () => {
+    const failComments = (n: number) =>
+      gh.calls.filter((c) => c[0] === "createComment" && c[1] === n && String(c[2]).includes("gave up"));
+    const SCREEN = " Adding a new directory:\n\n /somewhere\n\n ❯ No, exit\n   Yes, add it\n\n\n";
+    /** A Planner for #5 launched now whose prompt Claude Code has not taken (like the real runner's launch). */
+    const stuckPlanner = async () => {
+      gh.items = [item(5)];
+      await coordinator.tick();
+      const id = runner.started.length;
+      store.patchSession(id, { coordinatorPromptPending: true });
+      runner.screens.set(id, SCREEN);
+      return id;
+    };
+
+    test("is failed with its screen 5 minutes after launch, once", async () => {
+      const id = await stuckPlanner();
+      now = new Date(now.getTime() + 4 * 60_000);
+      await coordinator.tick();
+      expect(runner.abandoned).toEqual([]);
+      expect(gh.items[0]?.labels).toEqual(["agent:planning"]);
+
+      now = new Date(now.getTime() + 2 * 60_000);
+      await coordinator.tick();
+      expect(runner.abandoned).toEqual([id]);
+      expect(gh.items[0]?.labels).toEqual(["agent:failed"]);
+      expect(failComments(5)).toHaveLength(1);
+      const body = String(failComments(5)[0]?.[2]);
+      expect(body).toContain("Planner session");
+      expect(body).toContain("did not start within 5 minutes");
+      expect(body).toContain("```\n Adding a new directory:\n\n /somewhere\n\n ❯ No, exit\n   Yes, add it\n```");
+      expect(store.sessions("octo/app")).toEqual([]);
+
+      gh.changed = true;
+      await coordinator.tick();
+      await coordinator.tick();
+      expect(failComments(5)).toHaveLength(1);
+      expect(runner.started).toHaveLength(1);
+    });
+
+    test("a session that took its prompt is never failed this way, however long its turn runs", async () => {
+      const id = await stuckPlanner();
+      store.patchSession(id, { state: "running", coordinatorPromptPending: false });
+      now = new Date(now.getTime() + 3 * 60 * 60_000);
+      await coordinator.tick();
+      expect(runner.abandoned).toEqual([]);
+      expect(failComments(5)).toHaveLength(0);
+    });
   });
 
   describe("REQ-001-44 a session that cannot be launched fails its issues once, with the error", () => {

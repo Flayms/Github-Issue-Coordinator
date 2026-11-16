@@ -32,6 +32,17 @@ export const USAGE_LIMIT_PAUSE_MIN = 30;
 export const MAX_SYNC_ATTEMPTS = 3;
 
 const IN_FLIGHT_LABELS = ["agent:planning", "agent:in-progress", "agent:reviewing"];
+/** REQ-001-57: Claude Code takes its prompt within seconds; a session that hasn't after this is stuck at a screen. */
+export const START_TIMEOUT_MS = 5 * 60_000;
+/** How much of a stuck session's screen its failure comment shows (REQ-001-57). */
+const SCREEN_LINES = 25;
+
+/** The last `n` lines of a screen, without trailing blank lines and trailing spaces. */
+function lastLines(screen: string, n: number): string {
+  const lines = screen.split("\n").map((l) => l.trimEnd());
+  while (lines.length && lines.at(-1) === "") lines.pop();
+  return lines.slice(-n).join("\n");
+}
 const PROPOSALS = ["proposed", "needs-refinement", "wontfix-proposed"];
 
 export interface CoordinatorDeps {
@@ -58,7 +69,10 @@ export interface CoordinatorDeps {
     | "createReview"
     | "listReviews"
   >;
-  runner: Pick<SessionRunner, "start" | "resume" | "close" | "sessionDir" | "liveSessionIds" | "answerDialogs">;
+  runner: Pick<
+    SessionRunner,
+    "start" | "resume" | "close" | "sessionDir" | "liveSessionIds" | "answerDialogs" | "screen" | "abandon"
+  >;
   clones: Pick<Clones, "mainClone">;
   worktrees: ImplementerDeps["worktrees"] & ReviewerDeps["worktrees"];
   now?: () => Date;
@@ -149,6 +163,7 @@ export class Coordinator {
     let planned: Queued[] = [];
     try {
       await this.syncTurns();
+      await this.failStalledStarts();
       const queue: Work[] = [];
       const jobs = new Map<string, Job>();
       const live = this.d.runner.liveSessionIds();
@@ -739,6 +754,33 @@ export class Coordinator {
     });
   }
 
+  /**
+   * REQ-001-57: a session whose prompt Claude Code has not taken 5 minutes after launch is stuck at a screen nobody
+   * answers (e.g. a new dialog); it would otherwise hold its Slot forever. Ends it and fails its issues with the screen.
+   */
+  private async failStalledStarts(): Promise<void> {
+    const live = this.d.runner.liveSessionIds();
+    for (const { name: repo } of this.d.config.repos) {
+      for (const s of this.d.store.sessions(repo)) {
+        const launched = Date.parse(s.lastActivityAt);
+        if (s.state !== "running" || !s.coordinatorPromptPending || !live.has(s.id)) continue;
+        if (this.now().getTime() - launched < START_TIMEOUT_MS) continue;
+        const screen = lastLines(this.d.runner.screen(s.id), SCREEN_LINES);
+        this.d.runner.abandon(s.id);
+        await this.fail(
+          repo,
+          s.issues,
+          `the session did not start within ${START_TIMEOUT_MS / 60_000} minutes, Claude Code stopped at a screen the Coordinator does not answer`,
+          s,
+          this.prOf(s),
+          screen ? `Its screen:\n\n\`\`\`\n${screen}\n\`\`\`` : undefined,
+        ).catch((e) =>
+          this.log(`session ${s.id}: could not report the failed start: ${e instanceof Error ? e.message : String(e)}`),
+        );
+      }
+    }
+  }
+
   /** The agent PR of an Implementer's or Reviewer's issues, if one is open. */
   private prOf(s: SessionRecord): number | undefined {
     if (s.role === "planner") return undefined;
@@ -766,7 +808,14 @@ export class Coordinator {
   }
 
   /** Labels the issues agent:failed with the reason and closes the session (REQ-001-16, REQ-001-21). */
-  private async fail(repo: string, issues: number[], reason: string, session?: SessionRecord, pr?: number) {
+  private async fail(
+    repo: string,
+    issues: number[],
+    reason: string,
+    session?: SessionRecord,
+    pr?: number,
+    details?: string,
+  ) {
     const note = agentNote({ owner: this.d.config.owner.login });
     const by = session ? ` (${ROLE_NAMES[session.role]} session)` : "";
     for (const n of issues) {
@@ -775,7 +824,11 @@ export class Coordinator {
         for (const l of ["agent:pr-open", "agent:reviewed"]) await this.d.gh.removeLabel(repo, n, l);
       await this.d.gh.addLabels(repo, n, ["agent:failed"]);
       this.d.store.updateIssue(repo, n, { pendingFeedback: null, reviewFindings: null });
-      await this.d.gh.createComment(repo, n, `${note}\n\nThe Coordinator gave up on this issue${by}: ${reason}.`);
+      await this.d.gh.createComment(
+        repo,
+        n,
+        `${note}\n\nThe Coordinator gave up on this issue${by}: ${reason}.${details ? `\n\n${details}` : ""}`,
+      );
     }
     if (session) {
       try {
