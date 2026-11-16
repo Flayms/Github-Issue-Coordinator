@@ -9,11 +9,15 @@
  * sandbox confines Bash (REQ-001-25, -26, -27): it runs probe.sh, which tries a write outside the
  * repo, a read of a secret, and network requests, and records what each did. A fake secret is used
  * unless --secret points at a real file (its content only goes to /dev/null). Exits 1 on a mismatch.
+ * With --screenshot (implementer only, REQ-001-53) the session also runs shoot.sh, which serves a fixture
+ * page on localhost and shoots it with the host's headless browser, as an Implementer would for its
+ * Screenshots. It reports pass, fail with the browser's error, or inconclusive if shoot.sh never ran.
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { BROWSERS, isPng, screenshotArgs } from "../src/browser.ts";
 import { SessionRunner } from "../src/runner.ts";
 import { Store } from "../src/store.ts";
 import { TmuxCli } from "../src/tmux.ts";
@@ -24,6 +28,7 @@ const { values: opts } = parseArgs({
     model: { type: "string", default: "haiku" },
     keep: { type: "boolean", default: false },
     secret: { type: "string" },
+    screenshot: { type: "boolean", default: false },
   },
 });
 const root = mkdtempSync(join(tmpdir(), "coordinator-smoke-"));
@@ -67,7 +72,49 @@ writeFileSync(
     "",
   ].join("\n"),
 );
-Bun.spawnSync(["git", "-C", repo, "add", "probe.sh"]);
+// REQ-001-53: the Screenshot scenario's files. shoot.txt gets "pass" or "fail: <error>".
+const shot = join(repo, ".coordinator", "screenshots", "smoke.png");
+const shootFile = join(repo, "shoot.txt");
+writeFileSync(join(repo, ".git", "info", "exclude"), ".coordinator/\n");
+writeFileSync(join(repo, "index.html"), "<!doctype html><title>smoke</title><h1>Screenshot smoke test</h1>\n");
+writeFileSync(
+  join(repo, "serve.ts"),
+  [
+    "// Serves index.html (from the cwd) on a free localhost port and writes the port to port.txt.",
+    "const server = Bun.serve({",
+    '  hostname: "127.0.0.1",',
+    "  port: 0,",
+    '  fetch: () => new Response(Bun.file("index.html"), { headers: { "content-type": "text/html" } }),',
+    "});",
+    'await Bun.write("port.txt", String(server.port));',
+    "",
+  ].join("\n"),
+);
+const browserArgs = screenshotArgs(shot, "http://127.0.0.1:$port/", join(repo, ".coordinator", "chrome-profile"))
+  .map((a) => `"${a}"`)
+  .join(" ");
+writeFileSync(
+  join(repo, "shoot.sh"),
+  [
+    "#!/bin/sh",
+    "# Screenshot self-test of the Coordinator's smoke runner: serves index.html and shoots it with the host's browser.",
+    'fail() { echo "fail: $1" > shoot.txt; [ -n "$server" ] && kill "$server" 2>/dev/null; exit 0; }',
+    `browser=$(${BROWSERS.map((b) => `command -v ${b}`).join(" || ")})`,
+    '[ -n "$browser" ] || fail "no Chrome or Chromium on PATH"',
+    "mkdir -p .coordinator/screenshots && rm -f port.txt",
+    `'${process.execPath}' serve.ts & server=$!`,
+    "i=0; while [ ! -s port.txt ] && [ $i -lt 50 ]; do sleep 0.2; i=$((i + 1)); done",
+    '[ -s port.txt ] || fail "the fixture server did not start"',
+    "port=$(cat port.txt)",
+    `timeout 90 "$browser" ${browserArgs} > shoot.log 2>&1`,
+    "code=$?",
+    "[ \"$code\" -eq 0 ] || fail \"$browser exit code $code: $(tail -n 5 shoot.log | tr '\\n' ' ')\"",
+    `[ -s '${shot}' ] || fail "$browser exited 0 but wrote no screenshot: $(tail -n 5 shoot.log | tr '\\n' ' ')"`,
+    'kill "$server"; echo pass > shoot.txt',
+    "",
+  ].join("\n"),
+);
+Bun.spawnSync(["git", "-C", repo, "add", "probe.sh", "index.html", "serve.ts", "shoot.sh"]);
 Bun.spawnSync([
   "git",
   "-C",
@@ -89,6 +136,11 @@ const PROMPTS = {
     "Bash. Then run `sh probe.sh` with Bash exactly once: it is the Owner's self-test of your shell sandbox and is " +
     "expected to have some of its actions denied; do not retry, change or work around it. Create the file smoke.txt " +
     'containing "ok", and commit all files with git (message "smoke"). ' +
+    (opts.screenshot
+      ? "Then run `sh shoot.sh` with Bash exactly once: it is the Owner's self-test of taking a Screenshot with the " +
+        "host's browser in your sandbox and may fail; do not retry, change or work around it, and do not download " +
+        "or install a browser. "
+      : "") +
     'Your Result: prTitle "smoke", prBody "smoke", summary: one short sentence about what you did.',
   reviewer:
     "Automated smoke test of the Coordinator's session runner. First try to create the file forbidden.txt in the " +
@@ -131,6 +183,19 @@ async function waitIdle(id: number, label: string, ms = 240_000) {
   }
   console.log(`\n${tmux.capture(`s${id}`)}`);
   throw new Error(`timeout waiting for ${label}`);
+}
+
+/** REQ-001-53: pass, fail with the browser's error, or inconclusive when shoot.sh never ran. */
+function screenshotReport() {
+  if (!existsSync(shootFile)) {
+    console.log("  ? screenshot: inconclusive");
+    mismatches.push("shoot.txt missing: shoot.sh did not run (refused by auto mode?), screenshot inconclusive");
+    return;
+  }
+  const outcome = readFileSync(shootFile, "utf8").trim();
+  const ok = outcome === "pass" && isPng(shot);
+  console.log(`  ${ok ? "✓" : "✗"} screenshot with the host browser: ${ok ? `pass (${shot})` : outcome}`);
+  if (!ok) mismatches.push(`screenshot: ${outcome === "pass" ? `${shot} is not a PNG` : outcome}`);
 }
 
 /** Compares probe.txt with the expected outcomes and with what can be seen from outside the sandbox. */
@@ -181,8 +246,10 @@ try {
   const events = (await Bun.file(join(runner.sessionDir(id), "events.jsonl")).text()).split("\n");
   const notes = events.filter((l) => l.includes('"Notification"')).map((l) => JSON.parse(l).payload.notification_type);
   console.log(`  notifications: ${notes.length ? notes.join(", ") : "none"}`);
-  if (role === "implementer") sandboxReport();
-  else {
+  if (role === "implementer") {
+    sandboxReport();
+    if (opts.screenshot) screenshotReport();
+  } else {
     const verdict = `git log --output into the cwd: expected denied → ${existsSync(outputProbe) ? "allowed" : "denied"}`;
     console.log(`  ${existsSync(outputProbe) ? "✗" : "✓"} ${verdict}`);
     if (existsSync(outputProbe)) mismatches.push(`${outputProbe} exists`);
