@@ -4,8 +4,9 @@
  * (docs/setup.md) and prints what is missing. Read-only: it changes nothing.
  */
 import { accessSync, constants, existsSync, readFileSync } from "node:fs";
-import { userInfo } from "node:os";
+import { tmpdir, userInfo } from "node:os";
 import { dirname } from "node:path";
+import { checkBrowserStarts, findBrowser } from "./browser.ts";
 import { loadConfig } from "./config.ts";
 import { AppAuth, createAppJwt } from "./github/app-auth.ts";
 import { API, baseHeaders } from "./github/http.ts";
@@ -70,15 +71,16 @@ if (existsSync("/etc/apparmor.d/bwrap-userns-restrict") && existsSync("/etc/appa
   );
 }
 
-// REQ-001-48: the Implementer captures Screenshots of UI changes with the host's headless browser.
-const browser = ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"].find((b) => Bun.which(b));
-const browserVersion = browser ? run([browser, "--version"]) : undefined;
+// REQ-001-48 / REQ-001-52: the Implementer captures Screenshots of UI changes with the host's headless browser.
+// This starts it outside the sandbox; whether it also starts inside one is the smoke runner's --screenshot run.
+const browser = findBrowser();
+const browserStart = browser ? checkBrowserStarts(browser, tmpdir()) : undefined;
 report(
-  browserVersion?.ok ? "ok" : "warn",
+  browserStart?.ok ? "ok" : "warn",
   "headless browser for Screenshots",
-  browserVersion?.ok
-    ? `${browser}: ${browserVersion.out}`
-    : "no working Chrome or Chromium found; Implementers can't capture Screenshots of UI changes (see docs/setup.md step 1)",
+  !browser
+    ? "no Chrome or Chromium found; Implementers can't capture Screenshots of UI changes (see docs/setup.md step 1)"
+    : `${browser} ${browserStart?.ok ? "" : "does not start headless: "}${browserStart?.detail}`,
 );
 
 const auth = run(["claude", "auth", "status"]);

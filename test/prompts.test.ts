@@ -104,6 +104,18 @@ describe("prompts (REQ-002)", () => {
     ]);
   });
 
+  test("REQ-002-13 the Implementer prompt uses only the host browser with --no-sandbox and never downloads one", () => {
+    expectAll(prompt("implementer"), [
+      /host's headless Chrome or Chromium/i,
+      /--no-sandbox/,
+      /never download or install/i,
+      /npm/,
+      /playwright install/i,
+      /quote the error/i,
+      /auto mode/i,
+    ]);
+  });
+
   test("REQ-002-05 the Reviewer prompt checks against the Assessment with a checklist and well-founded findings", () => {
     expectAll(prompt("reviewer"), [
       /Assessment/,
