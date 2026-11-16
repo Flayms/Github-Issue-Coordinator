@@ -272,6 +272,26 @@ describe("Implementer run", () => {
     ]);
   });
 
+  test("REQ-003-15 an opened PR records one Event; a turn without commits records a failure", async () => {
+    const id = await impl.start("octo/app", [item(5), item(6)]);
+    wt.ahead = 1;
+    finish(id, { prTitle: "Dark mode", prBody: "B", summary: "S" });
+    await impl.sync(id);
+    expect(store.events().map((e) => [e.kind, e.issues, e.pr, e.text])).toEqual([
+      ["pr-opened", [5, 6], 77, "PR #77 opened for #5, #6: Dark mode"],
+    ]);
+
+    const other = await impl.start("octo/app", [item(8)]);
+    wt.ahead = 0;
+    finish(other, { prTitle: "-", prBody: "-", summary: "Nothing to do" });
+    await impl.sync(other);
+    expect(store.events()[0]).toMatchObject({
+      kind: "failed",
+      issues: [8],
+      text: "#8 failed: the Implementer finished without committing anything",
+    });
+  });
+
   const withPr = async () => {
     const id = await impl.start("octo/app", [item(5)]);
     store.setClaudeSessionId(id, "claude-1");

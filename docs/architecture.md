@@ -13,7 +13,7 @@ flowchart LR
   D -. Tailscale / SSH tunnel .-> P
 ```
 
-At the end of every tick the Coordinator publishes a Tick snapshot (issues, agent PRs, sessions, the queue with wait reasons). The dashboard (on by default, [spec 003](specs/003-dashboard/spec.md)) serves only that snapshot: no GitHub calls, no store writes.
+At the end of every tick the Coordinator publishes a Tick snapshot (issues, agent PRs, sessions, the queue with wait reasons, the recent Events). Whenever the Coordinator acts on GitHub (an Assessment, an approval, a block, an agent PR, a Review, a Feedback round, a failure) it records an Event in the store, capped at 200 (REQ-003-15). The dashboard (on by default, [spec 003](specs/003-dashboard/spec.md)) serves only that snapshot: no GitHub calls, no store writes.
 
 ## Modules
 
@@ -31,7 +31,8 @@ At the end of every tick the Coordinator publishes a Tick snapshot (issues, agen
 | `src/labels.ts`                | The `agent:*` labels that carry state on GitHub                                                                                                                                                                                                                  | T3 done  |
 | `src/github/app-auth.ts`       | GitHub App JWT; installation token per repository owner, cached until near expiry                                                                                                                                                                                | T3 done  |
 | `src/github/client.ts`         | REST client: ETag polling (open items; open PRs with head branch), comments, timeline label actor, labels, PRs (incl. state, mergeability, draft status via GraphQL), Reviews, checks                                                                            | T3 done  |
-| `src/store.ts`                 | `bun:sqlite`: sessions (Role, issues, Claude session id, state), per-issue bookkeeping and Split-off issues                                                                                                                                                      | T4 done  |
+| `src/store.ts`                 | `bun:sqlite`: sessions (Role, issues, Claude session id, state), per-issue bookkeeping, Split-off issues and the newest 200 Events                                                                                                                               | T4 done  |
+| `src/events.ts`                | Records an Event after a GitHub action; a store error is only logged (REQ-003-15)                                                                                                                                                                                | done     |
 | `src/state.ts`                 | Pure: issue state from labels; actions from labels, store and live tmux windows                                                                                                                                                                                  | T4 done  |
 | `src/scheduler.ts`             | Pure: which queued work starts, which idle sessions close (Slots, priority, pause, live limit)                                                                                                                                                                   | T5 done  |
 | `src/runner.ts`, `src/tmux.ts` | Start/resume/close `claude --remote-control` sessions in tmux windows `s<id>` (prompt via a file); answer the trust dialog                                                                                                                                       | T6 done  |
