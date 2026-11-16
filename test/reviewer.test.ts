@@ -31,11 +31,18 @@ class FakeGitHub {
   calls: unknown[][] = [];
   rejectInline = false;
   rejectAssignees = false;
+  /** Labels on each issue and PR, as GitHub would have them after the calls. */
+  labels = new Map<number, Set<string>>();
   async addLabels(_r: string, issue: number, labels: string[]) {
     this.calls.push(["addLabels", issue, labels]);
+    for (const l of labels) this.labels.set(issue, new Set([...(this.labels.get(issue) ?? []), l]));
   }
   async removeLabel(_r: string, issue: number, label: string) {
     this.calls.push(["removeLabel", issue, label]);
+    return this.labels.get(issue)?.delete(label) ?? false;
+  }
+  agentLabels(n: number) {
+    return [...(this.labels.get(n) ?? [])].filter((l) => l.startsWith("agent:")).sort();
   }
   async createComment(_r: string, issue: number, body: string) {
     this.calls.push(["createComment", issue, body]);
@@ -164,6 +171,7 @@ describe("Reviewer run", () => {
     expect(gh.of("addLabels")).toEqual([
       ["addLabels", 5, ["agent:reviewing"]],
       ["addLabels", 6, ["agent:reviewing"]],
+      ["addLabels", 9, ["agent:reviewing"]], // REQ-001-54
     ]);
   });
 
@@ -209,6 +217,7 @@ describe("Reviewer run", () => {
     expect(gh.of("addLabels")).toEqual([
       ["addLabels", 5, ["agent:in-progress"]],
       ["addLabels", 6, ["agent:in-progress"]],
+      ["addLabels", 9, ["agent:in-progress"]], // REQ-001-54
     ]);
     const pending = store.issue("octo/app", 5).pendingFeedback ?? "";
     expect(pending).toContain("1. **high** `src/a.ts:3`: Crashes on empty input");
@@ -301,7 +310,10 @@ describe("Reviewer run", () => {
     gh.calls = [];
     store.patchSession(id, { state: "idle", needsSync: true, resultFailures: 3 });
     await reviewer.sync(id);
-    expect(gh.of("addLabels")).toEqual([["addLabels", 5, ["agent:failed"]]]);
+    expect(gh.of("addLabels")).toEqual([
+      ["addLabels", 5, ["agent:failed"]],
+      ["addLabels", 9, ["agent:failed"]], // REQ-001-54
+    ]);
     expect(runner.closed).toEqual([id]);
     expect(wt.removed).toEqual(["/reviews/9"]);
   });
@@ -313,5 +325,37 @@ describe("Reviewer run", () => {
     expect(store.events().map((e) => [e.kind, e.issues, e.pr, e.text])).toEqual([
       ["failed", [5], 9, "#5 failed: the Reviewer could not produce a valid Result"],
     ]);
+  });
+});
+
+describe("REQ-001-54 an agent PR shows its state", () => {
+  beforeEach(() => {
+    for (const n of [5, 6, 9]) gh.labels.set(n, new Set(["agent:pr-open"]));
+  });
+
+  test("REQ-001-54 starting a Review labels the PR agent:reviewing, like its issues", async () => {
+    await reviewer.start("octo/app", 9, [item(5), item(6)], "h1");
+    for (const n of [5, 6, 9]) expect(gh.agentLabels(n)).toEqual(["agent:reviewing"]);
+  });
+
+  test("REQ-001-54 a Review with findings labels the PR agent:in-progress, like its issues", async () => {
+    const id = await reviewer.start("octo/app", 9, [item(5), item(6)], "h1");
+    finish(id, [finding()]);
+    await reviewer.sync(id);
+    for (const n of [5, 6, 9]) expect(gh.agentLabels(n)).toEqual(["agent:in-progress"]);
+  });
+
+  test("REQ-001-54 a Review without findings labels the PR agent:reviewed alone", async () => {
+    const id = await reviewer.start("octo/app", 9, [item(5), item(6)], "h1");
+    finish(id, []);
+    await reviewer.sync(id);
+    for (const n of [5, 6, 9]) expect(gh.agentLabels(n)).toEqual(["agent:reviewed"]);
+  });
+
+  test("REQ-001-54 a Reviewer that gave up on its Result labels the PR agent:failed", async () => {
+    const id = await reviewer.start("octo/app", 9, [item(5), item(6)], "h1");
+    store.patchSession(id, { state: "idle", needsSync: true, resultFailures: 3 });
+    await reviewer.sync(id);
+    for (const n of [5, 6, 9]) expect(gh.agentLabels(n)).toEqual(["agent:failed"]);
   });
 });

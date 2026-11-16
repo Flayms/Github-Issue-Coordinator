@@ -9,6 +9,7 @@ import { recordEvent, refs } from "./events.ts";
 import type { Clones } from "./git.ts";
 import type { Actor, Comment, GitHubClient, Item } from "./github/client.ts";
 import { Implementer, type ImplementerDeps } from "./implementer.ts";
+import { labelPr } from "./labels.ts";
 import { agentNote, ROLE_NAMES } from "./note.ts";
 import { bodyHash, Planner } from "./planner.ts";
 import { Reviewer, type ReviewerDeps } from "./reviewer.ts";
@@ -784,7 +785,7 @@ export class Coordinator {
       }
     }
     if (pr !== undefined) {
-      await this.d.gh.addLabels(repo, pr, ["agent:failed"]);
+      await labelPr(this.d.gh, repo, pr, "agent:failed");
       // REQ-001-31: a failed PR stays (or goes back to) draft; giving up must not fail on this.
       await this.d.gh
         .setDraft(repo, pr, true)

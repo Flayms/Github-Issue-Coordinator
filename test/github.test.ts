@@ -188,6 +188,15 @@ describe("GitHub client", () => {
     ]);
   });
 
+  test("REQ-001-54 removing a label says whether the issue or PR had it", async () => {
+    const { gh } = client({
+      "DELETE /repos/octo/app/issues/5/labels/agent:reviewed": { body: [] },
+      "DELETE /repos/octo/app/issues/5/labels/agent:failed": { status: 404, body: { message: "Label does not exist" } },
+    });
+    expect(await gh.removeLabel("octo/app", 5, "agent:reviewed")).toBe(true);
+    expect(await gh.removeLabel("octo/app", 5, "agent:failed")).toBe(false);
+  });
+
   test("creates only the agent labels a repository is missing", async () => {
     const { gh, requests } = client({
       "GET /repos/octo/app/labels": { body: [{ name: "agent:approved" }, { name: "bug" }] },

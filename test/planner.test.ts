@@ -72,6 +72,7 @@ class FakeGitHub {
   }
   async removeLabel(repo: string, issue: number, label: string) {
     this.calls.push(["removeLabel", repo, issue, label]);
+    return true;
   }
   failCreateComment = 0;
   async createComment(repo: string, issue: number, body: string) {

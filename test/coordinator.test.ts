@@ -65,8 +65,10 @@ class FakeGitHub {
   async removeLabel(_r: string, issue: number, label: string) {
     this.calls.push(["removeLabel", issue, label]);
     const i = this.items.find((x) => x.number === issue);
+    const had = i?.labels.includes(label) ?? false;
     if (i) i.labels = i.labels.filter((l) => l !== label);
     this.changed = true;
+    return had;
   }
   async createComment(_r: string, issue: number, body: string) {
     this.calls.push(["createComment", issue, body]);
@@ -825,6 +827,54 @@ describe("reconcile loop", () => {
     expect(gh.items[0]?.labels).toEqual(["agent:in-progress"]);
   });
 
+  test("REQ-001-54 through Review, Feedback round, re-review and failure, the PR's agent label equals its issue's", async () => {
+    const impl = prOpen({ reviewedHeadSha: null });
+    const agent = (n: number) =>
+      (gh.items.find((i) => i.number === n)?.labels ?? []).filter((l) => l.startsWith("agent:"));
+    const same = (label: string) => {
+      expect(agent(5)).toEqual([label]);
+      expect(agent(70)).toEqual([label]);
+    };
+    await coordinator.tick(); // Review starts
+    same("agent:reviewing");
+    const review = (id: number, findings: unknown[]) => {
+      writeFileSync(join(runner.sessionDir(id), "result.json"), JSON.stringify({ summary: "S", findings }));
+      store.patchSession(id, { state: "idle", needsSync: true });
+    };
+    review(impl + 1, [{ path: "a.ts", line: 1, severity: "high", body: "crash" }]);
+    await coordinator.tick(); // findings
+    same("agent:in-progress");
+    await coordinator.tick(); // the Feedback round starts
+    expect(runner.resumed).toHaveLength(1);
+    same("agent:in-progress");
+
+    worktrees.headSha = "h2";
+    gh.heads.set(70, "h2");
+    mkdirSync(runner.sessionDir(impl), { recursive: true });
+    writeFileSync(
+      join(runner.sessionDir(impl), "result.json"),
+      JSON.stringify({
+        prTitle: "T",
+        prBody: "B",
+        summary: "Fixed",
+        responses: [{ finding: 1, answer: "fixed", reason: "Guarded" }],
+      }),
+    );
+    store.patchSession(impl, { state: "idle", needsSync: true });
+    gh.changed = true;
+    await coordinator.tick(); // the round ends, then the re-review starts
+    expect(runner.started.at(-1)?.role).toBe("reviewer");
+    same("agent:reviewing");
+    review(store.latestSession("octo/app", 5, "reviewer")?.id ?? 0, []);
+    await coordinator.tick();
+    same("agent:reviewed");
+
+    store.updateIssue("octo/app", 5, { pendingFeedback: "Blocking: crash", feedbackRounds: 2 });
+    gh.changed = true;
+    await coordinator.tick(); // past maxFeedbackRounds
+    same("agent:failed");
+  });
+
   test("REQ-001-11 past maxFeedbackRounds the PR and its issue are labelled agent:failed", async () => {
     prOpen({ pendingFeedback: "Blocking: crash", reviewFindings: "[]", feedbackRounds: 2 });
     await coordinator.tick();
@@ -936,7 +986,7 @@ describe("reconcile loop", () => {
     expect(runner.resumed).toEqual([[id, expect.stringMatching(/fix the conflicts[\s\S]*git merge origin\/main/)]]);
     expect(store.issue("octo/app", 5).feedbackRounds).toBe(2);
     expect(gh.items[0]?.labels).toEqual(["agent:in-progress"]);
-    expect(gh.items[1]?.labels).toEqual([]);
+    expect(gh.items[1]?.labels).toEqual(["agent:in-progress"]); // REQ-001-54
   });
 
   test("REQ-001-13 past maxFeedbackRounds, failing checks give up once per head, not on every tick", async () => {

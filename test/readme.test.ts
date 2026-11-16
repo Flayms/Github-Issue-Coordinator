@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { AGENT_LABELS } from "../src/labels.ts";
+import { AGENT_LABELS, PR_PHASE_LABELS } from "../src/labels.ts";
 
 const readme = readFileSync(join(import.meta.dir, "..", "README.md"), "utf8");
 const labelsSection = readme.split(/^## Labels$/m)[1]?.split(/^## /m)[0] ?? "";
@@ -9,6 +9,13 @@ const labelsSection = readme.split(/^## Labels$/m)[1]?.split(/^## /m)[0] ?? "";
 describe("README Labels section", () => {
   test("has a state diagram", () => {
     expect(labelsSection).toContain("```mermaid\nstateDiagram-v2");
+  });
+
+  test("REQ-001-54 says that an agent PR carries its issues' PR-phase label, in the text and the diagram", () => {
+    const sentence = labelsSection.match(/^Each issue's state .*$/m)?.[0] ?? "";
+    expect(sentence).toContain("the PR carries the same label as its issues");
+    for (const l of PR_PHASE_LABELS) expect(sentence).toContain(`\`${l}\``);
+    expect(labelsSection).toMatch(/^ *note .*the agent PR carries the same label as its issues$/m);
   });
 
   for (const { name } of AGENT_LABELS)
