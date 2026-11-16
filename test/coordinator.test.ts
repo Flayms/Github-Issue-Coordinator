@@ -95,6 +95,9 @@ class FakeGitHub {
   async setDraft(_r: string, pr: number, draft: boolean) {
     this.calls.push(["setDraft", pr, draft]);
   }
+  async requestReviewers(_r: string, pr: number, reviewers: string[]) {
+    this.calls.push(["requestReviewers", pr, reviewers]);
+  }
   heads = new Map<number, string>();
   checkState: "none" | "pending" | "success" | "failure" = "success";
   mergeable: boolean | null = true;
@@ -698,7 +701,7 @@ describe("reconcile loop", () => {
     expect(gh.calls.filter((c) => c[0] === "setDraft")).toEqual([]);
   });
 
-  test("REQ-001-10 / REQ-001-23 an agent PR is reviewed once its checks pass, then the Reviewer closes", async () => {
+  test("REQ-001-10 / REQ-001-23 / REQ-001-46 an agent PR is reviewed once its checks pass, then the Reviewer closes, asking the Owner for a review", async () => {
     gh.items = [item(5, ["agent:pr-open"]), item(70, [], { isPullRequest: true, author: { login: "bot", id: 1 } })];
     store.updateIssue("octo/app", 5, { worktreePath: "/wt/5", prNumber: 70 });
     gh.checkState = "pending";
@@ -717,6 +720,7 @@ describe("reconcile loop", () => {
     expect(gh.calls).toContainEqual(["createReview", 70, "h1"]);
     expect(gh.items[0]?.labels).toEqual(["agent:reviewed"]);
     expect(gh.calls).toContainEqual(["setDraft", 70, false]); // REQ-001-31
+    expect(gh.calls).toContainEqual(["requestReviewers", 70, ["octo"]]); // REQ-001-46
     expect(store.session(1)?.state).toBe("closed");
     await coordinator.tick();
     expect(runner.started).toHaveLength(1);
