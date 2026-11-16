@@ -48,12 +48,11 @@
     }
   }
 
-  // REQ-003-14: a slow dark-metal height field. Off for reduced motion, paused in a hidden tab,
-  // drawn at reduced scale and about 30 frames a second to save battery; without WebGL the static
-  // gradient of the page stays.
-  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)");
+  // REQ-003-14: a slow dark-metal height field. Always on, also for reduced motion (the Owner's
+  // call; it moves slowly). Paused in a hidden tab, drawn at reduced scale and about 30 frames a
+  // second to save battery; without WebGL the static gradient of the page stays.
   const canvas = document.getElementById("bg");
-  if (!(canvas instanceof HTMLCanvasElement) || reduce.matches) return;
+  if (!(canvas instanceof HTMLCanvasElement)) return;
   const gl = canvas.getContext("webgl", { antialias: false, depth: false, powerPreference: "low-power" });
   if (!gl) return;
 
@@ -167,18 +166,12 @@ void main(){
     canvas.classList.add("on");
   };
   const run = () => {
-    if (!frame && !document.hidden && !reduce.matches) frame = requestAnimationFrame(draw);
+    if (!frame && !document.hidden) frame = requestAnimationFrame(draw);
   };
   const stop = () => {
     cancelAnimationFrame(frame);
     frame = 0;
   };
   document.addEventListener("visibilitychange", () => (document.hidden ? stop() : run()));
-  reduce.addEventListener("change", () => {
-    if (reduce.matches) {
-      stop();
-      canvas.classList.remove("on");
-    } else run();
-  });
   run();
 })();
