@@ -109,6 +109,13 @@ The Owner gets plans they can approve on a phone, code that matches those plans,
 - **And** it uses only the host's browser, started with `--no-sandbox` and its config and cache in a temporary folder (REQ-001-53), and never downloads or installs one (a Chromium from npm, `playwright install`)
 - **And** if it can't capture them (no browser, the browser won't start, or auto mode refuses the command), it says so in `prBody`, quotes the error, and doesn't try other ways or fail the task
 
+### REQ-002-14 Agents look up missing context on GitHub
+
+- **Given** the default prompt of any Role
+- **When** something its context refers to is missing (an earlier comment, a linked issue or PR, a mockup or file attached to a comment)
+- **Then** it reads it on GitHub with `gh` (REQ-001-55) before saying it is missing
+- **And** it knows its token is read-only and leaves posting, labelling and pushing to the Coordinator
+
 ## Out of scope
 
 - Letting the Reviewer run the test suite or linters (it would execute the PR's code; REQ-001-25 stays as it is).
@@ -141,4 +148,5 @@ The Owner gets plans they can approve on a phone, code that matches those plans,
 | REQ-002-13 | `prompts > REQ-002-13 the Implementer prompt captures Screenshots of UI changes when the conventions ask, or says why not`                          | pass (wording only; quality via a real run)              |
 | REQ-002-13 | `prompts > REQ-002-13 the Implementer prompt uses only the host browser with --no-sandbox and never downloads one`                                  | pass (wording only; quality via a real run)              |
 | REQ-002-13 | `prompts > REQ-002-13 the Implementer prompt keeps the browser's config and cache out of the read-only home folder`                                 | pass (wording only; quality via a real run)              |
+| REQ-002-14 | `prompts > REQ-002-14 every default prompt reads missing GitHub context with gh before calling it missing, and never writes`                        | pass (wording only; quality via a real run)              |
 | all        | manual: one real run per Role                                                                                                                       | open (to be done by the Owner on this PR via dogfooding) |

@@ -42,6 +42,14 @@ const READ_ONLY = [
   "Bash(git ls-files:*)",
   "WebSearch",
   "WebFetch",
+  // REQ-001-55: read GitHub. The session's token is read-only, so GitHub refuses a write even through `gh api`.
+  "Bash(gh issue view:*)",
+  "Bash(gh issue list:*)",
+  "Bash(gh pr view:*)",
+  "Bash(gh pr list:*)",
+  "Bash(gh pr diff:*)",
+  "Bash(gh search:*)",
+  "Bash(gh api:*)",
 ];
 
 /** Sessions don't wait for routine permission prompts (REQ-001-25). */

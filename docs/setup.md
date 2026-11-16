@@ -10,7 +10,7 @@ The Coordinator and its agent sessions run as one Linux user. A dedicated user (
 sudo bash deploy/create-agent-user.sh
 ```
 
-It installs tmux, git and the sandbox tools (bubblewrap, socat), creates the `agent` user, installs Bun and Claude Code for it, clones this repository to `/home/agent/github-issue-coordinator` and creates `~/.config/coordinator` for the GitHub App key. It is safe to run again.
+It installs tmux, git, the GitHub CLI (`gh`, which agents use to read GitHub with a read-only token, REQ-001-55) and the sandbox tools (bubblewrap, socat), creates the `agent` user, installs Bun and Claude Code for it, clones this repository to `/home/agent/github-issue-coordinator` and creates `~/.config/coordinator` for the GitHub App key. It is safe to run again.
 
 **Ubuntu 24.04 and later:** Ubuntu's AppArmor profile `bwrap-userns-restrict` stops Claude Code's sandbox from working, and the Implementer then can't run any command. Replace it with the profile the [Claude Code sandboxing docs](https://code.claude.com/docs/en/sandboxing) recommend. Both define the profile named `bwrap`, so Ubuntu's has to be turned off:
 
@@ -61,7 +61,7 @@ Create a private GitHub App: GitHub → Settings → Developer settings → GitH
 
 - Name: anything, e.g. `my-issue-coordinator`. Homepage URL: this repository.
 - Webhook: untick **Active** (the Coordinator polls).
-- Repository permissions: **Issues** read & write, **Pull requests** read & write, **Contents** read & write, **Workflows** read & write, **Checks** read-only, **Metadata** read-only. Nothing else. Workflows lets the Implementer push changes to `.github/workflows/`; without it GitHub rejects any push that touches a workflow file.
+- Repository permissions: **Issues** read & write, **Pull requests** read & write, **Contents** read & write, **Workflows** read & write, **Checks** read-only, **Metadata** read-only. Nothing else. Workflows lets the Implementer push changes to `.github/workflows/`; without it GitHub rejects any push that touches a workflow file. Agent sessions get a second token of the same installation, limited to Contents, Issues, Pull requests, Checks and Metadata read-only (REQ-001-55), so they can read but never write.
 - Where can it be installed: **Only on this account**.
 
 After creating it:
