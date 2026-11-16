@@ -3,7 +3,8 @@
  * green = ready, mergeable, passing; amber = needs the Owner; red = conflicts, blocked, failed.
  * Divided rows instead of cards; the only glass panel is "Ready to merge"; the frosted band holds
  * Up next and the Pipeline. Fonts are served from this origin (REQ-003-09). The look follows the
- * Owner's mockup in #41 (#70): `.hover-row` is its row hover, `.flowing` its running line.
+ * Owner's mockup in #41 (#70): the hover on `a.row` and `.items > li` is its row hover, `.flowing`
+ * its running line.
  */
 @font-face {
   font-family: "Plus Jakarta Sans";
