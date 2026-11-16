@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Clones } from "../src/git.ts";
@@ -165,5 +165,56 @@ describe("worktrees", () => {
     await w.create("octo/app", [5], "fix it");
     expect(w.attach("octo/app", [5], "agent/5-fix-it")).rejects.toThrow("already exists");
     expect(w.attach("octo/app", [6], "agent/5-fix-it")).rejects.toThrow("maxWorktrees");
+  });
+
+  test("REQ-001-48 every Worktree's git ignores .coordinator/ locally, also a re-used or re-attached one", async () => {
+    const w = make();
+    const wt = await w.create("octo/app", [5], "x");
+    mkdirSync(join(wt.path, ".coordinator", "screenshots"), { recursive: true });
+    writeFileSync(join(wt.path, ".coordinator", "screenshots", "a.png"), "png");
+    expect(git(wt.path, "status", "--porcelain")).toBe("");
+    expect(git(wt.path, "ls-files")).toBe("README.md"); // not via a tracked .gitignore
+    await w.create("octo/app", [5], "x");
+    const lines = readFileSync(join(wt.path, ".git", "info", "exclude"), "utf8").split("\n");
+    expect(lines.filter((l) => l === ".coordinator/")).toHaveLength(1);
+
+    git(origin, "branch", "agent/9-y");
+    const attached = await w.attach("octo/app", [9], "agent/9-y");
+    mkdirSync(join(attached.path, ".coordinator"), { recursive: true });
+    writeFileSync(join(attached.path, ".coordinator", "b.png"), "png");
+    expect(git(attached.path, "status", "--porcelain")).toBe("");
+  });
+
+  test("REQ-001-49 publishes Screenshots on the orphan branch agent-screenshots under pr-<n>/<head>/, one commit per publish", async () => {
+    const w = make();
+    const wt = await w.create("octo/app", [5], "x");
+    writeFileSync(join(wt.path, "f.txt"), "1");
+    git(wt.path, "add", "-A");
+    git(wt.path, "commit", "-qm", "work");
+    await w.push("octo/app", wt.path, wt.branch);
+    const head = w.head(wt.path);
+    const mainBefore = git(origin, "rev-parse", "main");
+
+    const first = await w.publishScreenshots("octo/app", 77, head, [{ name: "1-board.png", data: Buffer.from("A") }]);
+    expect(git(origin, "rev-parse", "agent-screenshots")).toBe(first);
+    expect(git(origin, "show", `${first}:pr-77/${head}/1-board.png`)).toBe("A");
+    expect(git(origin, "rev-list", "--parents", "-n", "1", first)).toBe(first); // no parent: an orphan
+    expect(Bun.spawnSync(["git", "merge-base", first, "main"], { cwd: origin }).exitCode).not.toBe(0);
+
+    const second = await w.publishScreenshots("octo/app", 77, "h2", [
+      { name: "1-board.png", data: Buffer.from("B") },
+      { name: "2-list.jpg", data: Buffer.from("C") },
+    ]);
+    expect(git(origin, "rev-parse", "agent-screenshots")).toBe(second);
+    expect(git(origin, "rev-parse", `${second}^`)).toBe(first);
+    expect(git(origin, "show", `${second}:pr-77/h2/2-list.jpg`)).toBe("C");
+    expect(git(origin, "show", `${second}:pr-77/${head}/1-board.png`)).toBe("A"); // earlier files stay
+    expect(git(origin, "show", `${first}:pr-77/${head}/1-board.png`)).toBe("A");
+
+    // Neither the default branch nor the PR branch nor the Worktree changes.
+    expect(git(origin, "rev-parse", "main")).toBe(mainBefore);
+    expect(git(origin, "rev-parse", wt.branch)).toBe(head);
+    expect(w.head(wt.path)).toBe(head);
+    expect(git(wt.path, "status", "--porcelain")).toBe("");
   });
 });

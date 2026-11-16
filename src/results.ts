@@ -4,6 +4,7 @@
  */
 import { z } from "zod";
 import type { Role } from "./config.ts";
+import { SCREENSHOT_DIR } from "./screenshots.ts";
 
 const issueRef = z.number().int().positive();
 
@@ -48,6 +49,12 @@ const implementerSchema = z.strictObject({
     )
     .optional()
     .describe("Only in a Feedback round with Review findings: one answer per finding (REQ-001-35)"),
+  screenshots: z
+    .array(z.strictObject({ path: z.string().min(1), caption: z.string().min(1) }))
+    .optional()
+    .describe(
+      `Screenshots of the pages your change affects (REQ-001-48): PNG or JPEG files you saved in ${SCREENSHOT_DIR}/, paths relative to the Worktree; at most 5, 2 MB each`,
+    ),
 });
 
 const reviewerSchema = z.strictObject({

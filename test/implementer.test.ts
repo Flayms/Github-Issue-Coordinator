@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseConfig } from "../src/config.ts";
@@ -89,6 +89,13 @@ class FakeWorktrees {
   }
   remove(path: string) {
     this.removed.push(path);
+  }
+  published: [string, number, string, { name: string; data: string }[]][] = [];
+  publishError: Error | null = null;
+  async publishScreenshots(repo: string, pr: number, head: string, files: { name: string; data: Uint8Array }[]) {
+    if (this.publishError) throw this.publishError;
+    this.published.push([repo, pr, head, files.map((f) => ({ name: f.name, data: Buffer.from(f.data).toString() }))]);
+    return `c0ffee${this.published.length}`;
   }
 }
 
@@ -537,5 +544,144 @@ describe("Implementer run", () => {
     await impl.start("octo/app", [item(5)]);
     expect(await impl.cleanup("octo/app", [5], "/wt/5")).toBe(false);
     expect(wt.removed).toEqual([]);
+  });
+});
+
+describe("Screenshots", () => {
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0]);
+  let tree: string;
+  const shot = (name: string, data: Buffer = PNG) => {
+    const p = join(tree, ".coordinator", "screenshots", name);
+    mkdirSync(join(p, ".."), { recursive: true });
+    writeFileSync(p, Buffer.concat([data, Buffer.from(name)]));
+    return `.coordinator/screenshots/${name}`;
+  };
+  const withShots = (screenshots: { path: string; caption: string }[], prBody = "Adds a board.") => ({
+    prTitle: "Board",
+    prBody,
+    summary: "Did it",
+    screenshots,
+  });
+  const lastBody = () => {
+    const update = gh.of("updatePull").at(-1) as [string, number, { body: string }] | undefined;
+    return update?.[2].body ?? "";
+  };
+  const start = async () => {
+    const id = await impl.start("octo/app", [item(5)]);
+    tree = mkdtempSync(join(dir, "tree-"));
+    store.updateIssue("octo/app", 5, { worktreePath: tree });
+    wt.ahead = 1;
+    return id;
+  };
+
+  test("REQ-001-49 / REQ-001-50 the first turn opens the PR, publishes the Screenshots for it and shows them after prBody, linked by commit", async () => {
+    const id = await start();
+    finish(id, withShots([{ path: shot("board.png"), caption: "The new board" }]));
+    await impl.sync(id);
+    expect(gh.of("createPull")).toHaveLength(1);
+    expect(wt.published).toEqual([["octo/app", 77, "h1", [{ name: "1-board.png", data: `${PNG}board.png` }]]]);
+    const body = lastBody();
+    expect(body).toContain(
+      "## Screenshots\n\n**The new board**\n\n![The new board](https://github.com/octo/app/raw/c0ffee1/pr-77/h1/1-board.png)",
+    );
+    expect(body.indexOf("Adds a board.")).toBeLessThan(body.indexOf("## Screenshots"));
+    expect(body.indexOf("## Screenshots")).toBeLessThan(body.indexOf("Closes #5"));
+  });
+
+  test("REQ-001-50 a later turn without screenshots keeps the last section; one with screenshots replaces it", async () => {
+    const id = await start();
+    finish(id, withShots([{ path: shot("board.png"), caption: "Board" }]));
+    await impl.sync(id);
+    finish(id, { prTitle: "Board", prBody: "Adds a board and a test.", summary: "Owner asked for a test" });
+    await impl.sync(id);
+    expect(wt.published).toHaveLength(1);
+    expect(lastBody()).toContain("and a test");
+    expect(lastBody()).toContain("raw/c0ffee1/pr-77/h1/1-board.png");
+
+    wt.headSha = "h2";
+    finish(id, withShots([{ path: shot("list.jpg", JPEG), caption: "List" }]));
+    await impl.sync(id);
+    expect(gh.of("updatePull")).toHaveLength(3); // one update per turn
+    expect(lastBody()).toContain("![List](https://github.com/octo/app/raw/c0ffee2/pr-77/h2/1-list.jpg)");
+    expect(lastBody()).not.toContain("c0ffee1");
+  });
+
+  test("REQ-001-51 files outside the folder, through a symlink, not regular, not PNG/JPEG, too large or beyond the fifth are skipped and named", async () => {
+    const id = await start();
+    const outside = join(dir, "secret.png");
+    writeFileSync(outside, PNG);
+    mkdirSync(join(tree, ".coordinator", "screenshots"), { recursive: true });
+    symlinkSync(outside, join(tree, ".coordinator", "screenshots", "link.png"));
+    mkdirSync(join(tree, ".coordinator", "screenshots", "dir.png"));
+    writeFileSync(join(tree, "src.png"), PNG);
+    const big = shot("big.png", Buffer.concat([PNG, Buffer.alloc(2 * 1024 * 1024)]));
+    const list = [
+      { path: shot("ok.png"), caption: "Ok" },
+      { path: "../secret.png", caption: "Traversal" },
+      { path: "src.png", caption: "Outside the folder" },
+      { path: ".coordinator/screenshots/link.png", caption: "Symlink" },
+      { path: ".coordinator/screenshots/dir.png", caption: "Folder" },
+      { path: shot("fake.png", Buffer.from("GIF89a")), caption: "GIF" },
+      { path: big, caption: "Big" },
+      { path: ".coordinator/screenshots/missing.png", caption: "Missing" },
+      { path: shot("also-ok.jpg", JPEG), caption: "Also ok" },
+    ];
+    finish(id, withShots(list));
+    await impl.sync(id);
+    // Only the first five entries are looked at; two of them pass.
+    expect(wt.published[0]?.[3].map((f) => f.name)).toEqual(["1-ok.png"]);
+    const body = lastBody();
+    expect(body).toContain("![Ok](");
+    expect(body).toContain("`../secret.png`: outside .coordinator/screenshots/");
+    expect(body).toContain("`src.png`: outside .coordinator/screenshots/");
+    expect(body).toContain("`.coordinator/screenshots/link.png`: outside .coordinator/screenshots/");
+    expect(body).toContain("`.coordinator/screenshots/dir.png`: not a regular file");
+    for (const p of [list[5], list[6], list[7], list[8]])
+      expect(body).toContain(`\`${p?.path}\`: more than 5 Screenshots`);
+    expect(gh.of("createPull")).toHaveLength(1);
+  });
+
+  test("REQ-001-51 wrong first bytes, a file over 2 MB and a missing file are skipped with the reason", async () => {
+    const id = await start();
+    const list = [
+      { path: shot("fake.png", Buffer.from("GIF89a")), caption: "GIF" },
+      { path: shot("big.png", Buffer.concat([PNG, Buffer.alloc(2 * 1024 * 1024)])), caption: "Big" },
+      { path: ".coordinator/screenshots/missing.png", caption: "Missing" },
+      { path: shot("photo.jpeg", JPEG), caption: "Photo" },
+    ];
+    finish(id, withShots(list));
+    await impl.sync(id);
+    expect(wt.published[0]?.[3].map((f) => f.name)).toEqual(["1-photo.jpg"]);
+    const body = lastBody();
+    expect(body).toContain("`.coordinator/screenshots/fake.png`: not a PNG or JPEG");
+    expect(body).toContain("`.coordinator/screenshots/big.png`: larger than 2 MB");
+    expect(body).toContain("`.coordinator/screenshots/missing.png`: not found");
+  });
+
+  test("REQ-001-51 when every Screenshot is skipped nothing is published, and the PR body says why", async () => {
+    const id = await start();
+    finish(id, withShots([{ path: "../x.png", caption: "X" }]));
+    await impl.sync(id);
+    expect(wt.published).toEqual([]);
+    expect(lastBody()).toContain("## Screenshots");
+    expect(lastBody()).toContain("`../x.png`: outside .coordinator/screenshots/");
+  });
+
+  test("REQ-001-50 a failed publish still opens the PR, and the section says the Screenshots could not be published", async () => {
+    const id = await start();
+    wt.publishError = new Error("push rejected");
+    finish(id, withShots([{ path: shot("board.png"), caption: "Board" }]));
+    await impl.sync(id);
+    expect(gh.of("createPull")).toHaveLength(1);
+    expect(store.issue("octo/app", 5).prNumber).toBe(77);
+    expect(lastBody()).toContain("The Screenshots could not be published: push rejected");
+  });
+
+  test("REQ-001-50 captions can't break the image markup", async () => {
+    const id = await start();
+    finish(id, withShots([{ path: shot("board.png"), caption: "The [new]\nboard](x)" }]));
+    await impl.sync(id);
+    expect(lastBody()).toContain("**The [new] board](x)**\n\n![The new board x](https://github.com/octo/app/raw/");
   });
 });

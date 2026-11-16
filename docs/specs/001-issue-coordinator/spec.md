@@ -403,12 +403,44 @@ The Owner (the single human user) wants GitHub issues across their public and pr
 - **And** an issue without links gets the prompt it got before
 - **And** no session gets a GitHub credential for this: the Coordinator fetches it (REQ-001-15)
 
+### REQ-001-48 The Implementer names its Screenshots
+
+- **Given** an Implementer turn that captured Screenshots of the pages its change affects
+- **When** it writes its Result
+- **Then** it may list them as `screenshots: [{path, caption}]`, with paths relative to the Worktree inside `.coordinator/screenshots/`
+- **And** every Worktree's git ignores `.coordinator/` locally (not through a tracked file), so the images don't end up in the PR's commits
+- **And** a Result without `screenshots` stays valid
+
+### REQ-001-49 The Coordinator publishes Screenshots on a branch of their own
+
+- **Given** an Implementer Result with Screenshots
+- **When** the Coordinator syncs the turn (REQ-001-19) and the PR exists or has just been opened
+- **Then** it commits the files to the branch `agent-screenshots` under `pr-<n>/<head-sha>/`, one commit per publish whose parent is the branch's previous tip (none for the first one), and pushes that branch
+- **And** the branch shares no history with the default branch, and the Coordinator never adds the files to the default branch or the PR branch
+- **And** the Implementer gets no GitHub credential for this (REQ-001-15)
+
+### REQ-001-50 The PR shows the Screenshots
+
+- **Given** published Screenshots
+- **When** the PR body is written or updated
+- **Then** a `## Screenshots` section follows `prBody`, showing each Screenshot as an image with its caption, linked by the commit of REQ-001-49, so later publishes don't change what an older body shows
+- **And** a later turn without `screenshots` keeps the last section
+- **And** if publishing fails, the PR is still opened or updated, and the section says the Screenshots could not be published
+
+### REQ-001-51 Screenshot files are checked before publishing
+
+- **Given** a Screenshot whose path leaves `.coordinator/screenshots/` of the Worktree (also through a symlink), that isn't a regular file, that isn't a PNG or JPEG by its first bytes, or that is larger than 2 MB, or a Result listing more than 5 Screenshots
+- **When** the Coordinator publishes the Screenshots
+- **Then** it skips that file (beyond the fifth: every further one), publishes the rest, and the section names each skipped path with the reason
+- **And** the PR is still opened or updated
+
 ## Out of scope
 
 - Webhooks (polling only for now; webhooks may later be added only to trigger a poll sooner).
 - Reviewing PRs not opened by the Coordinator (possible later as a per-repo option).
 - Notifications other than GitHub's own and the Claude app.
 - Issues by anyone except the Owner; multiple human users.
+- Pruning the `agent-screenshots` branch (REQ-001-49); showing Screenshots to the Reviewer; keeping the Screenshots section of a PR across a re-attach (REQ-001-43).
 
 ## Assumptions
 
@@ -419,6 +451,7 @@ The Owner (the single human user) wants GitHub issues across their public and pr
 - New directories trigger a folder trust dialog, which the runner answers (see `docs/known-pitfalls.md`).
 - The Coordinator's GitHub identity is a private GitHub App. Each target repository has a ruleset on its default branch that only the Owner can bypass.
 - The existing GitHub Actions review workflow is disabled in repositories the Coordinator manages.
+- Screenshots are captured inside the Implementer's sandbox with a headless Chrome or Chromium the Owner installs once on the host (docs/setup.md); its network allowlist stays as it is. Images on the `agent-screenshots` branch of a private repository render only for viewers with access to it.
 
 ## Verification
 
@@ -473,3 +506,7 @@ Partial rows: the REQ is only covered for the parts built so far (noted in brack
 | REQ-001-45 | `session runner > REQ-001-45 a long prompt reaches claude in full, as one argument, without shell interpretation` (64 KB prompt with quotes, `$()`, backticks, run through a real `sh`); not run in real tmux (the sandbox blocks tmux sockets)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | pass                                                                                                                |
 | REQ-001-46 | `GitHub client > REQ-001-46 requests a review from the given users`; `Reviewer run > REQ-001-46 …` (3 tests: clean Review requests the Owner after leaving draft, any finding requests nothing, refused request logged while the PR still goes ready and nothing fails); `reconcile loop > REQ-001-10 / REQ-001-23 / REQ-001-46 …`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | pass                                                                                                                |
 | REQ-001-47 | `Linked history > REQ-001-47 …` (8 tests: link picking incl. other repositories and dedup, rendering incl. the agent note left out of snippets, caps with failed and not fetched items, a busy PR's Reviews and latest comments surviving the cap, Planner pass fetched once and at most 5 per issue without the issue itself, failed fetch, no links means the old prompt, revision fresh / resumed / from scratch); `GitHub client > REQ-001-47 reads a linked PR's history …`, `… a linked issue's history without fetching a PR`; manual: plan a test issue linking a merged PR and read the prompt in the session folder                                                                                                                                                                                                                                                                                                                                            | pass (manual run open)                                                                                              |
+| REQ-001-48 | `Result validation > REQ-001-48 an Implementer Result may list Screenshots with a path and a caption`; `worktrees > REQ-001-48 every Worktree's git ignores .coordinator/ locally, also a re-used or re-attached one`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | pass                                                                                                                |
+| REQ-001-49 | `worktrees > REQ-001-49 publishes Screenshots on the orphan branch agent-screenshots under pr-<n>/<head>/, one commit per publish` (temp git repo: orphan, parent chain, earlier files kept, default branch, PR branch and Worktree untouched); `Screenshots > REQ-001-49 / REQ-001-50 the first turn opens the PR, publishes …`; manual: the first real PR with a UI change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | pass (manual run open)                                                                                              |
+| REQ-001-50 | `Screenshots > REQ-001-49 / REQ-001-50 …`, `REQ-001-50 a later turn without screenshots keeps the last section …`, `REQ-001-50 a failed publish still opens the PR …`, `REQ-001-50 captions can't break the image markup`; manual: images render in a private repository's PR                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | pass (manual run open)                                                                                              |
+| REQ-001-51 | `Screenshots > REQ-001-51 files outside the folder, through a symlink, not regular, …`, `REQ-001-51 wrong first bytes, a file over 2 MB and a missing file …`, `REQ-001-51 when every Screenshot is skipped nothing is published …`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | pass                                                                                                                |

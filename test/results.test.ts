@@ -114,4 +114,16 @@ describe("Result validation", () => {
       false,
     );
   });
+
+  test("REQ-001-48 an Implementer Result may list Screenshots with a path and a caption", () => {
+    const impl = (extra: object) => JSON.stringify({ prTitle: "T", prBody: "B", summary: "S", ...extra });
+    const shot = { path: ".coordinator/screenshots/board.png", caption: "The board" };
+    const ok = validateResult("implementer", impl({ screenshots: [shot] }), [5]);
+    expect(ok.ok && ok.value).toMatchObject({ screenshots: [shot] });
+    expect(validateResult("implementer", impl({}), [5]).ok).toBe(true);
+    expect(validateResult("implementer", impl({ screenshots: [{ path: "", caption: "x" }] }), [5]).ok).toBe(false);
+    expect(validateResult("implementer", impl({ screenshots: [{ path: "a.png" }] }), [5]).ok).toBe(false);
+    expect(validateResult("implementer", impl({ screenshots: [{ ...shot, url: "x" }] }), [5]).ok).toBe(false);
+    expect(resultInstructions("implementer", "/r.json")).toContain(".coordinator/screenshots/");
+  });
 });

@@ -4,9 +4,10 @@
  * worktree writes commits into the main clone's `.git`, outside the Implementer's sandbox. Origin
  * points at GitHub without credentials; the Coordinator fetches and pushes with the token (REQ-001-15).
  */
-import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { type Clones, git, gitAuthArgs } from "./git.ts";
+import { screenshotPath } from "./screenshots.ts";
 
 export const branchName = (issue: number, title: string): string => {
   const slug = title
@@ -17,6 +18,18 @@ export const branchName = (issue: number, title: string): string => {
     .replace(/-+$/, "");
   return `agent/${issue}-${slug || "work"}`;
 };
+
+/** The orphan branch Screenshots are published on (REQ-001-49). */
+export const SCREENSHOT_BRANCH = "agent-screenshots";
+
+/** REQ-001-48: the Worktree's git ignores `.coordinator/` (Screenshots) through `.git/info/exclude`, not a tracked file. */
+function excludeCoordinatorFolder(path: string): void {
+  const file = join(path, ".git", "info", "exclude");
+  const text = existsSync(file) ? readFileSync(file, "utf8") : "";
+  if (text.split("\n").includes(".coordinator/")) return;
+  mkdirSync(dirname(file), { recursive: true });
+  appendFileSync(file, `${text && !text.endsWith("\n") ? "\n" : ""}.coordinator/\n`);
+}
 
 export interface Worktree {
   path: string;
@@ -60,7 +73,10 @@ export class Worktrees {
   async create(repo: string, issues: number[], title: string): Promise<Worktree> {
     const branch = branchName(issues[0] ?? 0, title);
     const path = this.path(repo, issues);
-    if (existsSync(join(path, ".git"))) return { path, branch: git(path, ["rev-parse", "--abbrev-ref", "HEAD"]) };
+    if (existsSync(join(path, ".git"))) {
+      excludeCoordinatorFolder(path);
+      return { path, branch: git(path, ["rev-parse", "--abbrev-ref", "HEAD"]) };
+    }
     if (!this.hasRoom()) throw new Error(`maxWorktrees (${this.o.maxWorktrees}) reached`);
 
     await this.checkout(repo, path);
@@ -92,6 +108,7 @@ export class Worktrees {
   private prepare(repo: string, path: string): void {
     git(path, ["config", "user.name", this.o.commitAuthor.name]);
     git(path, ["config", "user.email", this.o.commitAuthor.email]);
+    excludeCoordinatorFolder(path);
     const setup = this.o.setup(repo);
     if (setup) {
       const p = Bun.spawnSync(["sh", "-c", setup], { cwd: path, stdout: "pipe", stderr: "pipe" });
@@ -123,6 +140,54 @@ export class Worktrees {
 
   async push(repo: string, path: string, branch: string): Promise<void> {
     git(path, [...gitAuthArgs(await this.o.token(repo)), "push", "-q", "origin", `${branch}:refs/heads/${branch}`]);
+  }
+
+  /**
+   * REQ-001-49: commits Screenshots to the orphan branch `agent-screenshots` under `pr-<n>/<head>/`
+   * (keeping the files of earlier publishes) and pushes it; returns the new commit. Works in a bare
+   * repository of its own, so neither a Worktree nor any other branch is touched.
+   */
+  async publishScreenshots(
+    repo: string,
+    pr: number,
+    head: string,
+    files: { name: string; data: Uint8Array }[],
+  ): Promise<string> {
+    const dir = join(this.o.root, "screenshots", ...repo.split("/"));
+    if (!existsSync(join(dir, "HEAD"))) {
+      mkdirSync(dir, { recursive: true });
+      git(dir, ["init", "-q", "--bare"]);
+    }
+    const auth = gitAuthArgs(await this.o.token(repo));
+    const url = this.url(repo);
+    const ref = `refs/heads/${SCREENSHOT_BRANCH}`;
+    const exists = git(dir, [...auth, "ls-remote", "--heads", url, SCREENSHOT_BRANCH]) !== "";
+    if (exists) git(dir, [...auth, "fetch", "-q", url, `+${ref}:${ref}`]);
+    const parent = exists ? git(dir, ["rev-parse", ref]) : null;
+
+    const env = { GIT_INDEX_FILE: join(dir, "publish.index") };
+    rmSync(env.GIT_INDEX_FILE, { force: true });
+    git(dir, parent ? ["read-tree", parent] : ["read-tree", "--empty"], { env });
+    for (const f of files) {
+      const blob = git(dir, ["hash-object", "-w", "--stdin"], { stdin: f.data });
+      git(dir, ["update-index", "--add", "--cacheinfo", `100644,${blob},${screenshotPath(pr, head, f.name)}`], { env });
+    }
+    const tree = git(dir, ["write-tree"], { env });
+    const { name, email } = this.o.commitAuthor;
+    const commit = git(dir, [
+      "-c",
+      `user.name=${name}`,
+      "-c",
+      `user.email=${email}`,
+      "commit-tree",
+      tree,
+      ...(parent ? ["-p", parent] : []),
+      "-m",
+      `Screenshots of PR #${pr} at ${head}`,
+    ]);
+    git(dir, [...auth, "push", "-q", url, `${commit}:${ref}`]);
+    git(dir, ["update-ref", ref, commit]);
+    return commit;
   }
 
   /**

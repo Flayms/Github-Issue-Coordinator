@@ -13,6 +13,7 @@ import { loadPrompt, renderPrompt } from "./prompts.ts";
 import { findingsToAnswer, type ImplementerResult, validateResult } from "./results.ts";
 import type { Finding } from "./reviewer.ts";
 import type { SessionRunner } from "./runner.ts";
+import { checkScreenshots, renderScreenshots } from "./screenshots.ts";
 import type { FeedbackCause } from "./state.ts";
 import type { Store } from "./store.ts";
 import type { Worktrees } from "./worktrees.ts";
@@ -59,6 +60,7 @@ export interface ImplementerDeps {
     | "hasRoom"
     | "fetchBase"
     | "head"
+    | "publishScreenshots"
   >;
 }
 
@@ -160,11 +162,14 @@ export class Implementer {
     }
     const branch = this.d.worktrees.currentBranch(wt);
     await this.d.worktrees.push(s.repo, wt, branch);
-    const body = [note, result.prBody, s.issues.map((n) => `Closes #${n}`).join("\n")].join("\n\n");
+    // REQ-001-50: the Screenshots section follows prBody; a turn without Screenshots keeps the last one.
+    const body = (screenshots: string | null) =>
+      [note, result.prBody, screenshots, s.issues.map((n) => `Closes #${n}`).join("\n")].filter(Boolean).join("\n\n");
+    const listed = result.screenshots?.length ? result.screenshots : null;
     if (first.prNumber === null) {
       const pr = await this.d.gh.createPull(s.repo, {
         title: result.prTitle,
-        body,
+        body: body(null),
         head: branch,
         base: this.d.worktrees.defaultBranch(wt),
       });
@@ -173,8 +178,16 @@ export class Implementer {
         await this.d.gh.removeLabel(s.repo, n, "agent:in-progress");
         await this.d.gh.addLabels(s.repo, n, ["agent:pr-open"]);
       }
+      // REQ-001-49: Screenshots are published per PR, so only once it exists.
+      if (listed) {
+        const section = await this.publishScreenshots(s.repo, s.issues, wt, pr, listed);
+        await this.d.gh.updatePull(s.repo, pr, { title: result.prTitle, body: body(section) });
+      }
     } else {
-      await this.d.gh.updatePull(s.repo, first.prNumber, { title: result.prTitle, body });
+      const section = listed
+        ? await this.publishScreenshots(s.repo, s.issues, wt, first.prNumber, listed)
+        : first.screenshots;
+      await this.d.gh.updatePull(s.repo, first.prNumber, { title: result.prTitle, body: body(section) });
       // REQ-001-31: a reviewed PR goes back to draft once a head it was not reviewed at is pushed.
       const unchanged = first.reviewedHeadSha !== null && this.d.worktrees.head(wt) === first.reviewedHeadSha;
       if (first.reviewedHeadSha !== null && !unchanged) await this.d.gh.setDraft(s.repo, first.prNumber, true);
@@ -258,9 +271,36 @@ export class Implementer {
     this.d.worktrees.remove(worktreePath);
     for (const n of issues) {
       for (const l of CLEARED_ON_CLEANUP) await this.d.gh.removeLabel(repo, n, l);
-      this.d.store.updateIssue(repo, n, { worktreePath: null, prNumber: null });
+      this.d.store.updateIssue(repo, n, { worktreePath: null, prNumber: null, screenshots: null });
     }
     return true;
+  }
+
+  /**
+   * REQ-001-49/50/51: checks the listed Screenshots, publishes those that pass for the PR's head and
+   * returns the PR body's section, which is kept for later turns. A failed publish never fails the sync.
+   */
+  private async publishScreenshots(
+    repo: string,
+    issues: number[],
+    wt: string,
+    pr: number,
+    listed: NonNullable<ImplementerResult["screenshots"]>,
+  ): Promise<string> {
+    const head = this.d.worktrees.head(wt);
+    const { checked, skipped } = checkScreenshots(wt, listed);
+    let published: string | undefined;
+    let error: string | undefined;
+    if (checked.length) {
+      try {
+        published = await this.d.worktrees.publishScreenshots(repo, pr, head, checked);
+      } catch (e) {
+        error = e instanceof Error ? e.message : String(e);
+      }
+    }
+    const section = renderScreenshots({ repo, pr, head, checked, skipped, published, error });
+    for (const n of issues) this.d.store.updateIssue(repo, n, { screenshots: section });
+    return section;
   }
 
   private sandboxDomains(repo: string): string[] {

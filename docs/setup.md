@@ -26,6 +26,15 @@ sudo systemctl reload apparmor
 
 The link in `disable/` is what keeps Ubuntu's profile from loading again at the next boot; without it the change only lasts until a reboot. `bun run doctor` checks both ("sandbox can nest user namespaces", "bwrap AppArmor change survives a reboot").
 
+**Headless browser (optional, for Screenshots):** Implementers capture Screenshots of UI changes with a headless Chrome or Chromium on the host (REQ-001-48); their sandbox reaches only package registries, so they can't download one. Ubuntu's `chromium` package is a snap, which is not expected to start inside the sandbox, so install Google Chrome's `.deb`:
+
+```sh
+wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+sudo apt install -y ./google-chrome-stable_current_amd64.deb
+```
+
+`bun run doctor` reports the browser it finds ("headless browser for Screenshots"). Without one, the Coordinator works as before and Implementers say in the PR that they couldn't capture Screenshots. Published Screenshots go to the branch `agent-screenshots` of the repository (never to the default branch or the PR branch); you can delete old folders or the whole branch at any time, which only breaks the images of older PR bodies.
+
 Then log in to Claude once as that user, with the subscription. Remote Control does not work with `claude setup-token`, so this must be the interactive login:
 
 ```sh
