@@ -85,10 +85,28 @@ The Owner gets plans they can approve on a phone, code that matches those plans,
 - **Then** the Planner writes a brief `reply` in its Result: a few lines on what changed and why, or why nothing changed (REQ-001-40)
 - **And** it leaves `reply` out on any other turn
 
+### REQ-002-11 Agent output is easy to scan on a phone
+
+- **Given** the default prompt of any Role
+- **When** the session writes text the Coordinator posts to GitHub (Planner `approach` and `reply`, Implementer `prBody`, Reviewer `summary` and finding `body`)
+- **Then** the text opens with a one- or two-line summary of the outcome (for the Reviewer's `summary`: a verdict line)
+- **And** it uses GitHub Markdown structure instead of long paragraphs: headings at level `###` or lower (the Coordinator's own heading is `##`), short bullets, a table when several items share the same fields, and `<details>` for material the reader may skip
+- **And** it keeps paragraphs to a few sentences, bolds only key terms, and stays proportionate to the size of the change
+- **And** the Planner keeps the order of its topics (REQ-002-01) as `###` sections or a compact list, with Given/When/Then as three bullets per requirement
+
+### REQ-002-12 Diagrams only where they help
+
+- **Given** the default prompt of any Role
+- **When** a change touches a flow, a state machine or how components interact
+- **Then** the session may add a small Mermaid diagram next to the text it explains
+- **And** it adds no diagram otherwise, and never ASCII art
+
 ## Out of scope
 
 - Letting the Reviewer run the test suite or linters (it would execute the PR's code; REQ-001-25 stays as it is).
 - Updating prompts that a repository has overridden in `.github/coordinator/<role>.md` (REQ-001-22).
+- Screenshots in agent output: the Implementer runs in a sandbox without GitHub access, so it can neither capture nor upload images (split off from #57).
+- Structured Result fields that the Coordinator renders into a fixed template; REQ-002-11 is prompt guidance only.
 - Changing the Result schemas, apart from the Reviewer's findings (REQ-002-09); the Planner's `splitOff` field belongs to REQ-001-34, `reply` to REQ-001-40.
 
 ## Assumptions
@@ -110,4 +128,7 @@ The Owner gets plans they can approve on a phone, code that matches those plans,
 | REQ-002-08 | `prompts > REQ-002-08 the Planner prompt says when to split off an issue and to check open issues first`                                            | pass (wording only; quality via a real run)              |
 | REQ-002-09 | `prompts > REQ-002-09 the Reviewer prompt reports only findings worth fixing, without blocking or low severity`; `Result validation > REQ-002-09 …` | pass (wording and schema; quality via a real run)        |
 | REQ-002-10 | `prompts > REQ-002-10 the Planner prompt asks for a brief reply on a revision the Owner's comments started`                                         | pass (wording only; quality via a real run)              |
+| REQ-002-11 | `prompts > REQ-002-11 every default prompt asks for a summary first and scannable GitHub Markdown in the posted text`                               | pass (wording only; quality and phone via a real run)    |
+| REQ-002-11 | `prompts > REQ-002-11 the Planner writes Given/When/Then as bullets and the Reviewer opens with a verdict line`                                     | pass (wording only; quality and phone via a real run)    |
+| REQ-002-12 | `prompts > REQ-002-12 every default prompt allows a Mermaid diagram only where a flow or state change is clearer drawn`                             | pass (wording only; quality and phone via a real run)    |
 | all        | manual: one real run per Role                                                                                                                       | open (to be done by the Owner on this PR via dogfooding) |
