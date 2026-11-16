@@ -12,15 +12,17 @@
  * With --screenshot (implementer only, REQ-001-53) the session also runs shoot.sh, which serves a fixture
  * page on localhost and shoots it with the host's headless browser, as an Implementer would for its
  * Screenshots. It reports pass, fail with the browser's error, or inconclusive if shoot.sh never ran.
+ * The implementer's probes also check that its sandbox can't reach the smoke run's own tmux server (REQ-001-58),
+ * although its Unix socket block is off: a `tmux new-window` from there would run outside the sandbox.
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { BROWSERS, isPng, screenshotArgs, screenshotEnv } from "../src/browser.ts";
-import { SessionRunner } from "../src/runner.ts";
+import { hostControlSockets, SessionRunner } from "../src/runner.ts";
 import { Store } from "../src/store.ts";
-import { TmuxCli } from "../src/tmux.ts";
+import { TmuxCli, tmuxSocketPath } from "../src/tmux.ts";
 
 const { values: opts } = parseArgs({
   options: {
@@ -40,6 +42,8 @@ if (!opts.secret) {
   writeFileSync(secret, "not a real key\n");
 }
 const ALLOWED_DOMAIN = "registry.npmjs.org";
+// REQ-001-58: the smoke run's own tmux server, which the session runs in and must not reach.
+const tmuxSocket = tmuxSocketPath(root);
 // Each probe records "<name> allowed|denied" in probe.txt; the expected outcome is checked below.
 const PROBES = {
   "write-inside": "touch inside.txt",
@@ -47,6 +51,7 @@ const PROBES = {
   "read-secret": `cat '${secret}' > /dev/null`,
   "network-denied-domain": "curl -sS -m 15 -o /dev/null https://example.com",
   "network-allowed-domain": `curl -sS -m 15 -o /dev/null https://${ALLOWED_DOMAIN}/`,
+  "tmux-socket": `tmux -S '${tmuxSocket}' list-sessions`,
 };
 const EXPECTED: Record<keyof typeof PROBES, "allowed" | "denied"> = {
   "write-inside": "allowed",
@@ -54,6 +59,7 @@ const EXPECTED: Record<keyof typeof PROBES, "allowed" | "denied"> = {
   "read-secret": "denied",
   "network-denied-domain": "denied",
   "network-allowed-domain": "allowed",
+  "tmux-socket": "denied",
 };
 // REQ-001-25: allowed read-only git can write files; a Reviewer's sandbox must deny writes to its cwd.
 const outputProbe = join(repo, "probe-output.txt");
@@ -160,7 +166,7 @@ const SECOND = {
 };
 const dbPath = join(root, "state.db");
 const store = new Store(dbPath);
-const tmux = new TmuxCli("coordinator-smoke");
+const tmux = new TmuxCli({ socket: tmuxSocket, session: "coordinator-smoke" });
 const runner = new SessionRunner({
   store,
   tmux,
@@ -168,6 +174,7 @@ const runner = new SessionRunner({
   dbPath,
   hookCommand: [process.execPath, resolve(import.meta.dir, "../src/hook.ts")],
   secretPaths: [secret],
+  controlSockets: hostControlSockets(tmuxSocket, process.getuid?.() ?? 0),
 });
 const model = { model: opts.model ?? "haiku" };
 
@@ -274,9 +281,9 @@ try {
   if (!opts.keep) {
     runner.close(id);
     console.log(`Closed: state ${store.session(id)?.state}, window live: ${runner.liveSessionIds().has(id)}`);
-  } else console.log("Kept: tmux attach -t coordinator-smoke");
+  } else console.log(`Kept: tmux -S ${tmuxSocket} attach -t coordinator-smoke`);
 } finally {
-  if (!opts.keep) Bun.spawnSync(["tmux", "kill-session", "-t", "coordinator-smoke"]);
+  if (!opts.keep) Bun.spawnSync(["tmux", "-S", tmuxSocket, "kill-session", "-t", "coordinator-smoke"]);
   store.close();
 }
 if (mismatches.length) {

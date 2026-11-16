@@ -11,6 +11,7 @@ import { checkBrowserStarts, findBrowser } from "./browser.ts";
 import { loadConfig } from "./config.ts";
 import { AppAuth, createAppJwt } from "./github/app-auth.ts";
 import { API, baseHeaders } from "./github/http.ts";
+import { socketGroups } from "./runner.ts";
 
 type Status = "ok" | "fail" | "warn";
 const results: { status: Status; check: string; detail: string }[] = [];
@@ -92,6 +93,16 @@ report(
   !browser
     ? "no Chrome or Chromium found; Implementers can't capture Screenshots of UI changes (see docs/setup.md step 1)"
     : `${browser} ${browserStart?.ok ? "" : "does not start headless: "}${browserStart?.detail}`,
+);
+
+// REQ-001-58: Implementers may open Unix sockets; a root daemon's socket (e.g. Docker's) would be a way out.
+const groups = socketGroups(run(["id", "-nG"]).out.split(/\s+/));
+report(
+  groups.length ? "warn" : "ok",
+  "no root-daemon socket groups",
+  groups.length
+    ? `${userInfo().username} is in ${groups.join(", ")}; an Implementer's sandbox could reach that daemon's socket (see docs/setup.md)`
+    : "",
 );
 
 let config: Awaited<ReturnType<typeof loadConfig>> | undefined;

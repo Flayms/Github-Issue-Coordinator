@@ -4,11 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   claudeArgs,
+  hostControlSockets,
   remoteControlName,
   SessionBusyError,
   SessionRunner,
   SessionStartError,
   shellQuote,
+  socketGroups,
 } from "../src/runner.ts";
 import { Store } from "../src/store.ts";
 import type { Tmux } from "../src/tmux.ts";
@@ -279,6 +281,65 @@ describe("session runner", () => {
     const impl = startImplementer();
     const settings = JSON.parse(readFileSync(join(dir, "sessions", String(impl), "settings.json"), "utf8"));
     expect(settings.sandbox.filesystem.denyWrite).toBeUndefined();
+  });
+
+  describe("REQ-001-53 / REQ-001-58 an Implementer may open Unix sockets, with the host's control sockets hidden", () => {
+    const controlSockets = ["/state/tmux", "/run/user/1002"];
+    const withSockets = () =>
+      new SessionRunner({
+        store,
+        tmux,
+        stateDir: dir,
+        dbPath: join(dir, "state.db"),
+        hookCommand: ["bun", "/app/src/hook.ts"],
+        secretPaths: ["/home/agent/.config/coordinator"],
+        controlSockets,
+      });
+    const settingsOf = (r: SessionRunner, role: "planner" | "implementer" | "reviewer") => {
+      const id = r.start({
+        repo: "octo/app",
+        role,
+        kind: "issue",
+        issues: [5],
+        cwd: "/w",
+        prompt: "p",
+        model: { model: "opus" },
+        sandboxDomains: ["registry.npmjs.org"],
+      });
+      return JSON.parse(readFileSync(join(dir, "sessions", String(id), "settings.json"), "utf8"));
+    };
+
+    test("the Implementer's sandbox allows Unix sockets and hides the tmux socket folder and the user's runtime folder", () => {
+      const s = settingsOf(withSockets(), "implementer");
+      expect(s.sandbox.network.allowAllUnixSockets).toBe(true);
+      expect(s.sandbox.filesystem.denyRead).toEqual(["/home/agent/.config/coordinator", ...controlSockets]);
+      // Still never unsandboxed, and no new domains (REQ-001-25).
+      expect(s.sandbox.allowUnsandboxedCommands).toBe(false);
+      expect(s.sandbox.excludedCommands).toBeUndefined();
+      expect(s.sandbox.network.allowedDomains).toEqual(["registry.npmjs.org", ...GITHUB]);
+    });
+
+    test("Planner and Reviewer keep the Unix socket block and their denyRead", () => {
+      for (const role of ["planner", "reviewer"] as const) {
+        const s = settingsOf(withSockets(), role);
+        expect(s.sandbox.network.allowAllUnixSockets).toBeUndefined();
+        expect(s.sandbox.filesystem.denyRead).toEqual(["/home/agent/.config/coordinator"]);
+      }
+    });
+
+    test("without control sockets to hide, the Implementer keeps the block too", () => {
+      const s = settingsOf(runner, "implementer");
+      expect(s.sandbox.network.allowAllUnixSockets).toBeUndefined();
+    });
+
+    test("hostControlSockets names the folder of the Coordinator's tmux socket and /run/user/<uid>", () => {
+      expect(hostControlSockets("/state/tmux/coordinator.sock", 1002)).toEqual(controlSockets);
+    });
+
+    test("socketGroups names the groups that would open a root daemon's socket, for the doctor's warning", () => {
+      expect(socketGroups(["agent", "docker", "users", "lxd"])).toEqual(["docker", "lxd"]);
+      expect(socketGroups(["agent", "users"])).toEqual([]);
+    });
   });
 
   test("REQ-001-25 a resumed session keeps its Role's permissions", () => {

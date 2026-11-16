@@ -5,7 +5,7 @@
  */
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { type Account, accountDir, copyTranscript, DEFAULT_ACCOUNT, freeAccount } from "./accounts.ts";
 import type { Role, RoleSettings } from "./config.ts";
 import { type Permissions, rolePermissions } from "./prompts.ts";
@@ -20,6 +20,22 @@ export const GITHUB_DOMAINS = [
   "raw.githubusercontent.com",
   "objects.githubusercontent.com",
 ];
+
+/**
+ * REQ-001-58: sockets that control the host from outside an Implementer's sandbox: the folder of the Coordinator's
+ * tmux socket (a `tmux new-window` would run outside the sandbox) and the user's runtime folder (session bus,
+ * systemd). The sandbox hides them, because its Unix socket block is off for Implementers (REQ-001-53).
+ */
+export function hostControlSockets(tmuxSocket: string, uid: number): string[] {
+  return [dirname(tmuxSocket), `/run/user/${uid}`];
+}
+
+/**
+ * REQ-001-58: groups whose members can reach a root daemon through a socket the sandbox does not hide
+ * (e.g. `/var/run/docker.sock`); `bun run doctor` warns when the Coordinator's user is in one.
+ */
+const SOCKET_GROUPS = ["docker", "lxd", "incus", "libvirt", "podman"];
+export const socketGroups = (groups: string[]): string[] => groups.filter((g) => SOCKET_GROUPS.includes(g));
 
 /** What a resume needs to write the session folder again: the start options that don't change. */
 interface SessionMeta {
@@ -113,6 +129,8 @@ export class SessionRunner {
       claudeBin?: string;
       /** Files and folders no agent may read: the App key, Claude's credentials (REQ-001-26). */
       secretPaths?: string[];
+      /** REQ-001-58: hidden from Implementers, who may open Unix sockets; without them they keep the block. */
+      controlSockets?: string[];
       /** In priority order (REQ-004-01); default: the implicit Account in Claude's default folder. */
       accounts?: Account[];
       /** Where Claude's default folder `~/.claude` lives. */
@@ -167,6 +185,11 @@ export class SessionRunner {
       ]),
     );
     const secrets = this.o.secretPaths ?? [];
+    // REQ-001-53 / REQ-001-58: the host's browser needs socket(AF_UNIX), which the sandbox's seccomp filter blocks,
+    // and the only switch opens every Unix socket. So only an Implementer gets it, and only with the host's control
+    // sockets hidden; the sandbox's own network namespace keeps abstract sockets and host TCP out of reach.
+    const controlSockets = this.o.controlSockets ?? [];
+    const unixSockets = role === "implementer" && controlSockets.length > 0;
     const sandbox = rolePermissions(role, dir).sandbox
       ? {
           enabled: true,
@@ -175,7 +198,7 @@ export class SessionRunner {
           failIfUnavailable: true,
           allowUnsandboxedCommands: false,
           filesystem: {
-            denyRead: secrets,
+            denyRead: unixSockets ? [...secrets, ...controlSockets] : secrets,
             // REQ-001-25: the sandbox lets shell commands write to the cwd, and allowed read-only git can write
             // files (`git log --output=<file>`). Deny beats that allow, so a Planner's or Reviewer's shell keeps
             // only its session folder and the sandbox's temporary folder (docs/known-pitfalls.md).
@@ -183,6 +206,7 @@ export class SessionRunner {
           },
           network: {
             allowedDomains: [...(role === "implementer" ? (meta.sandboxDomains ?? []) : []), ...GITHUB_DOMAINS],
+            ...(unixSockets ? { allowAllUnixSockets: true } : {}),
           },
         }
       : undefined;

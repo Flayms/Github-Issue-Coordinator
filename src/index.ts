@@ -1,6 +1,6 @@
 /** Coordinator entry point: `bun start` (config from `config.ts` or `$COORDINATOR_CONFIG`). */
 import { mkdirSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
 import { loadConfig, secretPaths } from "./config.ts";
 import { Coordinator } from "./coordinator.ts";
@@ -9,9 +9,9 @@ import { Clones } from "./git.ts";
 import { AppAuth } from "./github/app-auth.ts";
 import { GitHubClient } from "./github/client.ts";
 import { ReadTokens } from "./github/read-tokens.ts";
-import { SessionRunner } from "./runner.ts";
+import { hostControlSockets, SessionRunner } from "./runner.ts";
 import { Store } from "./store.ts";
-import { TmuxCli } from "./tmux.ts";
+import { legacySessionRunning, TmuxCli, tmuxSocketPath } from "./tmux.ts";
 import { Worktrees } from "./worktrees.ts";
 
 export const NAME = "github-issue-coordinator";
@@ -37,16 +37,26 @@ async function main() {
   const gh = new GitHubClient({ auth });
   // REQ-001-55: agents read GitHub with a read-only token of the same installation.
   const readTokens = new ReadTokens((repo) => auth.readTokenFor(repo), log);
+  // REQ-001-58: sessions on tmux's default socket are invisible to the fixed socket and would be resumed twice.
+  if (legacySessionRunning())
+    throw new Error(
+      "agent sessions still run in the tmux session 'coordinator' on tmux's default socket (started before the " +
+        "Coordinator used its own socket); let them finish or end them with `tmux kill-session -t coordinator`, " +
+        "then start again (docs/setup.md)",
+    );
+  const tmuxSocket = tmuxSocketPath(stateDir);
   const dbPath = join(stateDir, "state.db");
   const store = new Store(dbPath);
   const runner = new SessionRunner({
     store,
-    tmux: new TmuxCli(),
+    tmux: new TmuxCli({ socket: tmuxSocket }),
     stateDir,
     dbPath,
     hookCommand: [process.execPath, resolve(import.meta.dir, "hook.ts")],
     // REQ-001-26 / REQ-004-02: the App key's folder and every Account's Claude login.
     secretPaths: secretPaths(config, homedir()),
+    // REQ-001-58: hidden from Implementers, whose sandbox may open Unix sockets (REQ-001-53).
+    controlSockets: hostControlSockets(tmuxSocket, process.getuid?.() ?? userInfo().uid),
     accounts: config.accounts,
     readToken: (repo) => readTokens.get(repo),
   });

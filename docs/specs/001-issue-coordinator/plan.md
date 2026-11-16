@@ -93,7 +93,9 @@ export default {
     - [x] `bun scripts/smoke-runner.ts --screenshot`: a real Implementer session runs a fixed `shoot.sh` (fixture page on localhost, host browser headless) and reports pass, fail with the browser's error, or inconclusive.
     - [x] `bun run doctor` starts the browser headless and checks it writes a PNG (`src/browser.ts`, shared with the smoke runner).
     - [x] Implementer prompt: only the host's browser, with `--no-sandbox`, never a downloaded one; quote the error otherwise. (REQ-002-13)
-    - [ ] Owner: run `bun scripts/smoke-runner.ts --screenshot` on the host. If it fails, record the cause in docs/known-pitfalls.md and re-plan before widening the sandbox.
+    - [x] Cause found (#90): the sandbox's seccomp filter blocks `socket(AF_UNIX)`, which Chrome's process singleton needs at startup; no Chrome flag avoids it (docs/known-pitfalls.md).
+    - [x] Implementers get `allowAllUnixSockets`, with the folder of the Coordinator's tmux socket and `/run/user/<uid>` in `denyRead` (`src/runner.ts`); tmux runs on a fixed socket in the state folder (`src/tmux.ts`); the Coordinator won't start while its old tmux session runs on the default socket (`src/index.ts`); doctor warns about root-daemon socket groups; the smoke runner probes the tmux socket. (REQ-001-53, REQ-001-58)
+    - [ ] Owner: run `bun scripts/smoke-runner.ts --screenshot` on the host: the screenshot passes and the `tmux-socket` probe is denied.
   - [x] Result field `screenshots` and the local exclude rule for `.coordinator/` in every Worktree (`src/results.ts`, `src/worktrees.ts`). (REQ-001-48)
   - [x] Checks on the listed files: folder, symlinks, regular file, PNG/JPEG first bytes, 2 MB, 5 files (`src/screenshots.ts`). (REQ-001-51)
   - [x] Publish to `agent-screenshots` from a bare repository of its own under `state/screenshots/` (`src/worktrees.ts`). (REQ-001-49)
