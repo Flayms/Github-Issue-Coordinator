@@ -62,6 +62,10 @@ export interface SessionView {
   state: "running" | "idle" | "gone";
   startedAt: string | null;
   idleFor: string | null;
+  /** `idleTimeoutMin` as a duration, for "idle 4 min of 30 min"; null unless idle. */
+  idleTimeout: string | null;
+  /** Idle time as a share of `idleTimeoutMin` in percent, in steps of 10 for the bar's width class. */
+  idleShare: number | null;
   /** The Remote Control name, as shown in the Claude app (REQ-001-33). */
   name: string;
   /** The model the session reported (REQ-001-29), else the configured one. */
@@ -212,20 +216,27 @@ export function dashboardView(
   const title = (repo: string, n: number) =>
     repos.find((r) => r.repo === repo)?.issues.find((i) => i.number === n)?.title;
 
-  const sessions: SessionView[] = (snap?.sessions ?? []).map((s) => ({
-    role: ROLE_NAMES[s.role],
-    repo: s.repo,
-    issues: s.issues.map((n, i) => ({
-      number: n,
-      title: title(s.repo, n) ?? (i === 0 ? (s.title ?? "") : ""),
-      url: issueUrl(s.repo, n),
-    })),
-    state: s.live ? (s.state === "running" ? "running" : "idle") : "gone",
-    startedAt: s.startedAt,
-    idleFor: s.live && s.state !== "running" ? formatDuration(since(s.lastActivityAt)) : null,
-    name: remoteControlName(s),
-    model: s.modelId ?? configuredModel(config, s.repo, s.role),
-  }));
+  const idleTimeoutMs = config.limits.idleTimeoutMin * 60_000;
+  const sessions: SessionView[] = (snap?.sessions ?? []).map((s) => {
+    const idle = s.live && s.state !== "running";
+    const idleMs = since(s.lastActivityAt);
+    return {
+      role: ROLE_NAMES[s.role],
+      repo: s.repo,
+      issues: s.issues.map((n, i) => ({
+        number: n,
+        title: title(s.repo, n) ?? (i === 0 ? (s.title ?? "") : ""),
+        url: issueUrl(s.repo, n),
+      })),
+      state: s.live ? (s.state === "running" ? "running" : "idle") : "gone",
+      startedAt: s.startedAt,
+      idleFor: idle ? formatDuration(idleMs) : null,
+      idleTimeout: idle ? formatDuration(idleTimeoutMs) : null,
+      idleShare: idle ? Math.min(100, Math.max(0, Math.round((idleMs / idleTimeoutMs) * 10) * 10)) : null,
+      name: remoteControlName(s),
+      model: s.modelId ?? configuredModel(config, s.repo, s.role),
+    };
+  });
 
   const pullsOf = (r: RepoSnapshot): PullView[] =>
     r.pulls.map((p) => ({

@@ -113,7 +113,15 @@ const order = (html: string, marks: string[]) => marks.map((m) => html.indexOf(m
 describe("dashboard html", () => {
   test("REQ-003-11 / REQ-003-12 / REQ-003-01 / REQ-003-04 / REQ-003-02 the Overview shows its sections in order", () => {
     const html = overview();
-    const at = order(html, ["1 PR ready to merge", "Capacity", "Working now", "Recent", "Up next", "Pipeline"]);
+    // Only the number is green (#87): the headline reads "1 PR ready to merge".
+    const at = order(html, [
+      '<h1><span class="ok">1</span> PR ready to merge</h1>',
+      "Capacity",
+      "Working now",
+      "Recent",
+      "Up next",
+      "Pipeline",
+    ]);
     expect(at.every((i) => i >= 0)).toBe(true);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
   });
@@ -142,6 +150,18 @@ describe("dashboard html", () => {
     expect(html).toContain("claude-sonnet-5-5");
     expect(html).toContain("#6 Add search · Implementer · app");
     expect(html).toMatch(/<button[^>]*data-copy="#6 Add search · Implementer · app"[^>]*hidden/);
+  });
+
+  test("REQ-003-01 a running session shows a running bar; an idle one its idle time out of the idle timeout", () => {
+    const [running] = snap.sessions;
+    if (!running) throw new Error("the fixture has a running session");
+    const idle = { ...running, id: 2, role: "planner" as const, state: "idle" as const, issues: [5] };
+    const html = renderDashboard(dashboardView({ ...snap, sessions: [running, idle] }, config, NOW));
+    const working = html.slice(html.indexOf('id="working"'), html.indexOf('id="recent"'));
+    expect(working).toMatch(/class="state running"[\s\S]*running/);
+    expect(working).toContain('class="s-fill flowing"');
+    expect(working).toContain("idle 30 min of 30 min");
+    expect(working).toContain('class="s-fill w100"');
   });
 
   test("REQ-003-16 Recent sits next to Working now: each Event with icon, tone, time and links", () => {

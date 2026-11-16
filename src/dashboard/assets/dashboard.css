@@ -1,8 +1,9 @@
 /*
  * Dashboard styles (spec 003). Colour carries meaning: indigo = an agent is on it, running, next;
  * green = ready, mergeable, passing; amber = needs the Owner; red = conflicts, blocked, failed.
- * Divided rows instead of cards; the only glass panel is "Ready to merge"; the frosted band holds
- * Up next and the Pipeline. Fonts are served from this origin (REQ-003-09).
+ * Divided rows and open cards; the only glass panel is "Ready to merge"; the full-width frosted band
+ * holds Up next and the Pipeline. The look follows the v3 mockup in #87. Fonts are served from this
+ * origin (REQ-003-09).
  */
 @font-face {
   font-family: "Plus Jakarta Sans";
@@ -42,6 +43,7 @@
   --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --radius: 14px;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --gutter: 16px;
 }
 
@@ -119,6 +121,24 @@ h2 {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* Overview section headings: a display title with a quiet note beside it. */
+h2.h-sec {
+  font-size: 20px;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: -0.01em;
+  color: #fff;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 18px;
+}
+.sub {
+  font: 600 12px / 1.2 var(--font-body);
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.45);
 }
 
 code,
@@ -298,8 +318,9 @@ main > .wrap {
 }
 @media (min-width: 900px) {
   .hero {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
-    gap: 40px;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    align-items: end;
+    gap: 56px;
   }
   .hero.solo {
     grid-template-columns: 1fr;
@@ -312,20 +333,13 @@ main > .wrap {
   letter-spacing: 0.16em;
   color: var(--acc-hi);
 }
+/* Plain white; in the Summary only the number is green. */
 .hero h1 {
-  font-size: clamp(30px, 6vw, 52px);
-  line-height: 1.05;
-  font-weight: 700;
+  font-size: clamp(36px, 6vw, 60px);
+  line-height: 1.02;
+  font-weight: 800;
   letter-spacing: -0.03em;
-  background: linear-gradient(180deg, #fff, #b9b8d6);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-.hero h1.has-ready {
-  background: linear-gradient(100deg, #eafff5, var(--ok) 70%);
-  -webkit-background-clip: text;
-  background-clip: text;
+  color: #fff;
 }
 .lede {
   color: var(--muted);
@@ -349,27 +363,159 @@ main > .wrap {
   font: 700 26px / 1 var(--font-display);
 }
 
-/* The only glass panel. */
+/* The only glass panel: the PRs ready to merge. Its green top edge widens on hover. */
 .panel {
   position: relative;
-  padding: 18px 20px 8px;
-  border-radius: var(--radius);
-  border: 1px solid var(--line-2);
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02));
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
-  backdrop-filter: blur(18px) saturate(140%);
+  border-radius: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(160deg, rgba(26, 27, 46, 0.52), rgba(10, 11, 20, 0.44));
+  -webkit-backdrop-filter: blur(16px) saturate(135%);
+  backdrop-filter: blur(16px) saturate(135%);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 24px 60px -30px rgba(0, 0, 0, 0.8);
+    0 30px 60px -30px rgba(0, 0, 0, 0.8);
+  overflow: hidden;
+  transition:
+    border-color 0.6s,
+    box-shadow 0.6s;
+}
+.panel::before {
+  content: "";
+  position: absolute;
+  left: 28px;
+  right: 28px;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(63, 211, 142, 0.8), transparent);
+  opacity: 0.35;
+  transition:
+    opacity 0.6s,
+    left 0.6s,
+    right 0.6s;
+}
+.panel:hover {
+  border-color: rgba(63, 211, 142, 0.18);
+}
+.panel:hover::before {
+  opacity: 1;
+  left: 12%;
+  right: 12%;
 }
 .panel-title {
-  margin-bottom: 6px;
+  margin: 0;
+  padding: 20px 24px 6px;
 }
 .panel-title .i {
   color: var(--ok);
 }
+.panel-empty {
+  padding: 4px 24px 18px;
+}
+.pr-card {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 18px 24px;
+  border-top: 1px solid var(--line);
+  color: var(--text);
+  --accent: var(--ok);
+}
+.pr-cards > li:first-child .pr-card {
+  border-top: 0;
+}
+.pr-card:hover {
+  color: var(--text);
+}
+.pr-card .nudge {
+  flex: 1;
+  min-width: 0;
+}
+.pr-title {
+  display: block;
+  font: 600 17px / 1.35 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.pr-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.5);
+}
+.pr-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+.pr-meta .i {
+  width: 13px;
+  height: 13px;
+}
+.pr-meta .ok {
+  color: var(--ok);
+}
+.arrow {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.7);
+  transition:
+    transform 0.45s var(--ease),
+    color 0.3s,
+    background 0.3s;
+}
+.pr-card:hover .arrow,
+.pr-card:focus-visible .arrow {
+  transform: translate(3px, -3px);
+  color: var(--ink);
+  background: var(--ok);
+}
 
-/* ---- Divided rows ---- */
+/*
+ * A row that answers hover: a coloured accent line grows in on the left (--accent), a faint wash
+ * and a small nudge of the content. The ready PRs and the Pipeline items use it.
+ */
+.accent-row {
+  position: relative;
+  transition: background 0.6s var(--ease);
+}
+.accent-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 20%;
+  bottom: 20%;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent, var(--acc));
+  transform: scaleY(0);
+  transition: transform 0.45s var(--ease);
+}
+.accent-row:hover,
+.accent-row:focus-within {
+  background: linear-gradient(90deg, rgba(124, 114, 255, 0.07), transparent 70%);
+}
+.accent-row:hover::before,
+.accent-row:focus-within::before {
+  transform: scaleY(1);
+}
+.accent-row .nudge {
+  display: block;
+  transition: transform 0.45s var(--ease);
+}
+.accent-row:hover .nudge {
+  transform: translateX(6px);
+}
+
+/* Divided rows: Recent, and the repositories on the Config page. */
 .rows > li {
   border-top: 1px solid var(--line);
 }
@@ -381,43 +527,6 @@ main > .wrap {
   align-items: center;
   gap: 12px;
   padding: 12px 0;
-  transition: background 0.25s;
-}
-a.row {
-  color: var(--text);
-  margin-inline: -10px;
-  padding-inline: 10px;
-  border-radius: 10px;
-}
-a.row:hover {
-  background: rgba(255, 255, 255, 0.04);
-}
-.r-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-.r-title {
-  font-weight: 500;
-  overflow-wrap: anywhere;
-}
-.r-sub {
-  color: var(--muted);
-}
-.r-chk,
-.r-ext {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  white-space: nowrap;
-}
-.r-ext {
-  color: var(--muted);
-}
-a.row:hover .r-ext {
-  color: var(--acc-hi);
 }
 
 /* ---- Capacity ---- */
@@ -520,92 +629,143 @@ a.row:hover .r-ext {
   width: 100%;
 }
 
-/* ---- Working now ---- */
+/* ---- Working now: a card per session ---- */
+.sessions {
+  display: grid;
+  gap: 32px 40px;
+}
+@media (min-width: 640px) {
+  .sessions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 .session {
-  flex-wrap: wrap;
-  align-items: flex-start;
+  min-width: 0;
+}
+.s-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.role-i {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  color: rgba(255, 255, 255, 0.45);
+}
+.session.running .role-i {
+  color: var(--acc-hi);
+}
+.s-role {
+  font: 700 15px / 1.3 var(--font-display);
 }
 .state {
+  margin-left: auto;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  width: 104px;
-  flex: none;
-  padding-top: 2px;
-  font: 500 12px / 1.4 var(--font-mono);
+  gap: 6px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.45);
+  text-align: right;
 }
 .state.running {
   color: var(--acc-hi);
-}
-.state.idle {
-  color: var(--muted);
 }
 .state.gone {
   color: var(--bad);
 }
 .pulse {
-  width: 8px;
-  height: 8px;
+  display: none;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: currentColor;
+  background: var(--acc);
 }
 .state.running .pulse {
-  box-shadow: 0 0 0 0 rgba(124, 114, 255, 0.6);
-  animation: breathe 2.8s ease-in-out infinite;
+  display: inline-block;
+  animation: breathe 3.6s ease-in-out infinite;
 }
-.s-main {
-  flex: 1;
-  min-width: 220px;
+.s-bar {
+  margin-top: 10px;
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  overflow: hidden;
 }
-.s-title {
+.s-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.35);
+}
+.s-fill.flowing {
+  width: 100%;
+  background: linear-gradient(90deg, rgba(124, 114, 255, 0.18), rgba(164, 157, 255, 0.42), rgba(124, 114, 255, 0.18));
+  background-size: 200% 100%;
+  animation: stream 8s linear infinite;
+}
+.session.gone .s-fill {
+  background: var(--bad);
+}
+.s-issue {
+  display: block;
+  margin-top: 12px;
+  color: rgba(255, 255, 255, 0.9);
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
-.s-title b {
-  font-family: var(--font-display);
-  font-weight: 600;
-  margin-right: 4px;
+.s-issue + .s-issue {
+  margin-top: 4px;
+}
+.s-issue .num {
+  color: rgba(255, 255, 255, 0.35);
+  font-variant-numeric: tabular-nums;
 }
 .s-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 6px;
   font-size: 12px;
-  color: var(--muted);
-  margin-top: 2px;
+  color: rgba(255, 255, 255, 0.4);
+}
+.s-meta > span {
+  overflow-wrap: anywhere;
 }
 .s-name {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  max-width: 100%;
-}
-.s-name code {
-  color: var(--muted);
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--faint);
   overflow-wrap: anywhere;
 }
 .copy {
+  margin-left: auto;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
+  gap: 6px;
+  padding: 2px 0;
   font: 500 12px / 1.2 var(--font-body);
-  color: var(--text);
+  color: inherit;
   background: transparent;
-  border: 1px solid var(--line-2);
-  border-radius: 999px;
+  border: 0;
   cursor: pointer;
-  transition:
-    border-color 0.2s,
-    color 0.2s;
+  transition: color 0.2s;
+}
+.copy .i {
+  width: 13px;
+  height: 13px;
 }
 .copy[hidden] {
   display: none;
 }
 .copy:hover {
-  border-color: var(--acc);
-  color: #fff;
+  color: var(--acc-hi);
 }
 .copy.done {
   color: var(--ok);
-  border-color: var(--ok);
 }
 
 /* ---- Working now next to Recent ---- */
@@ -642,95 +802,220 @@ a.row:hover .r-ext {
   overflow-wrap: anywhere;
 }
 
-/* ---- The frosted band: Up next and the Pipeline ---- */
+/*
+ * ---- The frosted band: Up next and the Pipeline ----
+ * Full width, darker and blurred, its top and bottom faded with a mask instead of borders, so it lifts
+ * the region off the background without boxing it in. A thin violet line runs under the top edge.
+ */
 .band {
   position: relative;
-  margin-top: 36px;
-  padding-block: 28px 32px;
-  border-block: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015));
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
+  isolation: isolate;
+  margin-top: 16px;
+  padding-block: 96px;
+}
+.band::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(12, 13, 24, 0.62), rgba(8, 9, 17, 0.7));
+  -webkit-backdrop-filter: blur(22px) saturate(130%);
+  backdrop-filter: blur(22px) saturate(130%);
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 72px, #000 calc(100% - 72px), transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 0, #000 72px, #000 calc(100% - 72px), transparent 100%);
+}
+.band::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 56px;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(164, 157, 255, 0.35) 30%,
+    rgba(164, 157, 255, 0.35) 70%,
+    transparent
+  );
 }
 .band-grid {
   display: grid;
-  gap: 32px;
+  gap: 64px;
 }
 
-/* Up next: steps on a drifting dashed pipe. */
+/*
+ * Up next: diamond nodes on a dashed pipe whose dashes drift in the direction of travel. Top to
+ * bottom on a phone; left to right from 640px, scrolling sideways when the steps don't fit.
+ */
+.pipe {
+  position: relative;
+}
 .steps {
   position: relative;
-  max-width: 760px;
 }
 .step {
   position: relative;
   display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  padding: 0 0 16px 22px;
+  flex-direction: column;
+  padding: 0 0 28px 32px;
 }
 .step::before {
   content: "";
   position: absolute;
-  left: 4px;
-  top: 12px;
-  bottom: -2px;
+  left: 6px;
+  top: 8px;
+  bottom: -8px;
   width: 2px;
-  background: repeating-linear-gradient(180deg, var(--acc-lo) 0 5px, transparent 5px 10px);
-  background-size: 2px 20px;
-  animation: drift-v 1.6s linear infinite;
+  background-image: linear-gradient(180deg, rgba(164, 157, 255, 0.6) 50%, transparent 50%);
+  background-size: 2px 14px;
+  background-repeat: repeat-y;
+  animation: pipe-v 4s linear infinite;
 }
 .step:last-child::before {
-  display: none;
+  bottom: 8px;
 }
 .node {
   position: absolute;
   left: 0;
-  top: 4px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: 2px solid var(--faint);
+  top: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 2px solid rgba(124, 114, 255, 0.6);
   background: var(--ink);
-}
-.step.go .node {
-  border-color: var(--acc);
+  transform: rotate(45deg);
+  transition:
+    transform 0.45s var(--ease),
+    box-shadow 0.45s;
 }
 .step.first .node {
-  border-color: var(--acc-hi);
+  border-color: var(--acc);
   background: var(--acc);
-  animation: breathe 2.8s ease-in-out infinite;
+  box-shadow: 0 0 16px rgba(124, 114, 255, 0.85);
 }
 .step.bad .node {
-  border-color: var(--bad);
+  border-color: rgba(239, 98, 98, 0.8);
+}
+.step:hover .node {
+  transform: rotate(45deg) scale(1.35);
+  box-shadow: 0 0 14px rgba(124, 114, 255, 0.8);
 }
 .st-main {
-  flex: 1;
   min-width: 0;
+  transition: transform 0.45s var(--ease);
+}
+.step:hover .st-main {
+  transform: translateY(-2px);
+}
+.st-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.st-num {
+  flex: none;
+  font: 700 14px / 1.3 var(--font-display);
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.3);
+}
+.step.first .st-num {
+  color: var(--acc-hi);
 }
 .st-key {
   color: var(--text);
+  font-family: var(--font-display);
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
+.st-key.mono,
+.st-key .mono {
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
 .st-why {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 6px;
   font-size: 12px;
-  color: var(--muted);
+  color: rgba(255, 255, 255, 0.4);
+}
+.st-why .i {
+  width: 13px;
+  height: 13px;
+  margin-top: 1px;
+}
+.step.go .st-why {
+  color: var(--acc-hi);
 }
 .step.bad .st-why {
   color: var(--bad);
 }
 .tag {
-  font: 600 10px / 1 var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  padding: 4px 7px;
-  border-radius: 999px;
+  order: -1;
+  margin-bottom: 4px;
+  font: 600 11px / 1.2 var(--font-body);
   color: var(--acc-hi);
-  border: 1px solid var(--acc-lo);
 }
 .step.bad .tag {
   color: var(--bad);
-  border-color: rgba(239, 98, 98, 0.4);
+}
+.later {
+  display: none;
+}
+@media (min-width: 640px) {
+  .steps {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(190px, 1fr);
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    overscroll-behavior-x: contain;
+    /* Room on the left for the rotated node and its glow, which the scroller would clip. */
+    padding: 0 0 8px 6px;
+    scroll-padding-left: 6px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--acc-lo) transparent;
+  }
+  .step {
+    scroll-snap-align: start;
+    padding: 58px 24px 0 0;
+  }
+  .step::before,
+  .step:last-child::before {
+    left: 0;
+    right: 0;
+    top: 32px;
+    bottom: auto;
+    width: auto;
+    height: 2px;
+    background-image: linear-gradient(90deg, rgba(164, 157, 255, 0.6) 50%, transparent 50%);
+    background-size: 14px 2px;
+    background-repeat: repeat-x;
+    animation-name: pipe-h;
+  }
+  .node {
+    top: 26px;
+  }
+  .tag {
+    position: absolute;
+    left: -2px;
+    top: 2px;
+    margin: 0;
+  }
+  .later {
+    position: absolute;
+    right: -4px;
+    top: 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 11px;
+    color: rgba(164, 157, 255, 0.7);
+  }
 }
 
 /* Pipeline: seven columns, sideways scroll with snap points. */
@@ -796,28 +1081,23 @@ a.row:hover .r-ext {
   border-bottom: 1px solid var(--line-2);
 }
 .items > li {
-  padding: 10px 0 10px 12px;
+  padding: 12px 4px 12px 12px;
   border-bottom: 1px solid var(--line);
-  border-left: 2px solid transparent;
-  transition: background 0.25s;
 }
-.items > li:hover {
-  background: rgba(255, 255, 255, 0.025);
+.item {
+  --accent: rgba(255, 255, 255, 0.5);
 }
 .item.acc {
-  border-left-color: var(--acc);
+  --accent: var(--acc);
 }
 .item.ok {
-  border-left-color: var(--ok);
+  --accent: var(--ok);
 }
 .item.warn {
-  border-left-color: var(--warn);
+  --accent: var(--warn);
 }
 .item.bad {
-  border-left-color: var(--bad);
-}
-.item.muted {
-  border-left-color: var(--line-2);
+  --accent: var(--bad);
 }
 .it-head {
   display: flex;
@@ -1033,18 +1313,9 @@ a.row:hover .r-ext {
     width: 100%;
     justify-content: space-between;
   }
-  .state {
-    width: auto;
-  }
-  .s-main {
-    min-width: 0;
-    flex-basis: 100%;
-  }
-  a.row {
-    flex-wrap: wrap;
-  }
-  .r-main {
-    flex-basis: calc(100% - 40px);
+  .pr-card {
+    padding-inline: 18px;
+    gap: 12px;
   }
 }
 
@@ -1052,10 +1323,15 @@ a.row:hover .r-ext {
 @keyframes breathe {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(124, 114, 255, 0.55);
+    opacity: 1;
   }
   50% {
-    box-shadow: 0 0 0 6px rgba(124, 114, 255, 0);
+    opacity: 0.35;
+  }
+}
+@keyframes stream {
+  to {
+    background-position: -200% 0;
   }
 }
 @keyframes flow {
@@ -1063,9 +1339,14 @@ a.row:hover .r-ext {
     background-position: 300% 0;
   }
 }
-@keyframes drift-v {
+@keyframes pipe-v {
   to {
-    background-position: 0 20px;
+    background-position: 0 14px;
+  }
+}
+@keyframes pipe-h {
+  to {
+    background-position: 14px 0;
   }
 }
 @keyframes drift-h {

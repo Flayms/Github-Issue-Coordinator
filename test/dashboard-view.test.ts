@@ -106,6 +106,8 @@ describe("dashboard view", () => {
         state: "running",
         startedAt: "2026-11-15T09:00:00.000Z",
         idleFor: null,
+        idleTimeout: null,
+        idleShare: null,
         name: "#5 Fix login · Implementer · app",
         model: "sonnet",
       },
@@ -119,9 +121,31 @@ describe("dashboard view", () => {
         state: "idle",
         startedAt: "2026-11-15T09:00:00.000Z",
         idleFor: "30 min",
+        idleTimeout: "30 min",
+        idleShare: 100,
         name: "Planner · #6, #7 · app",
         model: "opus",
       },
+    ]);
+  });
+
+  test("REQ-003-01 an idle session shows its idle time out of idleTimeoutMin, as text and as a bar share", () => {
+    const limited = parseConfig({ ...config, limits: { ...config.limits, idleTimeoutMin: 40 } });
+    const v = dashboardView(
+      snapshot({
+        sessions: [
+          session({ id: 1, role: "planner", issues: [5], state: "idle", lastActivityAt: "2026-11-15T10:26:00.000Z" }),
+          session({ id: 2, role: "planner", issues: [6], state: "idle", lastActivityAt: "2026-11-15T09:00:00.000Z" }),
+          session({ id: 3, role: "planner", issues: [7], state: "idle", live: false }),
+        ],
+      }),
+      limited,
+      NOW,
+    );
+    expect(v.sessions.map((s) => [s.idleFor, s.idleTimeout, s.idleShare])).toEqual([
+      ["4 min", "40 min", 10],
+      ["1 h 30 min", "40 min", 100],
+      [null, null, null],
     ]);
   });
 
