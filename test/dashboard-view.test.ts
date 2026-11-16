@@ -36,6 +36,7 @@ const session = (s: Partial<SessionRecord & { live: boolean }> & Pick<SessionRec
   modelId: null,
   title: null,
   startedAt: "2026-11-15T09:00:00.000Z",
+  account: null,
   live: true,
   ...s,
 });

@@ -36,6 +36,8 @@ export interface SessionRecord {
   title: string | null;
   /** When the session was created (REQ-003-01); null for sessions stored before this was kept. */
   startedAt: string | null;
+  /** Name of the Account its last launch ran on (REQ-004-01); null before its first launch and for older sessions. */
+  account: string | null;
 }
 
 /** An issue the Coordinator created from a Planner's proposal while assessing `parent` (REQ-001-34). */
@@ -122,7 +124,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   usage_limited INTEGER NOT NULL DEFAULT 0,
   model_id TEXT,
   title TEXT,
-  started_at TEXT
+  started_at TEXT,
+  account TEXT
 );
 CREATE TABLE IF NOT EXISTS issues (
   repo TEXT NOT NULL,
@@ -158,6 +161,10 @@ CREATE TABLE IF NOT EXISTS split_offs (
   title TEXT NOT NULL,
   PRIMARY KEY (repo, number)
 );
+CREATE TABLE IF NOT EXISTS account_pauses (
+  account TEXT PRIMARY KEY,
+  until TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -182,6 +189,7 @@ interface SessionRow {
   model_id: string | null;
   title: string | null;
   started_at: string | null;
+  account: string | null;
 }
 
 const toSession = (r: SessionRow): SessionRecord => ({
@@ -202,6 +210,7 @@ const toSession = (r: SessionRow): SessionRecord => ({
   modelId: r.model_id ?? null,
   title: r.title ?? null,
   startedAt: r.started_at ?? null,
+  account: r.account ?? null,
 });
 
 const ISSUE_COLUMNS = {
@@ -256,7 +265,7 @@ export class Store {
         auto_round: "TEXT",
         screenshots: "TEXT",
       },
-      sessions: { model_id: "TEXT", title: "TEXT", started_at: "TEXT" },
+      sessions: { model_id: "TEXT", title: "TEXT", started_at: "TEXT", account: "TEXT" },
     };
     for (const [table, cols] of Object.entries(added)) {
       const have = new Set(
@@ -334,6 +343,10 @@ export class Store {
 
   setModelId(id: number, modelId: string): void {
     this.db.query("UPDATE sessions SET model_id = ? WHERE id = ?").run(modelId, id);
+  }
+
+  setAccount(id: number, account: string): void {
+    this.db.query("UPDATE sessions SET account = ? WHERE id = ?").run(account, id);
   }
 
   setState(id: number, state: SessionState): void {
@@ -476,14 +489,25 @@ export class Store {
     );
   }
 
-  /** End of the usage-limit pause (REQ-001-17), if one is in force or was recorded. */
-  pausedUntil(): string | undefined {
-    return this.db.query<{ value: string }, [string]>("SELECT value FROM meta WHERE key = ?").get("pausedUntil")?.value;
+  /** End of the Account's usage-limit pause (REQ-001-17), if one is in force or was recorded. */
+  pausedUntil(account: string): string | undefined {
+    return this.db.query<{ until: string }, [string]>("SELECT until FROM account_pauses WHERE account = ?").get(account)
+      ?.until;
   }
 
-  setPausedUntil(iso: string | undefined): void {
-    if (iso === undefined) this.db.query("DELETE FROM meta WHERE key = ?").run("pausedUntil");
-    else this.db.query("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run("pausedUntil", iso);
+  setPausedUntil(account: string, iso: string | undefined): void {
+    if (iso === undefined) this.db.query("DELETE FROM account_pauses WHERE account = ?").run(account);
+    else this.db.query("INSERT OR REPLACE INTO account_pauses (account, until) VALUES (?, ?)").run(account, iso);
+  }
+
+  /** Stores before spec 004 kept one pause for everything; it becomes the given Account's (the first one's). */
+  adoptLegacyPause(account: string): void {
+    const legacy = this.db
+      .query<{ value: string }, [string]>("SELECT value FROM meta WHERE key = ?")
+      .get("pausedUntil");
+    if (!legacy) return;
+    if (this.pausedUntil(account) === undefined) this.setPausedUntil(account, legacy.value);
+    this.db.query("DELETE FROM meta WHERE key = ?").run("pausedUntil");
   }
 
   private stamp(): string {

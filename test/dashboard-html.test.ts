@@ -73,6 +73,7 @@ const snap: TickSnapshot = {
       modelId: "claude-sonnet-5-5",
       title: "Add search",
       startedAt: "2026-11-15T09:00:00.000Z",
+      account: null,
       live: true,
     },
   ],

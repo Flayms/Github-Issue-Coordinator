@@ -4,7 +4,9 @@
  * Owner's Claude app (REQ-001-18). Hooks report turns back through the store (src/hook.ts).
  */
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
+import { type Account, accountDir, copyTranscript, DEFAULT_ACCOUNT, freeAccount } from "./accounts.ts";
 import type { Role, RoleSettings } from "./config.ts";
 import { type Permissions, rolePermissions } from "./prompts.ts";
 import { resultInstructions } from "./results.ts";
@@ -95,6 +97,10 @@ export class SessionRunner {
       claudeBin?: string;
       /** Files and folders no agent may read: the App key, Claude's credentials (REQ-001-26). */
       secretPaths?: string[];
+      /** In priority order (REQ-004-01); default: the implicit Account in Claude's default folder. */
+      accounts?: Account[];
+      /** Where Claude's default folder `~/.claude` lives. */
+      home?: string;
     },
   ) {}
 
@@ -208,13 +214,35 @@ export class SessionRunner {
     }
   }
 
+  /** REQ-004-01: the first Account that isn't paused; the first one if all are (the scheduler holds work back then). */
+  private chooseAccount(): Account {
+    const accounts = this.o.accounts?.length ? this.o.accounts : [DEFAULT_ACCOUNT];
+    const now = this.o.store.clock();
+    return freeAccount(accounts, (n) => this.o.store.pausedUntil(n), now) ?? (accounts[0] as Account);
+  }
+
+  /** The folder of a recorded Account; sessions from before spec 004 ran in Claude's default folder. */
+  private recordedDir(name: string | null): string {
+    const home = this.o.home ?? homedir();
+    const a = this.o.accounts?.find((x) => x.name === name) ?? DEFAULT_ACCOUNT;
+    return accountDir(a, home);
+  }
+
   private launch(id: number, cwd: string, prompt: string, model: RoleSettings, resumeId?: string, keepResult = false) {
     const s = this.mustGet(id);
     const dir = this.sessionDir(id);
+    const account = this.chooseAccount();
+    const accountFolder = accountDir(account, this.o.home ?? homedir());
+    // REQ-001-17: `--resume` finds only transcripts in the Account's own folder.
+    if (resumeId) {
+      const from = this.recordedDir(s.account);
+      if (from !== accountFolder) copyTranscript(resumeId, from, accountFolder);
+    }
     const resultPath = join(dir, "result.json");
     // A Result from an earlier turn must not pass for this one, unless the turn has no new task (a wake).
     if (!keepResult) rmSync(resultPath, { force: true });
     this.o.store.patchSession(id, { coordinatorPromptPending: true });
+    this.o.store.setAccount(id, account.name);
     // REQ-001-45: tmux refuses long commands, so the prompt goes through a file. The shell substitutes it as one
     // argument and does not interpret its content (issue text is untrusted).
     const promptPath = join(dir, "prompt.md");
@@ -227,7 +255,8 @@ export class SessionRunner {
       permissions: rolePermissions(s.role, dir),
       resumeId,
     });
-    const command = `${shellQuote([this.o.claudeBin ?? "claude", ...args])} "$(cat ${shellQuote([promptPath])})"`;
+    const env = account.configDir ? `CLAUDE_CONFIG_DIR=${shellQuote([account.configDir])} ` : "";
+    const command = `${env}${shellQuote([this.o.claudeBin ?? "claude", ...args])} "$(cat ${shellQuote([promptPath])})"`;
     this.o.tmux.newWindow(`s${id}`, cwd, command);
   }
 

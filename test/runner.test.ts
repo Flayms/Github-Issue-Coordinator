@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -432,5 +432,71 @@ describe("session runner", () => {
     tmux.newWindow("keepalive", "/", "sleep");
     tmux.newWindow("s12x", "/", "sleep");
     expect(runner.liveSessionIds()).toEqual(new Set());
+  });
+});
+
+describe("Accounts", () => {
+  let accountsRunner: SessionRunner;
+  let home: string;
+  const spareDir = () => join(home, ".claude-spare");
+  beforeEach(() => {
+    home = join(dir, "home");
+    accountsRunner = new SessionRunner({
+      store,
+      tmux,
+      stateDir: dir,
+      dbPath: join(dir, "state.db"),
+      hookCommand: ["bun", "/app/src/hook.ts"],
+      accounts: [{ name: "main" }, { name: "spare", configDir: join(dir, "home", ".claude-spare") }],
+      home,
+    });
+  });
+  const start = () =>
+    accountsRunner.start({
+      repo: "octo/app",
+      role: "planner",
+      kind: "issue",
+      issues: [5],
+      cwd: "/work/app",
+      prompt: "p",
+      model: { model: "opus" },
+    });
+  const commandOf = (id: number) => tmux.windows.get(`s${id}`)?.command ?? "";
+
+  test("REQ-004-01 a session starts on the first Account, in Claude's default folder, and records it", () => {
+    const id = start();
+    expect(commandOf(id)).toStartWith("'claude' ");
+    expect(commandOf(id)).not.toContain("CLAUDE_CONFIG_DIR");
+    expect(store.session(id)?.account).toBe("main");
+  });
+
+  test("REQ-004-01 / REQ-001-17 while the first Account is paused, sessions start on the next one with its folder", () => {
+    store.setPausedUntil("main", new Date(Date.now() + 60_000).toISOString());
+    const id = start();
+    expect(commandOf(id)).toStartWith(`CLAUDE_CONFIG_DIR=${shellQuote([spareDir()])} 'claude' `);
+    expect(store.session(id)?.account).toBe("spare");
+  });
+
+  test("REQ-001-17 a session resumed on another Account takes its transcript along", () => {
+    const id = start();
+    store.setClaudeSessionId(id, "c1");
+    store.patchSession(id, { state: "idle", usageLimited: true });
+    const project = join(home, ".claude", "projects", "-work-app");
+    mkdirSync(project, { recursive: true });
+    writeFileSync(join(project, "c1.jsonl"), "turns\n");
+    store.setPausedUntil("main", new Date(Date.now() + 60_000).toISOString());
+
+    accountsRunner.resume(id, "go on", { model: "opus" });
+    expect(commandOf(id)).toStartWith(`CLAUDE_CONFIG_DIR=${shellQuote([spareDir()])} 'claude' '--resume' 'c1'`);
+    expect(store.session(id)?.account).toBe("spare");
+    expect(readFileSync(join(spareDir(), "projects", "-work-app", "c1.jsonl"), "utf8")).toBe("turns\n");
+
+    // Back on the first Account once its pause is over: the transcript comes back with the new turns.
+    writeFileSync(join(spareDir(), "projects", "-work-app", "c1.jsonl"), "turns\nmore turns\n");
+    store.setPausedUntil("main", undefined);
+    store.patchSession(id, { state: "idle" });
+    accountsRunner.resume(id, "again", { model: "opus" });
+    expect(store.session(id)?.account).toBe("main");
+    expect(readFileSync(join(project, "c1.jsonl"), "utf8")).toBe("turns\nmore turns\n");
   });
 });

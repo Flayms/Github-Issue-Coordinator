@@ -49,6 +49,52 @@ describe("config", () => {
     expect(secretPaths(c, "/home/a")).toEqual(["/etc/coordinator", "/home/a/.claude/.credentials.json", "/srv/dash"]);
   });
 
+  test("REQ-004-01 without accounts there is one implicit Account, Claude's default folder", () => {
+    expect(parseConfig(valid()).accounts).toEqual([{ name: "default" }]);
+    const c = parseConfig({
+      ...valid(),
+      accounts: [{ name: "main" }, { name: "spare", configDir: "/home/agent/.claude-spare" }],
+    });
+    expect(c.accounts).toEqual([{ name: "main" }, { name: "spare", configDir: "/home/agent/.claude-spare" }]);
+  });
+
+  test("REQ-004-01 Accounts need distinct names and folders, and at least one Account", () => {
+    expect(issuesOf({ ...valid(), accounts: [] })).not.toEqual([]);
+    expect(issuesOf({ ...valid(), accounts: [{ name: "a" }, { name: "a", configDir: "/x" }] })).toEqual([
+      "accounts.1.name: duplicate Account a",
+    ]);
+    expect(issuesOf({ ...valid(), accounts: [{ name: "a" }, { name: "b" }] })).toEqual([
+      "accounts.1.configDir: same folder as Account a",
+    ]);
+    expect(
+      issuesOf({
+        ...valid(),
+        accounts: [
+          { name: "a", configDir: "/x" },
+          { name: "b", configDir: "/x/" },
+        ],
+      }),
+    ).toEqual(["accounts.1.configDir: same folder as Account a"]);
+    expect(issuesOf({ ...valid(), accounts: [{ name: "a b" }] })).not.toEqual([]);
+  });
+
+  test("REQ-004-02 agents are denied every Account's login", () => {
+    const c = parseConfig({
+      ...valid(),
+      accounts: [
+        { name: "main" },
+        { name: "spare", configDir: "/home/a/.claude-spare" },
+        { name: "third", configDir: "/srv/claude-3" },
+      ],
+    });
+    expect(secretPaths(c, "/home/a")).toEqual([
+      "/etc/coordinator",
+      "/home/a/.claude/.credentials.json",
+      "/home/a/.claude-spare/.credentials.json",
+      "/srv/claude-3/.credentials.json",
+    ]);
+  });
+
   test("applies the defaults the Owner accepted", () => {
     const c = parseConfig(valid());
     expect(c.pollIntervalSec).toBe(60);
