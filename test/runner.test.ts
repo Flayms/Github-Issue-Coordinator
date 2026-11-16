@@ -59,7 +59,7 @@ afterEach(() => {
   rmSync(dir, { recursive: true });
 });
 
-/** The prompt the session's last launch handed to `claude` (REQ-001-41). */
+/** The prompt the session's last launch handed to `claude` (REQ-001-45). */
 const promptOf = (id: number) => readFileSync(join(dir, "sessions", String(id), "prompt.md"), "utf8");
 
 const startImplementer = () =>
@@ -370,7 +370,7 @@ describe("session runner", () => {
     ]);
   });
 
-  test("REQ-001-41 a long prompt reaches claude in full, as one argument, without shell interpretation", () => {
+  test("REQ-001-45 a long prompt reaches claude in full, as one argument, without shell interpretation", () => {
     // tmux refuses commands over about 16 KB ("command too long"); untrusted issue text must not be run.
     const tricky = `it's "quoted" $(touch pwned) \`touch pwned\` $HOME \\ ; | & \n`;
     const prompt = `${tricky}${"x".repeat(64 * 1024)}\n${tricky}`;
@@ -398,7 +398,7 @@ describe("session runner", () => {
     expect(existsSync(join(dir, "pwned"))).toBe(false);
   });
 
-  test("REQ-001-40 a session that cannot be launched is recorded as closed, with the launch error", () => {
+  test("REQ-001-44 a session that cannot be launched is recorded as closed, with the launch error", () => {
     tmux.failWith = "tmux new-window failed: command too long";
     let error: unknown;
     try {
@@ -414,7 +414,7 @@ describe("session runner", () => {
     expect(store.sessions("octo/app")).toEqual([]);
   });
 
-  test("REQ-001-40 a session that cannot be relaunched on resume is recorded as closed, with the launch error", () => {
+  test("REQ-001-44 a session that cannot be relaunched on resume is recorded as closed, with the launch error", () => {
     const id = startImplementer();
     store.setClaudeSessionId(id, "sess-abc");
     store.patchSession(id, { state: "idle" });

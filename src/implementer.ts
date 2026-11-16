@@ -8,7 +8,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Config, roleSettings } from "./config.ts";
 import type { GitHubClient, Item } from "./github/client.ts";
-import { sessionNote } from "./note.ts";
+import { agentNote, sessionNote } from "./note.ts";
 import { loadPrompt, renderPrompt } from "./prompts.ts";
 import { findingsToAnswer, type ImplementerResult, validateResult } from "./results.ts";
 import type { Finding } from "./reviewer.ts";
@@ -24,6 +24,22 @@ export interface AutoRound {
   headSha: string;
   causes: FeedbackCause[];
 }
+/**
+ * Labels a re-attached issue loses: every agent label but `agent:pr-open`. A stale one would win over
+ * it (REQ-001-16): `agent:failed` would stop automatic rounds, an in-flight one would fail the issue (REQ-001-43).
+ */
+const CLEARED_ON_REATTACH = [
+  "agent:proposed",
+  "agent:needs-refinement",
+  "agent:wontfix-proposed",
+  "agent:approved",
+  "agent:blocked",
+  "agent:planning",
+  "agent:in-progress",
+  "agent:reviewing",
+  "agent:reviewed",
+  "agent:failed",
+];
 const CLEARED_ON_CLEANUP = ["agent:in-progress", "agent:pr-open", "agent:reviewing", "agent:reviewed", "agent:failed"];
 
 export interface ImplementerDeps {
@@ -33,7 +49,16 @@ export interface ImplementerDeps {
   runner: Pick<SessionRunner, "start" | "resume" | "close" | "sessionDir">;
   worktrees: Pick<
     Worktrees,
-    "create" | "push" | "commitsAhead" | "currentBranch" | "defaultBranch" | "remove" | "hasRoom" | "fetchBase" | "head"
+    | "create"
+    | "attach"
+    | "push"
+    | "commitsAhead"
+    | "currentBranch"
+    | "defaultBranch"
+    | "remove"
+    | "hasRoom"
+    | "fetchBase"
+    | "head"
   >;
 }
 
@@ -63,6 +88,36 @@ export class Implementer {
       model: roleSettings(this.d.config, repo, "implementer"),
       sandboxDomains: this.sandboxDomains(repo),
     });
+  }
+
+  /**
+   * REQ-001-43: re-attach an orphaned agent PR. Rebuilds its Worktree from the PR's branch, records the
+   * PR again and labels the issues `agent:pr-open`, so Reviews and Feedback rounds resume. State of an
+   * earlier round in progress is cleared; the issues' Review history and round count are kept.
+   */
+  async reattach(repo: string, pr: number, branch: string, issues: number[]): Promise<string> {
+    const wt = await this.d.worktrees.attach(repo, issues, branch);
+    for (const n of issues) {
+      this.d.store.updateIssue(repo, n, {
+        worktreePath: wt.path,
+        prNumber: pr,
+        inFeedbackRound: 0,
+        autoRound: null,
+        pendingFeedback: null,
+        reviewFindings: null,
+      });
+      for (const l of CLEARED_ON_REATTACH) await this.d.gh.removeLabel(repo, n, l);
+      await this.d.gh.addLabels(repo, n, ["agent:pr-open"]);
+    }
+    for (const l of ["agent:reviewed", "agent:failed"]) await this.d.gh.removeLabel(repo, pr, l);
+    const note = agentNote({ owner: this.d.config.owner.login });
+    await this.d.gh.createComment(
+      repo,
+      pr,
+      `${note}\n\nThe Coordinator re-attached this PR: it had no Worktree on record, so the Worktree was rebuilt from \`${branch}\`. ` +
+        `Reviews and Feedback rounds resume for ${issues.map((n) => `#${n}`).join(", ")}.`,
+    );
+    return wt.path;
   }
 
   /** REQ-001-09 / REQ-001-19: after any turn, push and open or update the PR. */

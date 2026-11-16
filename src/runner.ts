@@ -22,7 +22,7 @@ export class SessionBusyError extends Error {
   }
 }
 
-/** REQ-001-40: a session that could not be launched; it is recorded as closed. */
+/** REQ-001-44: a session that could not be launched; it is recorded as closed. */
 export class SessionStartError extends Error {
   constructor(
     readonly session: SessionRecord,
@@ -49,7 +49,7 @@ export function remoteControlName(s: Pick<SessionRecord, "repo" | "role" | "kind
   return `#${s.issues[0]} ${title}${more} · ${role} · ${repoName}`;
 }
 
-/** The arguments before the prompt, which `launch` appends from the session's prompt file (REQ-001-41). */
+/** The arguments before the prompt, which `launch` appends from the session's prompt file (REQ-001-45). */
 export function claudeArgs(o: {
   name: string;
   settingsPath: string;
@@ -174,7 +174,7 @@ export class SessionRunner {
     }
   }
 
-  /** REQ-001-40: a session whose launch failed is closed, so it is not taken for an interrupted one (REQ-001-16). */
+  /** REQ-001-44: a session whose launch failed is closed, so it is not taken for an interrupted one (REQ-001-16). */
   private startFailed(id: number, cause: unknown): SessionStartError {
     this.o.store.patchSession(id, { state: "closed", coordinatorPromptPending: false });
     return new SessionStartError(this.mustGet(id), cause);
@@ -215,7 +215,7 @@ export class SessionRunner {
     // A Result from an earlier turn must not pass for this one, unless the turn has no new task (a wake).
     if (!keepResult) rmSync(resultPath, { force: true });
     this.o.store.patchSession(id, { coordinatorPromptPending: true });
-    // REQ-001-41: tmux refuses long commands, so the prompt goes through a file. The shell substitutes it as one
+    // REQ-001-45: tmux refuses long commands, so the prompt goes through a file. The shell substitutes it as one
     // argument and does not interpret its content (issue text is untrusted).
     const promptPath = join(dir, "prompt.md");
     writeFileSync(promptPath, keepResult ? prompt : `${prompt}\n\n${resultInstructions(s.role, resultPath)}`);

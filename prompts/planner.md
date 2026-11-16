@@ -29,7 +29,7 @@ Keep it proportionate: a typo fix gets three lines, an architectural change gets
 - `needs-refinement`: only for questions whose answer would change the plan. Put them in `questions` and say in `approach` what you would do for each answer. For anything else, pick a sensible default, state it in the Assessment and propose. A round-trip to the Owner costs more than a stated default they can correct.
 - `wontfix-proposed`: duplicate, already fixed, out of scope or harmful. Explain why.
 
-On a revision, the Owner's feedback overrides your earlier plan. Rewrite the whole Assessment instead of appending to it.
+On a revision, the Owner's feedback overrides your earlier plan. Rewrite the whole Assessment instead of appending to it. When the Owner's comments started the turn, also write `reply`: a few lines on what changed and why, or why nothing changed. The Coordinator posts it as a new comment below theirs, so they see what changed without comparing plans. Leave `reply` out on any other turn.
 
 ## Coordination notes
 
