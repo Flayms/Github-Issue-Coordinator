@@ -6,6 +6,8 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import type { Config } from "../config.ts";
 import type { TickSnapshot } from "../coordinator.ts";
+import { asset } from "./assets.ts";
+import { renderConfig } from "./config-html.ts";
 import { renderDashboard } from "./html.ts";
 import { dashboardView } from "./view.ts";
 
@@ -14,11 +16,15 @@ const COOKIE_MAX_AGE_SEC = 365 * 24 * 3600;
 
 const SECURITY_HEADERS = {
   "content-security-policy":
-    "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; form-action 'none'; base-uri 'none'",
+    "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; frame-ancestors 'none'; form-action 'none'; base-uri 'none'",
   "x-content-type-options": "nosniff",
   "referrer-policy": "no-referrer",
   "cache-control": "no-store",
 };
+
+const ASSET_PREFIX = "/assets/";
+/** Asset URLs carry a content hash (`?v=`), so a day of caching never shows a stale file after an update. */
+const ASSET_CACHE = "private, max-age=86400";
 
 export interface DashboardDeps {
   config: Config;
@@ -67,7 +73,7 @@ export function startDashboard(d: DashboardDeps): DashboardServer | undefined {
   }
 }
 
-function respond(status: number, body: string, headers: Record<string, string> = {}): Response {
+function respond(status: number, body: string | Uint8Array, headers: Record<string, string> = {}): Response {
   return new Response(body, {
     status,
     headers: { "content-type": "text/plain; charset=utf-8", ...SECURITY_HEADERS, ...headers },
@@ -91,14 +97,26 @@ function handle(req: Request, d: DashboardDeps): Response {
       if (presented === undefined || !same(presented, d.token)) return unauthorized();
     }
     if (req.method !== "GET") return respond(405, "Method not allowed", { allow: "GET" });
-    if (url.pathname !== "/") return respond(404, "Not found");
-    const view = dashboardView(d.snapshot(), d.config, d.now?.() ?? new Date());
-    return respond(200, renderDashboard(view), { "content-type": "text/html; charset=utf-8" });
+    if (url.pathname.startsWith(ASSET_PREFIX)) {
+      const a = asset(url.pathname.slice(ASSET_PREFIX.length));
+      if (!a) return respond(404, "Not found");
+      return respond(200, a.body, { "content-type": a.type, "cache-control": ASSET_CACHE });
+    }
+    const page = PAGES.get(url.pathname);
+    if (!page) return respond(404, "Not found");
+    const view = dashboardView(d.snapshot(), d.config, d.now?.() ?? new Date(), { repo: url.searchParams.get("repo") });
+    return respond(200, page(view), { "content-type": "text/html; charset=utf-8" });
   } catch (e) {
     d.log(`dashboard: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}`);
     return respond(500, "Internal error");
   }
 }
+
+/** The pages: the Overview and the Config page (REQ-003-05); both are plain GET links. */
+const PAGES = new Map([
+  ["/", renderDashboard],
+  ["/config", renderConfig],
+]);
 
 const unauthorized = () => respond(401, "Unauthorized: open the dashboard once with ?token=<your token>.");
 

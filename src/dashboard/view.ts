@@ -2,7 +2,7 @@
  * Dashboard view model (spec 003): turns the last tick's snapshot and the config into what the page
  * shows. Pure, so every rule is unit-tested; src/dashboard/html.ts renders it.
  */
-import { type Config, type Limits, ROLES, roleSettings } from "../config.ts";
+import { type Config, type Limits, ROLES, type Role, roleSettings } from "../config.ts";
 import type { RepoSnapshot, TickSnapshot } from "../coordinator.ts";
 import type { ChecksState } from "../github/client.ts";
 import { ROLE_NAMES } from "../note.ts";
@@ -10,21 +10,26 @@ import { remoteControlName } from "../runner.ts";
 import type { WaitReason } from "../scheduler.ts";
 import { type IssueState, issueState } from "../state.ts";
 
-/** Pipeline columns in the order of the workflow (README "Labels"). */
-export const PHASES: IssueState[] = [
-  "new",
-  "planning",
-  "needs-refinement",
-  "proposed",
-  "wontfix-proposed",
-  "approved",
-  "blocked",
-  "in-progress",
-  "pr-open",
-  "reviewing",
-  "reviewed",
-  "failed",
+/** Pipeline columns in the order of the workflow (README "Labels"), each grouping phases (REQ-003-02). */
+export const COLUMNS: { title: string; phases: IssueState[] }[] = [
+  { title: "Intake", phases: ["new", "planning"] },
+  { title: "Your move", phases: ["proposed", "needs-refinement", "wontfix-proposed"] },
+  { title: "Approved", phases: ["approved", "blocked"] },
+  { title: "Building", phases: ["in-progress"] },
+  { title: "In review", phases: ["pr-open", "reviewing"] },
+  { title: "Reviewed", phases: ["reviewed"] },
+  { title: "Failed", phases: ["failed"] },
 ];
+
+/** Phases where the Owner's move is next (REQ-003-11). */
+const NEED_YOU: IssueState[] = ["proposed", "needs-refinement", "wontfix-proposed", "reviewed"];
+const STUCK: IssueState[] = ["failed", "blocked"];
+
+/**
+ * Colour by meaning: `acc` an agent is on it, `ok` ready to merge, `warn` the Owner's move,
+ * `bad` blocked or failed, `muted` waiting for the Coordinator.
+ */
+export type Tone = "acc" | "ok" | "warn" | "bad" | "muted";
 
 export interface IssueLink {
   number: number;
@@ -42,6 +47,8 @@ export interface SessionView {
   idleFor: string | null;
   /** The Remote Control name, as shown in the Claude app (REQ-001-33). */
   name: string;
+  /** The model the session reported (REQ-001-29), else the configured one. */
+  model: string;
 }
 
 export interface PullView {
@@ -58,7 +65,30 @@ export interface PullView {
 
 export interface IssueView extends IssueLink {
   repo: string;
+  phase: IssueState;
+  /** What is happening, or what the Owner must do (REQ-003-02). */
+  status: string;
+  tone: Tone;
   pr: PullView | null;
+}
+
+export interface ColumnView {
+  title: string;
+  issues: IssueView[];
+}
+
+export interface SummaryView {
+  ready: number;
+  working: number;
+  needYou: number;
+  stuck: number;
+  queued: number;
+}
+
+export interface MeterView {
+  label: string;
+  used: number;
+  limit: number;
 }
 
 export interface QueueView {
@@ -83,7 +113,21 @@ export interface SettingsView {
   pollIntervalSec: number;
   checksGraceSeconds: number;
   limits: Limits;
-  repos: { name: string; setup: string | null; sandboxDomains: string[]; roles: RoleView[] }[];
+  /** How the dashboard is reached; null without a `dashboard` block. */
+  access: { host: string; port: number; tokenRequired: boolean } | null;
+  /** The model and effort per Role, before repository overrides. */
+  roles: RoleView[];
+  repos: {
+    name: string;
+    setup: string | null;
+    sandboxDomains: string[];
+    /** Effective settings per Role. */
+    roles: RoleView[];
+    /** The Roles this repository overrides, with their effective settings. */
+    overrides: RoleView[];
+    /** From the last tick; null before it. */
+    counts: { issues: number; pulls: number; worktrees: number } | null;
+  }[];
 }
 
 export interface DashboardView {
@@ -93,10 +137,21 @@ export interface DashboardView {
   errors: { repo: string; error: string }[];
   sessions: SessionView[];
   readyToMerge: PullView[];
+  summary: SummaryView;
+  capacity: MeterView[];
   queue: QueueView[];
   blocked: BlockedView[];
-  columns: { phase: IssueState; issues: IssueView[] }[];
+  columns: ColumnView[];
+  /** All configured repositories, for the filter (REQ-003-13). */
+  repos: string[];
+  /** The picked repository; null shows all. */
+  repoFilter: string | null;
   settings: SettingsView;
+}
+
+export interface ViewOptions {
+  /** `?repo=`: narrow the Pipeline to one repository (REQ-003-13). */
+  repo?: string | null;
 }
 
 const issueUrl = (repo: string, n: number) => `https://github.com/${repo}/issues/${n}`;
@@ -113,7 +168,12 @@ export function formatDuration(ms: number): string {
   return `${Math.floor(h / 24)} d ${h % 24} h`;
 }
 
-export function dashboardView(snap: TickSnapshot | undefined, config: Config, now: Date): DashboardView {
+export function dashboardView(
+  snap: TickSnapshot | undefined,
+  config: Config,
+  now: Date,
+  opts: ViewOptions = {},
+): DashboardView {
   const repos = snap?.repos ?? [];
   const since = (iso: string) => now.getTime() - Date.parse(iso);
   const title = (repo: string, n: number) =>
@@ -131,6 +191,7 @@ export function dashboardView(snap: TickSnapshot | undefined, config: Config, no
     startedAt: s.startedAt,
     idleFor: s.live && s.state !== "running" ? formatDuration(since(s.lastActivityAt)) : null,
     name: remoteControlName(s),
+    model: s.modelId ?? configuredModel(config, s.repo, s.role),
   }));
 
   const pullsOf = (r: RepoSnapshot): PullView[] =>
@@ -155,24 +216,34 @@ export function dashboardView(snap: TickSnapshot | undefined, config: Config, no
     }),
   );
 
-  const issues: (IssueView & { phase: IssueState })[] = repos.flatMap((r) => {
+  const issues: IssueView[] = repos.flatMap((r) => {
     const pulls = pullsOf(r);
-    return r.issues.map((i) => ({
-      repo: r.repo,
-      number: i.number,
-      title: i.title,
-      url: issueUrl(r.repo, i.number),
-      phase: issueState(i.labels),
-      pr: pulls.find((p) => p.issues.includes(i.number)) ?? null,
-    }));
+    return r.issues.map((i) => {
+      const phase = issueState(i.labels);
+      const pr = pulls.find((p) => p.issues.includes(i.number)) ?? null;
+      const ready = pr !== null && readyToMerge.some((p) => p.repo === pr.repo && p.number === pr.number);
+      return {
+        repo: r.repo,
+        number: i.number,
+        title: i.title,
+        url: issueUrl(r.repo, i.number),
+        phase,
+        ...describe(phase, ready, i.blockedBy),
+        pr,
+      };
+    });
   });
-  const columns = PHASES.map((phase) => ({
-    phase,
+  const configured = config.repos.map((r) => r.name);
+  const repoFilter = configured.find((name) => name === opts.repo) ?? null;
+  const columns = COLUMNS.map(({ title, phases }) => ({
+    title,
     issues: issues
-      .filter((i) => i.phase === phase)
-      .sort((a, b) => a.repo.localeCompare(b.repo) || a.number - b.number)
-      .map(({ phase: _, ...i }) => i),
-  })).filter((c) => c.issues.length > 0);
+      .filter((i) => phases.includes(i.phase) && (repoFilter === null || i.repo === repoFilter))
+      .sort(
+        (a, b) =>
+          phases.indexOf(a.phase) - phases.indexOf(b.phase) || a.repo.localeCompare(b.repo) || a.number - b.number,
+      ),
+  }));
 
   const queue = (snap?.queue ?? []).map((q) => ({
     key: q.work.key,
@@ -192,6 +263,29 @@ export function dashboardView(snap: TickSnapshot | undefined, config: Config, no
       })),
   );
 
+  const running = sessions.filter((s) => s.state === "running");
+  const runningSessions = (snap?.sessions ?? []).filter((s) => s.live && s.state === "running");
+  const slotsOf = (role: Role) => runningSessions.filter((s) => s.role === role).length;
+  const max: Record<Role, number> = {
+    planner: config.limits.maxPlanners,
+    implementer: config.limits.maxImplementers,
+    reviewer: config.limits.maxReviewers,
+  };
+  const capacity: MeterView[] = [
+    { label: "Running", used: running.length, limit: config.limits.maxRunning },
+    { label: "Live", used: sessions.filter((s) => s.state !== "gone").length, limit: config.limits.maxLiveSessions },
+    ...ROLES.map((role) => ({ label: `${ROLE_NAMES[role]} Slots`, used: slotsOf(role), limit: max[role] })),
+    { label: "Worktrees", used: repos.reduce((n, r) => n + r.worktrees, 0), limit: config.limits.maxWorktrees },
+  ];
+
+  const summary: SummaryView = {
+    ready: readyToMerge.length,
+    working: running.length,
+    needYou: issues.filter((i) => NEED_YOU.includes(i.phase)).length,
+    stuck: issues.filter((i) => STUCK.includes(i.phase)).length,
+    queued: queue.filter((q) => q.waiting).length,
+  };
+
   return {
     lastTick: snap ? { at: formatTime(snap.finishedAt), ago: `${formatDuration(since(snap.finishedAt))} ago` } : null,
     refreshSec: config.pollIntervalSec,
@@ -200,10 +294,14 @@ export function dashboardView(snap: TickSnapshot | undefined, config: Config, no
     errors: repos.flatMap((r) => (r.error ? [{ repo: r.repo, error: r.error }] : [])),
     sessions,
     readyToMerge,
+    summary,
+    capacity,
     queue,
     blocked,
     columns,
-    settings: settingsView(config),
+    repos: configured,
+    repoFilter,
+    settings: settingsView(config, repos),
   };
 }
 
@@ -226,19 +324,73 @@ function waitText(w: WaitReason, limits: Limits): string {
   }
 }
 
-function settingsView(config: Config): SettingsView {
+/** REQ-003-02: what the issue's phase means for the Owner, in words. */
+function describe(phase: IssueState, ready: boolean, blockedBy: number[]): { status: string; tone: Tone } {
+  switch (phase) {
+    case "new":
+      return { status: "Waits for the Planner", tone: "muted" };
+    case "planning":
+      return { status: "The Planner is assessing it", tone: "acc" };
+    case "proposed":
+      return { status: "Approve it, or reply to revise", tone: "warn" };
+    case "needs-refinement":
+      return { status: "Answer the Planner's questions", tone: "warn" };
+    case "wontfix-proposed":
+      return { status: "Close it, or reply to argue for it", tone: "warn" };
+    case "approved":
+      return { status: "Waits for an Implementer", tone: "muted" };
+    case "blocked":
+      return { status: `Blocked by ${blockedBy.map((n) => `#${n}`).join(", ") || "an open issue"}`, tone: "bad" };
+    case "in-progress":
+      return { status: "The Implementer is building it", tone: "acc" };
+    case "pr-open":
+      return { status: "Draft PR: waits for checks and a Review", tone: "acc" };
+    case "reviewing":
+      return { status: "The Reviewer is reviewing the PR", tone: "acc" };
+    case "reviewed":
+      return ready
+        ? { status: "Ready: merge the PR", tone: "ok" }
+        : { status: "Reviewed; the PR has conflicts or pending checks", tone: "warn" };
+    case "failed":
+      return { status: "The Coordinator gave up; see its comment", tone: "bad" };
+  }
+}
+
+/** A session of a repository no longer configured shows no model rather than failing the page. */
+function configuredModel(config: Config, repo: string, role: Role): string {
+  try {
+    return roleSettings(config, repo, role).model;
+  } catch {
+    return "–";
+  }
+}
+
+const roleView = (role: Role, s: { model: string; effort?: string }): RoleView => ({
+  role: ROLE_NAMES[role],
+  model: s.model,
+  effort: s.effort ?? null,
+});
+
+function settingsView(config: Config, snapshot: RepoSnapshot[]): SettingsView {
+  const dash = config.dashboard;
   return {
     pollIntervalSec: config.pollIntervalSec,
     checksGraceSeconds: config.checksGraceSeconds,
     limits: { ...config.limits },
-    repos: config.repos.map((r) => ({
-      name: r.name,
-      setup: r.setup ?? null,
-      sandboxDomains: [...r.sandboxDomains],
-      roles: ROLES.map((role) => {
-        const s = roleSettings(config, r.name, role);
-        return { role: ROLE_NAMES[role], model: s.model, effort: s.effort ?? null };
-      }),
-    })),
+    access: dash ? { host: dash.host, port: dash.port, tokenRequired: dash.tokenPath !== undefined } : null,
+    roles: ROLES.map((role) => roleView(role, config.roles[role])),
+    repos: config.repos.map((r) => {
+      const seen = snapshot.find((x) => x.repo === r.name);
+      return {
+        name: r.name,
+        setup: r.setup ?? null,
+        sandboxDomains: [...r.sandboxDomains],
+        roles: ROLES.map((role) => roleView(role, roleSettings(config, r.name, role))),
+        overrides: ROLES.filter((role) => r.roles?.[role] !== undefined).map((role) =>
+          roleView(role, roleSettings(config, r.name, role)),
+        ),
+        counts: seen ? { issues: seen.issues.length, pulls: seen.pulls.length, worktrees: seen.worktrees } : null,
+      };
+    }),
   };
 }
