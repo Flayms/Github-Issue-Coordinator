@@ -58,14 +58,38 @@ export class Worktrees {
 
   /** The Worktree of an issue or Bundle (named after its first issue); reused if it exists. */
   async create(repo: string, issues: number[], title: string): Promise<Worktree> {
-    const first = issues[0] ?? 0;
-    const branch = branchName(first, title);
-    const path = join(this.o.root, "worktrees", ...repo.split("/"), String(first));
+    const branch = branchName(issues[0] ?? 0, title);
+    const path = this.path(repo, issues);
     if (existsSync(join(path, ".git"))) return { path, branch: git(path, ["rev-parse", "--abbrev-ref", "HEAD"]) };
     if (!this.hasRoom()) throw new Error(`maxWorktrees (${this.o.maxWorktrees}) reached`);
 
     await this.checkout(repo, path);
     git(path, ["checkout", "-q", "-b", branch, "origin/HEAD"]);
+    this.prepare(repo, path);
+    return { path, branch };
+  }
+
+  /**
+   * REQ-001-43: the Worktree of an orphaned agent PR, rebuilt from its remote branch and tracking it,
+   * so later pushes stay fast-forwards. Never reuses a folder that exists.
+   */
+  async attach(repo: string, issues: number[], branch: string): Promise<Worktree> {
+    const path = this.path(repo, issues);
+    if (existsSync(path)) throw new Error(`a folder already exists at ${path}`);
+    if (!this.hasRoom()) throw new Error(`maxWorktrees (${this.o.maxWorktrees}) reached`);
+    await this.checkout(repo, path);
+    git(path, ["checkout", "-q", "-b", branch, "--track", `origin/${branch}`]);
+    this.prepare(repo, path);
+    return { path, branch };
+  }
+
+  /** Where the Worktree of an issue or Bundle lives, named after its first issue. */
+  path(repo: string, issues: number[]): string {
+    return join(this.o.root, "worktrees", ...repo.split("/"), String(issues[0] ?? 0));
+  }
+
+  /** Commit identity and the repository's setup command; a failed setup removes the checkout. */
+  private prepare(repo: string, path: string): void {
     git(path, ["config", "user.name", this.o.commitAuthor.name]);
     git(path, ["config", "user.email", this.o.commitAuthor.email]);
     const setup = this.o.setup(repo);
@@ -76,7 +100,6 @@ export class Worktrees {
         throw new Error(`setup command "${setup}" failed: ${p.stderr.toString().trim().slice(-2000)}`);
       }
     }
-    return { path, branch };
   }
 
   reviewPath(repo: string, pr: number): string {

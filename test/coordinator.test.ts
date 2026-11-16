@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseConfig } from "../src/config.ts";
 import { Coordinator, USAGE_LIMIT_PAUSE_MIN } from "../src/coordinator.ts";
-import type { Comment, Item } from "../src/github/client.ts";
+import type { Comment, Item, OpenPull } from "../src/github/client.ts";
 import type { StartOptions } from "../src/runner.ts";
 import { Store } from "../src/store.ts";
 
@@ -42,6 +42,11 @@ class FakeGitHub {
     const changed = this.changed;
     this.changed = false;
     return { changed, items: this.items };
+  }
+  /** Open PRs with their head branch (REQ-001-42). */
+  openPulls: OpenPull[] = [];
+  async listOpenPulls() {
+    return this.openPulls;
   }
   async listComments(_repo: string, issue: number, opts: { afterId?: number } = {}) {
     this.commentFetches++;
@@ -131,8 +136,15 @@ class FakeWorktrees {
     this.onFetch();
     this.fetched.push(path);
   }
+  room = true;
   hasRoom() {
-    return true;
+    return this.room;
+  }
+  attached: [number[], string][] = [];
+  async attach(_repo: string, issues: number[], branch: string) {
+    if (!this.room) throw new Error("maxWorktrees (5) reached");
+    this.attached.push([issues, branch]);
+    return { path: `/wt/${issues[0]}`, branch };
   }
   async create(_repo: string, issues: number[]) {
     return { path: `/wt/${issues[0]}`, branch: `agent/${issues[0]}-x` };
@@ -523,6 +535,92 @@ describe("reconcile loop", () => {
     await coordinator.tick();
     expect(worktrees.removed).toEqual(["/wt/5"]);
     expect(store.issue("octo/app", 5)).toMatchObject({ worktreePath: null, prNumber: null });
+  });
+
+  const orphan = (): OpenPull => ({ number: 34, headRef: "agent/5-x", headRepo: "octo/app", body: "B\n\nCloses #5" });
+
+  test("REQ-001-42 / REQ-001-43 a new issue with an orphaned agent PR is not planned; the PR is re-attached and reviewed", async () => {
+    gh.items = [item(5), item(34, [], { isPullRequest: true, author: { login: "bot", id: 1 } })];
+    gh.openPulls = [orphan()];
+    await coordinator.tick();
+    expect(gh.calls).not.toContainEqual(["addLabels", 5, ["agent:planning"]]);
+    expect(runner.started.filter((x) => x.role === "planner")).toEqual([]);
+    expect(worktrees.attached).toEqual([[[5], "agent/5-x"]]);
+    expect(store.issue("octo/app", 5)).toMatchObject({ worktreePath: "/wt/5", prNumber: 34 });
+    expect(gh.items[0]?.labels).toEqual(["agent:pr-open"]);
+    const comments = () => gh.calls.filter((c) => c[0] === "createComment");
+    expect(comments()).toEqual([["createComment", 34, expect.stringContaining("re-attached")]]);
+    expect(logs.join("\n")).toContain("re-attached PR #34");
+
+    await coordinator.tick();
+    expect(runner.started.filter((x) => x.role === "reviewer")).toMatchObject([{ issues: [5] }]);
+    expect(gh.items[0]?.labels).toEqual(["agent:reviewing"]);
+    await coordinator.tick();
+    expect(worktrees.attached).toHaveLength(1);
+    expect(comments()).toHaveLength(1);
+  });
+
+  test("REQ-001-43 an approved issue's orphaned PR is re-attached instead of starting an Implementer; Feedback rounds resume", async () => {
+    gh.items = [item(5, ["agent:approved"])];
+    store.updateIssue("octo/app", 5, { approvedAt: "2026-11-11T09:00:00Z" });
+    gh.openPulls = [orphan()];
+    gh.checkState = "failure";
+    await coordinator.tick();
+    expect(runner.started).toEqual([]);
+    expect(gh.items[0]?.labels).toEqual(["agent:pr-open"]);
+    await coordinator.tick();
+    expect(runner.started).toMatchObject([{ role: "implementer", issues: [5], cwd: "/wt/5" }]);
+    expect(runner.started[0]?.prompt).toContain("Feedback round on PR #34");
+  });
+
+  test("REQ-001-43 a re-attached issue with stale agent:failed or agent:in-progress labels ends up only agent:pr-open, and automatic rounds resume", async () => {
+    gh.items = [item(5, ["agent:failed", "agent:in-progress"])];
+    gh.openPulls = [orphan()];
+    gh.checkState = "failure";
+    await coordinator.tick();
+    expect(gh.items[0]?.labels).toEqual(["agent:pr-open"]);
+    expect(gh.calls).not.toContainEqual(["addLabels", 5, ["agent:failed"]]);
+    expect(gh.calls.filter((c) => c[0] === "createComment")).toEqual([
+      ["createComment", 34, expect.stringContaining("re-attached")],
+    ]);
+    await coordinator.tick();
+    expect(runner.started).toMatchObject([{ role: "implementer", issues: [5], cwd: "/wt/5" }]);
+    expect(runner.started[0]?.prompt).toContain("Failing checks");
+  });
+
+  test("REQ-001-43 a listed PR that GitHub reports closed, or with another branch, is not re-attached", async () => {
+    gh.items = [item(5)];
+    gh.openPulls = [orphan()];
+    gh.pullStates.set(34, "closed"); // the open list lags behind
+    await coordinator.tick();
+    gh.pullStates.clear();
+    gh.openPulls = [{ ...orphan(), headRef: "agent/5-other" }]; // getPull says agent/5-x
+    await coordinator.tick();
+    expect(worktrees.attached).toEqual([]);
+    expect(store.issue("octo/app", 5).prNumber).toBeNull();
+    expect(gh.calls.filter((c) => c[0] === "createComment")).toEqual([]);
+  });
+
+  test("REQ-001-43 while maxWorktrees is reached nothing is re-attached; a later tick does it", async () => {
+    gh.items = [item(5)];
+    gh.openPulls = [orphan()];
+    worktrees.room = false;
+    await coordinator.tick();
+    expect(store.issue("octo/app", 5).prNumber).toBeNull();
+    expect(gh.items[0]?.labels).toEqual([]);
+    expect(logs.join("\n")).toContain("maxWorktrees");
+    worktrees.room = true;
+    await coordinator.tick();
+    expect(store.issue("octo/app", 5).prNumber).toBe(34);
+  });
+
+  test("REQ-001-43 an orphaned agent PR whose issues are all closed is logged once", async () => {
+    gh.items = [];
+    gh.openPulls = [orphan()];
+    await coordinator.tick();
+    await coordinator.tick();
+    expect(logs.filter((l) => l.includes("PR #34"))).toHaveLength(1);
+    expect(worktrees.attached).toEqual([]);
   });
 
   test("REQ-001-27 a failed sync is retried on the next tick", async () => {
