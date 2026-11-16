@@ -54,6 +54,7 @@ const ICONS = {
   doc: "M7 3h7l4 4v14H7zM14 3v4h4M10 12h5M10 16h5",
   pr: "M6 3v12M6 21a3 3 0 100-6 3 3 0 000 6zM18 21a3 3 0 100-6 3 3 0 000 6zM18 15V8a3 3 0 00-3-3h-4M13 3l-2 2 2 2",
   loop: "M4 12a8 8 0 0114-5.3M20 4v4h-4M20 12a8 8 0 01-14 5.3M4 20v-4h4",
+  arrow: "M7 17L17 7M9 7h8v8",
 } as const;
 export type Icon = keyof typeof ICONS;
 
@@ -141,12 +142,15 @@ function prDetails(p: PullView): string {
 
 function summary(v: DashboardView): string {
   const s = v.summary;
-  const headline = s.ready ? `${plural(s.ready, "PR", "PRs")} ready to merge` : "Nothing to merge right now";
+  // Solid text; only the count is green (#70).
+  const headline = s.ready
+    ? `<span class="ok">${esc(s.ready)}</span> ${s.ready === 1 ? "PR" : "PRs"} ready to merge`
+    : "Nothing to merge right now";
   const ready = v.readyToMerge.length
     ? `<ul class="rows">${v.readyToMerge
         .map((p) => {
           const c = checksText(p);
-          return `<li><a class="row ready" href="${esc(p.url)}" rel="noreferrer">${icon("merge", "i ok")}<span class="r-main"><span class="r-title">${esc(p.title)}</span><span class="r-sub mono">${esc(p.repo)} #${esc(p.number)}</span></span><span class="r-chk ${c.tone}">${icon(c.icon)}${c.text}</span><span class="r-ext">GitHub${icon("ext")}</span></a></li>`;
+          return `<li><a class="row ready" href="${esc(p.url)}" rel="noreferrer"><span class="r-main"><span class="r-title">${esc(p.title)}</span><span class="r-meta">${esc(p.repo)} · #${esc(p.number)} · <span class="${c.tone}">${icon(c.icon)}${c.text}</span></span></span><span class="r-go" title="Open on GitHub">${icon("arrow", "i r-arrow")}</span></a></li>`;
         })
         .join("")}</ul>`
     : empty("When a Review finds nothing and the checks pass, the PR shows up here.");
@@ -155,7 +159,7 @@ function summary(v: DashboardView): string {
   return `<section id="summary" class="hero">
 <div class="hero-text">
 <p class="eyebrow">Overview</p>
-<h1 class="${s.ready ? "has-ready" : ""}">${headline}</h1>
+<h1>${headline}</h1>
 <ul class="counts">${count(s.working, "working", "acc")}${count(s.needYou, "need you", "warn")}${count(s.stuck, "stuck", "bad")}${count(s.queued, "queued", "muted")}</ul>
 </div>
 <div class="panel"><h2 class="panel-title">${icon("merge")}Ready to merge</h2>${ready}</div>
@@ -175,19 +179,30 @@ function meter(m: MeterView): string {
 const capacity = (v: DashboardView) =>
   `<section id="capacity" class="wrap"><h2>Capacity</h2><ul class="meters">${v.capacity.map(meter).join("")}</ul></section>`;
 
-const STATE_LABEL = { running: "running", idle: "idle", gone: "window gone" } as const;
+const ROLE_ICONS: Record<string, Icon> = { Planner: "doc", Implementer: "bolt", Reviewer: "shield" };
 
+const stateLabel = (s: SessionView) =>
+  s.state === "running"
+    ? "running"
+    : s.state === "gone"
+      ? "window gone"
+      : s.idleFor
+        ? `idle ${esc(s.idleFor)}`
+        : "idle";
+
+/** One session in the Working now grid (#70): Role and state, a line that flows while running, the issues, the meta line. */
 function session(s: SessionView): string {
   const issues = s.issues.map((i) => `${link(i.url, `#${i.number}`)}${i.title ? ` ${esc(i.title)}` : ""}`).join(", ");
   const meta = [
     esc(s.repo),
     `<span class="mono">${esc(s.model)}</span>`,
     `started ${s.startedAt ? esc(formatTime(s.startedAt)) : "–"}`,
-    ...(s.idleFor ? [`idle for ${esc(s.idleFor)}`] : []),
   ].join(" · ");
-  return `<li class="row session">
-<span class="state ${s.state}"><span class="pulse"></span>${STATE_LABEL[s.state]}</span>
-<div class="s-main"><div class="s-title"><b>${esc(s.role)}</b> ${issues}</div><div class="s-meta">${meta}</div></div>
+  return `<li class="agent ${s.state}">
+<div class="a-top">${icon(ROLE_ICONS[s.role] ?? "user", "i a-icon")}<b>${esc(s.role)}</b><span class="a-state"><span class="pulse"></span>${stateLabel(s)}</span></div>
+<div class="a-line${s.state === "running" ? " flowing" : ""}"></div>
+<div class="a-issue">${issues || "–"}</div>
+<div class="a-meta">${meta}</div>
 <div class="s-name"><code class="mono" title="Remote Control name in the Claude app">${esc(s.name)}</code><button class="copy" type="button" data-copy="${esc(s.name)}" hidden>${icon("copy")}<span>Copy name</span></button></div>
 </li>`;
 }
@@ -195,7 +210,7 @@ function session(s: SessionView): string {
 const working = (v: DashboardView) =>
   `<section id="working"><h2>Working now <span class="count">${v.sessions.length}</span></h2>${
     v.sessions.length
-      ? `<ul class="rows">${v.sessions.map(session).join("")}</ul>`
+      ? `<ul class="agents">${v.sessions.map(session).join("")}</ul>`
       : empty("No agent sessions are open.")
   }</section>`;
 
@@ -226,15 +241,17 @@ const recent = (v: DashboardView) =>
       : empty("Nothing has happened yet. Events show up here once the Coordinator acts on an issue.")
   }</section>`;
 
+/** Up next (#70): numbered steps with diamond nodes, sideways on a dashed track, stacked on phones. */
 function upNext(v: DashboardView): string {
+  const num = (i: number) => `<span class="st-num mono">${String(i + 1).padStart(2, "0")}</span>`;
   const steps = [
     ...v.queue.map(
       (q, i) =>
-        `<li class="step${i === 0 ? " first" : ""}${q.waiting ? "" : " go"}"><span class="node"></span><div class="st-main"><div class="st-key mono">${esc(q.key)}</div><div class="st-why">${esc(q.status)}</div></div>${i === 0 ? '<span class="tag">next</span>' : ""}</li>`,
+        `<li class="step${i === 0 ? " first" : ""}${q.waiting ? "" : " go"}"><span class="node"></span>${num(i)}<div class="st-main"><div class="st-key mono">${esc(q.key)}</div><div class="st-why">${esc(q.status)}</div></div>${i === 0 ? '<span class="tag">next</span>' : ""}</li>`,
     ),
     ...v.blocked.map(
-      (b) =>
-        `<li class="step bad"><span class="node"></span><div class="st-main"><div class="st-key">${link(b.url, `${b.repo}#${b.number}`, "mono")} ${esc(b.title)}</div><div class="st-why">blocked by ${
+      (b, i) =>
+        `<li class="step bad"><span class="node"></span>${num(v.queue.length + i)}<div class="st-main"><div class="st-key">${link(b.url, `${b.repo}#${b.number}`, "mono")} ${esc(b.title)}</div><div class="st-why">blocked by ${
           b.blockedBy.map((x) => link(x.url, `#${x.number}`)).join(", ") || "–"
         }</div></div><span class="tag">blocked</span></li>`,
     ),

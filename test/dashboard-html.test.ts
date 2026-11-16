@@ -113,7 +113,7 @@ const order = (html: string, marks: string[]) => marks.map((m) => html.indexOf(m
 describe("dashboard html", () => {
   test("REQ-003-11 / REQ-003-12 / REQ-003-01 / REQ-003-04 / REQ-003-02 the Overview shows its sections in order", () => {
     const html = overview();
-    const at = order(html, ["1 PR ready to merge", "Capacity", "Working now", "Recent", "Up next", "Pipeline"]);
+    const at = order(html, ["PR ready to merge", "Capacity", "Working now", "Recent", "Up next", "Pipeline"]);
     expect(at.every((i) => i >= 0)).toBe(true);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
   });
@@ -129,6 +129,19 @@ describe("dashboard html", () => {
     for (const label of ["working", "need you", "stuck", "queued"]) expect(summary).toContain(label);
   });
 
+  test("REQ-003-11 / REQ-003-03 (#70) solid headline with only the count green; ready rows with a meta line and an arrow button under the panel header", () => {
+    const html = overview();
+    const summary = html.slice(html.indexOf('id="summary"'), html.indexOf('id="capacity"'));
+    expect(summary).toMatch(/<h1><span class="ok">1<\/span> PR ready to merge<\/h1>/);
+    expect(summary).toMatch(/<h2 class="panel-title">[\s\S]*Ready to merge<\/h2>/);
+    expect(summary).toMatch(
+      /<span class="r-meta">octo\/app · #70 · <span class="ok">[\s\S]*checks passed<\/span><\/span>[\s\S]*<span class="r-go"[^>]*>/,
+    );
+    const h1 = asset("dashboard.css").match(/\n\.hero h1 \{([^}]*)\}/)?.[1] ?? "";
+    expect(h1).not.toContain("background-clip");
+    expect(h1).not.toContain("transparent");
+  });
+
   test("REQ-003-12 shows each meter as used out of the limit", () => {
     const html = overview();
     const capacity = html.slice(html.indexOf('id="capacity"'), html.indexOf('id="working"'));
@@ -142,6 +155,14 @@ describe("dashboard html", () => {
     expect(html).toContain("claude-sonnet-5-5");
     expect(html).toContain("#6 Add search · Implementer · app");
     expect(html).toMatch(/<button[^>]*data-copy="#6 Add search · Implementer · app"[^>]*hidden/);
+  });
+
+  test("REQ-003-01 (#70) Working now is a grid of sessions: Role and state on top, a running line, then the issue and the meta line", () => {
+    const html = overview();
+    const working = html.slice(html.indexOf('id="working"'), html.indexOf('id="recent"'));
+    expect(working).toMatch(
+      /<ul class="agents">\s*<li class="agent running">\s*<div class="a-top"><svg[\s\S]*<b>Implementer<\/b><span class="a-state"><span class="pulse"><\/span>running<\/span><\/div>\s*<div class="a-line flowing"><\/div>\s*<div class="a-issue">[\s\S]*#6<\/a> Add search<\/div>\s*<div class="a-meta">/,
+    );
   });
 
   test("REQ-003-16 Recent sits next to Working now: each Event with icon, tone, time and links", () => {
@@ -169,6 +190,21 @@ describe("dashboard html", () => {
     expect(upNext).toMatch(/octo\/app#6 implement[\s\S]*next/);
     expect(upNext).toContain("maxRunning (1) reached");
     expect(upNext).toMatch(/class="step bad"[\s\S]*Waits for six[\s\S]*blocked by/);
+  });
+
+  test("REQ-003-04 (#70) the steps are numbered in the scheduler's order, the first one tagged next", () => {
+    const html = overview();
+    const upNext = html.slice(html.indexOf('id="up-next"'), html.indexOf('id="pipeline"'));
+    expect(upNext).toMatch(
+      /<li class="step first go"><span class="node"><\/span><span class="st-num mono">01<\/span>[\s\S]*octo\/app#6 implement[\s\S]*<span class="tag">next<\/span><\/li><li class="step"><span class="node"><\/span><span class="st-num mono">02<\/span>[\s\S]*octo\/lib plan[\s\S]*<li class="step bad"><span class="node"><\/span><span class="st-num mono">03<\/span>/,
+    );
+  });
+
+  test("#70 the frosted band fades out at the top and bottom instead of hard borders", () => {
+    const css = asset("dashboard.css");
+    const band = css.match(/\n\.band \{([^}]*)\}/)?.[1] ?? "";
+    expect(band).not.toContain("border");
+    expect(css.match(/\n\.band::before \{([^}]*)\}/)?.[1] ?? "").toContain("mask-image");
   });
 
   test("REQ-003-02 the Pipeline shows seven columns with counts and what each issue needs", () => {

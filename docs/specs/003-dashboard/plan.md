@@ -44,3 +44,8 @@ Redesign (#60):
 - [x] Assets: CSS, script, self-hosted fonts with their licences (REQ-003-06, 09, 14)
 - [x] Server: `/config`, `?repo=`, `/assets/*` from a fixed list, CSP (REQ-003-05, 09, 13)
 - [ ] Manual: screenshots on phone and desktop (no browser in the Implementer's sandbox)
+
+Design fixes (#70): back towards the mockup in #41, CSS and markup only, no view-model change:
+
+- [x] Working now as a two-column grid with Role, state and a running line; Up next as numbered steps with diamond nodes, sideways from 640px; the row hover on Pipeline items and ready rows; the band fading out instead of borders; a solid headline with only the count green and an arrow button per ready row (REQ-003-01, 03, 04, 11, 14)
+- [ ] Manual: screenshots on desktop and at 390px, incl. a hover state (no runnable browser in the Implementer's sandbox)

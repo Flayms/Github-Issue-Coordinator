@@ -2,7 +2,8 @@
  * Dashboard styles (spec 003). Colour carries meaning: indigo = an agent is on it, running, next;
  * green = ready, mergeable, passing; amber = needs the Owner; red = conflicts, blocked, failed.
  * Divided rows instead of cards; the only glass panel is "Ready to merge"; the frosted band holds
- * Up next and the Pipeline. Fonts are served from this origin (REQ-003-09).
+ * Up next and the Pipeline. Fonts are served from this origin (REQ-003-09). The look follows the
+ * Owner's mockup in #41 (#70): `.hover-row` is its row hover, `.flowing` its running line.
  */
 @font-face {
   font-family: "Plus Jakarta Sans";
@@ -317,15 +318,7 @@ main > .wrap {
   line-height: 1.05;
   font-weight: 700;
   letter-spacing: -0.03em;
-  background: linear-gradient(180deg, #fff, #b9b8d6);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-.hero h1.has-ready {
-  background: linear-gradient(100deg, #eafff5, var(--ok) 70%);
-  -webkit-background-clip: text;
-  background-clip: text;
+  color: #fff;
 }
 .lede {
   color: var(--muted);
@@ -381,43 +374,108 @@ main > .wrap {
   align-items: center;
   gap: 12px;
   padding: 12px 0;
-  transition: background 0.25s;
 }
+
+/*
+ * The mockup's row hover (#70), for ready rows and Pipeline items: a soft indigo wash from the left,
+ * a 2px accent bar that grows in, and the content nudged to the right.
+ */
+a.row,
+.items > li {
+  position: relative;
+  transition: background 0.3s ease;
+}
+a.row::before,
+.items > li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--bar, var(--acc));
+  box-shadow: 0 0 10px var(--bar, var(--acc));
+  transform: scaleY(0);
+  transition: transform 0.3s ease;
+}
+a.row:hover,
+.items > li:hover {
+  background: linear-gradient(90deg, rgba(124, 114, 255, 0.14), rgba(124, 114, 255, 0.03) 60%, transparent);
+}
+a.row:hover::before,
+.items > li:hover::before {
+  transform: scaleY(1);
+}
+
+/* Ready rows: title, grey meta line, and a round arrow that turns green and moves up-right. */
 a.row {
   color: var(--text);
-  margin-inline: -10px;
-  padding-inline: 10px;
+  margin-inline: -12px;
+  padding-inline: 14px 12px;
   border-radius: 10px;
+  --bar: var(--ok);
 }
 a.row:hover {
-  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
 }
 .r-main {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
+  gap: 2px;
+}
+a.row > .r-main,
+.items > li > * {
+  transition: transform 0.3s ease;
+}
+a.row:hover > .r-main,
+.items > li:hover > * {
+  transform: translateX(4px);
 }
 .r-title {
-  font-weight: 500;
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
-.r-sub {
-  color: var(--muted);
-}
-.r-chk,
-.r-ext {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+.r-meta {
   font-size: 12px;
-  white-space: nowrap;
-}
-.r-ext {
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
-a.row:hover .r-ext {
-  color: var(--acc-hi);
+.r-meta .i {
+  width: 13px;
+  height: 13px;
+  vertical-align: -2px;
+  margin-right: 2px;
+}
+.r-go {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--line-2);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  transition:
+    color 0.3s ease,
+    border-color 0.3s ease,
+    background 0.3s ease,
+    box-shadow 0.3s ease;
+}
+.r-arrow {
+  transition: transform 0.3s ease;
+}
+a.row:hover .r-go {
+  color: var(--ink);
+  border-color: var(--ok);
+  background: var(--ok);
+  box-shadow: 0 0 18px -2px rgba(63, 211, 142, 0.55);
+}
+a.row:hover .r-arrow {
+  transform: translate(2px, -2px);
 }
 
 /* ---- Capacity ---- */
@@ -520,55 +578,85 @@ a.row:hover .r-ext {
   width: 100%;
 }
 
-/* ---- Working now ---- */
-.session {
-  flex-wrap: wrap;
-  align-items: flex-start;
+/* ---- Working now: a grid of sessions, no box (#70) ---- */
+.agents {
+  display: grid;
+  gap: 22px 32px;
 }
-.state {
+@media (min-width: 640px) {
+  .agents {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.agent {
+  min-width: 0;
+}
+.a-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.a-icon {
+  color: var(--acc-hi);
+}
+.agent.idle .a-icon {
+  color: var(--muted);
+}
+.agent.gone .a-icon {
+  color: var(--bad);
+}
+.a-top b {
+  font: 700 15px / 1.3 var(--font-display);
+}
+.a-state {
+  margin-left: auto;
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  width: 104px;
-  flex: none;
-  padding-top: 2px;
   font: 500 12px / 1.4 var(--font-mono);
-}
-.state.running {
-  color: var(--acc-hi);
-}
-.state.idle {
+  white-space: nowrap;
   color: var(--muted);
 }
-.state.gone {
+.agent.running .a-state {
+  color: var(--acc-hi);
+}
+.agent.gone .a-state {
   color: var(--bad);
 }
 .pulse {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: currentColor;
 }
-.state.running .pulse {
+.agent.running .pulse {
   box-shadow: 0 0 0 0 rgba(124, 114, 255, 0.6);
   animation: breathe 2.8s ease-in-out infinite;
 }
-.s-main {
-  flex: 1;
-  min-width: 220px;
+/* The thin line under the top line: flowing while running, static otherwise. */
+.a-line {
+  height: 2px;
+  margin: 10px 0;
+  border-radius: 2px;
+  background: var(--line-2);
 }
-.s-title {
+.agent.gone .a-line {
+  background: rgba(239, 98, 98, 0.35);
+}
+.a-line.flowing {
+  background: linear-gradient(90deg, var(--acc-lo), var(--acc), var(--acc-hi), var(--acc-lo));
+  background-size: 300% 100%;
+  animation: flow 4s linear infinite;
+  box-shadow: 0 0 10px -2px rgba(124, 114, 255, 0.6);
+}
+.a-issue {
   overflow-wrap: anywhere;
 }
-.s-title b {
-  font-family: var(--font-display);
-  font-weight: 600;
-  margin-right: 4px;
-}
-.s-meta {
+.a-meta {
   font-size: 12px;
   color: var(--muted);
   margin-top: 2px;
+  overflow-wrap: anywhere;
 }
 .s-name {
   display: flex;
@@ -576,9 +664,10 @@ a.row:hover .r-ext {
   gap: 8px;
   flex-wrap: wrap;
   max-width: 100%;
+  margin-top: 6px;
 }
 .s-name code {
-  color: var(--muted);
+  color: var(--faint);
   overflow-wrap: anywhere;
 }
 .copy {
@@ -642,43 +731,73 @@ a.row:hover .r-ext {
   overflow-wrap: anywhere;
 }
 
-/* ---- The frosted band: Up next and the Pipeline ---- */
+/* ---- The frosted band: Up next and the Pipeline (#70: full bleed, fades out, no borders) ---- */
 .band {
   position: relative;
+  isolation: isolate;
   margin-top: 36px;
-  padding-block: 28px 32px;
-  border-block: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015));
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
+  padding-block: 64px 72px;
+}
+/* The tint and blur sit on a layer of their own so they can fade out at the top and bottom. */
+.band::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(180deg, rgba(14, 16, 32, 0.5), rgba(18, 18, 40, 0.62) 50%, rgba(14, 16, 32, 0.5));
+  -webkit-backdrop-filter: blur(28px) saturate(150%);
+  backdrop-filter: blur(28px) saturate(150%);
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 56px, #000 calc(100% - 56px), transparent);
+  mask-image: linear-gradient(180deg, transparent, #000 56px, #000 calc(100% - 56px), transparent);
+}
+/* A faint line near the top, fading out to both sides. */
+.band::after {
+  content: "";
+  position: absolute;
+  top: 40px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  z-index: -1;
+  background: linear-gradient(90deg, transparent, rgba(164, 157, 255, 0.28), transparent);
 }
 .band-grid {
   display: grid;
-  gap: 32px;
+  gap: 40px;
 }
 
-/* Up next: steps on a drifting dashed pipe. */
+/*
+ * Up next: numbered steps with diamond nodes on a drifting dashed track. Sideways from 640px
+ * (wrapping into more rows when long, like the mockup's grid), stacked below.
+ */
 .steps {
-  position: relative;
-  max-width: 760px;
+  display: grid;
+  gap: 20px 0;
+}
+@media (min-width: 640px) {
+  .steps {
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  }
 }
 .step {
   position: relative;
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  padding: 0 0 16px 22px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  column-gap: 8px;
+  padding: 26px 16px 0 0;
 }
+/* The horizontal track at node height, running to the next step. */
 .step::before {
   content: "";
   position: absolute;
-  left: 4px;
-  top: 12px;
-  bottom: -2px;
-  width: 2px;
-  background: repeating-linear-gradient(180deg, var(--acc-lo) 0 5px, transparent 5px 10px);
-  background-size: 2px 20px;
-  animation: drift-v 1.6s linear infinite;
+  left: 18px;
+  right: 0;
+  top: 7px;
+  height: 2px;
+  background: repeating-linear-gradient(90deg, var(--acc-lo) 0 6px, transparent 6px 10px);
+  background-size: 20px 2px;
+  animation: drift-h 1.6s linear infinite;
 }
 .step:last-child::before {
   display: none;
@@ -686,12 +805,16 @@ a.row:hover .r-ext {
 .node {
   position: absolute;
   left: 0;
-  top: 4px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
+  top: 2px;
+  width: 12px;
+  height: 12px;
   border: 2px solid var(--faint);
+  border-radius: 2px;
   background: var(--ink);
+  transform: rotate(45deg);
+  transition:
+    transform 0.35s ease,
+    box-shadow 0.35s ease;
 }
 .step.go .node {
   border-color: var(--acc);
@@ -699,13 +822,28 @@ a.row:hover .r-ext {
 .step.first .node {
   border-color: var(--acc-hi);
   background: var(--acc);
-  animation: breathe 2.8s ease-in-out infinite;
+  box-shadow: 0 0 14px 2px rgba(124, 114, 255, 0.6);
 }
 .step.bad .node {
   border-color: var(--bad);
+  background: rgba(239, 98, 98, 0.25);
+}
+.step:hover .node {
+  transform: rotate(135deg) scale(1.15);
+  box-shadow: 0 0 16px 3px rgba(124, 114, 255, 0.55);
+}
+.step.bad:hover .node {
+  box-shadow: 0 0 16px 3px rgba(239, 98, 98, 0.5);
+}
+.st-num {
+  font-size: 11px;
+  color: var(--faint);
+  padding-top: 2px;
+}
+.step.first .st-num {
+  color: var(--acc-hi);
 }
 .st-main {
-  flex: 1;
   min-width: 0;
 }
 .st-key {
@@ -728,9 +866,31 @@ a.row:hover .r-ext {
   color: var(--acc-hi);
   border: 1px solid var(--acc-lo);
 }
+.step.first .tag {
+  color: #fff;
+  background: rgba(124, 114, 255, 0.25);
+  border-color: var(--acc);
+}
 .step.bad .tag {
   color: var(--bad);
   border-color: rgba(239, 98, 98, 0.4);
+}
+/* Phones: the mockup's vertical pipe. */
+@media (max-width: 639px) {
+  .step {
+    padding: 0 0 0 26px;
+  }
+  .step::before {
+    left: 5px;
+    right: auto;
+    top: 18px;
+    bottom: -20px;
+    width: 2px;
+    height: auto;
+    background: repeating-linear-gradient(180deg, var(--acc-lo) 0 6px, transparent 6px 10px);
+    background-size: 2px 20px;
+    animation-name: drift-v;
+  }
 }
 
 /* Pipeline: seven columns, sideways scroll with snap points. */
@@ -796,13 +956,9 @@ a.row:hover .r-ext {
   border-bottom: 1px solid var(--line-2);
 }
 .items > li {
-  padding: 10px 0 10px 12px;
+  padding: 10px 6px 10px 12px;
   border-bottom: 1px solid var(--line);
   border-left: 2px solid transparent;
-  transition: background 0.25s;
-}
-.items > li:hover {
-  background: rgba(255, 255, 255, 0.025);
 }
 .item.acc {
   border-left-color: var(--acc);
@@ -1032,19 +1188,6 @@ a.row:hover .r-ext {
     margin-left: 0;
     width: 100%;
     justify-content: space-between;
-  }
-  .state {
-    width: auto;
-  }
-  .s-main {
-    min-width: 0;
-    flex-basis: 100%;
-  }
-  a.row {
-    flex-wrap: wrap;
-  }
-  .r-main {
-    flex-basis: calc(100% - 40px);
   }
 }
 
