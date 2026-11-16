@@ -827,7 +827,7 @@ describe("reconcile loop", () => {
     expect(gh.items[0]?.labels).toEqual(["agent:in-progress"]);
   });
 
-  test("REQ-001-53 through Review, Feedback round, re-review and failure, the PR's agent label equals its issue's", async () => {
+  test("REQ-001-54 through Review, Feedback round, re-review and failure, the PR's agent label equals its issue's", async () => {
     const impl = prOpen({ reviewedHeadSha: null });
     const agent = (n: number) =>
       (gh.items.find((i) => i.number === n)?.labels ?? []).filter((l) => l.startsWith("agent:"));
@@ -986,7 +986,7 @@ describe("reconcile loop", () => {
     expect(runner.resumed).toEqual([[id, expect.stringMatching(/fix the conflicts[\s\S]*git merge origin\/main/)]]);
     expect(store.issue("octo/app", 5).feedbackRounds).toBe(2);
     expect(gh.items[0]?.labels).toEqual(["agent:in-progress"]);
-    expect(gh.items[1]?.labels).toEqual(["agent:in-progress"]); // REQ-001-53
+    expect(gh.items[1]?.labels).toEqual(["agent:in-progress"]); // REQ-001-54
   });
 
   test("REQ-001-13 past maxFeedbackRounds, failing checks give up once per head, not on every tick", async () => {

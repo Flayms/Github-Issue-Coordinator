@@ -33,7 +33,7 @@ wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.de
 sudo apt install -y ./google-chrome-stable_current_amd64.deb
 ```
 
-`bun run doctor` reports the browser it finds ("headless browser for Screenshots"). Without one, the Coordinator works as before and Implementers say in the PR that they couldn't capture Screenshots. Published Screenshots go to the branch `agent-screenshots` of the repository (never to the default branch or the PR branch); you can delete old folders or the whole branch at any time, which only breaks the images of older PR bodies.
+`bun run doctor` reports the browser it finds and whether it starts headless and writes a PNG ("headless browser for Screenshots"). To check that it also starts inside an Implementer's sandbox, run `bun scripts/smoke-runner.ts --screenshot` once as the Coordinator's user (it uses the subscription); it reports pass, the browser's error, or inconclusive if auto mode refused the command (docs/known-pitfalls.md). Without one, the Coordinator works as before and Implementers say in the PR that they couldn't capture Screenshots. Published Screenshots go to the branch `agent-screenshots` of the repository (never to the default branch or the PR branch); you can delete old folders or the whole branch at any time, which only breaks the images of older PR bodies.
 
 Then log in to Claude once as that user, with the subscription. Remote Control does not work with `claude setup-token`, so this must be the interactive login:
 

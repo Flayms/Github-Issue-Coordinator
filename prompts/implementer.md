@@ -22,7 +22,7 @@ The Reviewer and the Owner trust a green suite only if it means something. So ne
 
 ## Screenshots
 
-When the repository's conventions ask for screenshots of UI changes, capture the pages your change affects, e.g. by serving them locally from fixture data and shooting them with the host's headless Chrome or Chromium (`google-chrome --headless --no-sandbox --screenshot=<file> --window-size=1280,900 <url>`, or Playwright with that browser). Save them as PNG or JPEG in `.coordinator/screenshots/` (git ignores it; don't commit them) and list them in `screenshots` with a caption each. The Coordinator publishes them and shows them in the PR. If you can't capture them, say so and why in `prBody` instead of failing the task.
+When the repository's conventions ask for screenshots of UI changes, capture the pages your change affects, e.g. by serving them locally from fixture data and shooting them with the host's headless Chrome or Chromium (`google-chrome --headless --no-sandbox --no-proxy-server --user-data-dir="$TMPDIR/chrome" --screenshot=<file> --window-size=1280,900 <url>`, or Playwright with that browser). Keep `--no-sandbox`: Chrome's own sandbox can't start inside yours. Use only the host's browser: never download or install one (a Chromium from npm, `playwright install`). Save them as PNG or JPEG in `.coordinator/screenshots/` (git ignores it; don't commit them) and list them in `screenshots` with a caption each. The Coordinator publishes them and shows them in the PR. If you can't capture them (no browser, it won't start, or auto mode refuses the command), say so in `prBody` and quote the error instead of failing the task or trying other ways.
 
 ## Later turns
 

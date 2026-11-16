@@ -188,7 +188,7 @@ describe("GitHub client", () => {
     ]);
   });
 
-  test("REQ-001-53 removing a label says whether the issue or PR had it", async () => {
+  test("REQ-001-54 removing a label says whether the issue or PR had it", async () => {
     const { gh } = client({
       "DELETE /repos/octo/app/issues/5/labels/agent:reviewed": { body: [] },
       "DELETE /repos/octo/app/issues/5/labels/agent:failed": { status: 404, body: { message: "Label does not exist" } },

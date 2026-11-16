@@ -11,7 +11,7 @@ describe("README Labels section", () => {
     expect(labelsSection).toContain("```mermaid\nstateDiagram-v2");
   });
 
-  test("REQ-001-53 says that an agent PR carries its issues' PR-phase label, in the text and the diagram", () => {
+  test("REQ-001-54 says that an agent PR carries its issues' PR-phase label, in the text and the diagram", () => {
     const sentence = labelsSection.match(/^Each issue's state .*$/m)?.[0] ?? "";
     expect(sentence).toContain("the PR carries the same label as its issues");
     for (const l of PR_PHASE_LABELS) expect(sentence).toContain(`\`${l}\``);

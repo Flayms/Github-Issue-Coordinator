@@ -89,7 +89,11 @@ export default {
   - [x] Prepared: `deploy/github-issue-coordinator.service` (`KillMode=process` keeps sessions alive across restarts), `docs/setup.md`, `bun run doctor`.
   - [ ] Owner: create the GitHub App and rulesets, decide on the `agent` user, install the service.
 - [ ] T16 Screenshots of UI changes (#59). Captured in the Implementer's sandbox with a headless Chrome the Owner installs on the host (no new sandbox domains, no GitHub access for the Implementer); published by the Coordinator on the orphan branch `agent-screenshots`, which keeps binaries out of the default branch's history. (REQ-001-48–51, REQ-002-13)
-  - [ ] Verify with `bun scripts/smoke-runner.ts --role implementer` that the sandbox can serve a page locally and shoot it with the host's browser (`--no-sandbox` inside bubblewrap). If it can't, capture stays impossible and the Implementer says so in the PR.
+  - [ ] Verify that the sandbox can serve a page locally and shoot it with the host's browser (`--no-sandbox` inside bubblewrap). (#66, REQ-001-53)
+    - [x] `bun scripts/smoke-runner.ts --screenshot`: a real Implementer session runs a fixed `shoot.sh` (fixture page on localhost, host browser headless) and reports pass, fail with the browser's error, or inconclusive.
+    - [x] `bun run doctor` starts the browser headless and checks it writes a PNG (`src/browser.ts`, shared with the smoke runner).
+    - [x] Implementer prompt: only the host's browser, with `--no-sandbox`, never a downloaded one; quote the error otherwise. (REQ-002-13)
+    - [ ] Owner: run `bun scripts/smoke-runner.ts --screenshot` on the host. If it fails, record the cause in docs/known-pitfalls.md and re-plan before widening the sandbox.
   - [x] Result field `screenshots` and the local exclude rule for `.coordinator/` in every Worktree (`src/results.ts`, `src/worktrees.ts`). (REQ-001-48)
   - [x] Checks on the listed files: folder, symlinks, regular file, PNG/JPEG first bytes, 2 MB, 5 files (`src/screenshots.ts`). (REQ-001-51)
   - [x] Publish to `agent-screenshots` from a bare repository of its own under `state/screenshots/` (`src/worktrees.ts`). (REQ-001-49)
