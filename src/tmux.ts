@@ -72,11 +72,16 @@ export class TmuxCli implements Tmux {
 }
 
 /**
- * REQ-001-58: whether Coordinator sessions still run on tmux's default socket, where Coordinators before the fixed
- * socket started them. A new Coordinator wouldn't see them and would resume them a second time.
+ * REQ-001-58: the agent windows still running in the tmux session an older Coordinator started on tmux's default
+ * socket; a new Coordinator wouldn't see them on its own socket and would resume them a second time. That session
+ * outlives its agents (its `keepalive` window), so when only `keepalive` is left it is ended here.
  */
-export function legacySessionRunning(exec: Exec = run, session = "coordinator"): boolean {
-  return exec(["tmux", "has-session", "-t", session]).ok;
+export function legacyAgentWindows(exec: Exec = run, session = "coordinator"): string[] {
+  const r = exec(["tmux", "list-windows", "-t", session, "-F", "#{window_name}"]);
+  if (!r.ok) return [];
+  const agents = r.out.split("\n").filter((w) => w && w !== "keepalive");
+  if (!agents.length) exec(["tmux", "kill-session", "-t", session]);
+  return agents;
 }
 
 function run(cmd: string[]): { ok: boolean; out: string; err: string } {

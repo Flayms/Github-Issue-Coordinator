@@ -11,7 +11,7 @@ import { GitHubClient } from "./github/client.ts";
 import { ReadTokens } from "./github/read-tokens.ts";
 import { hostControlSockets, SessionRunner } from "./runner.ts";
 import { Store } from "./store.ts";
-import { legacySessionRunning, TmuxCli, tmuxSocketPath } from "./tmux.ts";
+import { legacyAgentWindows, TmuxCli, tmuxSocketPath } from "./tmux.ts";
 import { Worktrees } from "./worktrees.ts";
 
 export const NAME = "github-issue-coordinator";
@@ -37,12 +37,13 @@ async function main() {
   const gh = new GitHubClient({ auth });
   // REQ-001-55: agents read GitHub with a read-only token of the same installation.
   const readTokens = new ReadTokens((repo) => auth.readTokenFor(repo), log);
-  // REQ-001-58: sessions on tmux's default socket are invisible to the fixed socket and would be resumed twice.
-  if (legacySessionRunning())
+  // REQ-001-58: agents on tmux's default socket are invisible to the fixed socket and would be resumed twice.
+  const legacy = legacyAgentWindows();
+  if (legacy.length)
     throw new Error(
-      "agent sessions still run in the tmux session 'coordinator' on tmux's default socket (started before the " +
-        "Coordinator used its own socket); let them finish or end them with `tmux kill-session -t coordinator`, " +
-        "then start again (docs/setup.md)",
+      `agent sessions ${legacy.join(", ")} still run in the tmux session 'coordinator' on tmux's default socket ` +
+        "(started before the Coordinator used its own socket); let them finish or end them with " +
+        "`tmux kill-session -t coordinator`, then start again (docs/setup.md)",
     );
   const tmuxSocket = tmuxSocketPath(stateDir);
   const dbPath = join(stateDir, "state.db");

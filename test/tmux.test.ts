@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { legacySessionRunning, TmuxCli, tmuxSocketPath } from "../src/tmux.ts";
+import { legacyAgentWindows, TmuxCli, tmuxSocketPath } from "../src/tmux.ts";
 
 /** Records every tmux call instead of running it; every call succeeds. */
 function recording() {
@@ -41,10 +41,35 @@ describe("tmux", () => {
     expect(calls[0]).toContain("coordinator-smoke:=s1");
   });
 
-  test("REQ-001-58 sees Coordinator sessions left on tmux's default socket by an older Coordinator", () => {
-    const { calls, exec } = recording();
-    expect(legacySessionRunning(exec)).toBe(true);
-    expect(calls).toEqual([["tmux", "has-session", "-t", "coordinator"]]);
-    expect(legacySessionRunning(() => ({ ok: false, out: "", err: "no server running" }))).toBe(false);
+  describe("REQ-001-58 the tmux session an older Coordinator left on tmux's default socket", () => {
+    /** Answers `list-windows` with the given windows (none: no server), records every call. */
+    const legacy = (windows: string[] | null) => {
+      const calls: string[][] = [];
+      const exec = (cmd: string[]) => {
+        calls.push(cmd);
+        if (cmd[1] === "list-windows")
+          return windows ? { ok: true, out: windows.join("\n"), err: "" } : { ok: false, out: "", err: "no server" };
+        return { ok: true, out: "", err: "" };
+      };
+      return { calls, exec };
+    };
+
+    test("names its agent windows, ignoring keepalive, and leaves it alone", () => {
+      const { calls, exec } = legacy(["keepalive", "s12", "s14"]);
+      expect(legacyAgentWindows(exec)).toEqual(["s12", "s14"]);
+      expect(calls).toEqual([["tmux", "list-windows", "-t", "coordinator", "-F", "#{window_name}"]]);
+    });
+
+    test("with only keepalive left, ends that session so the Coordinator can start", () => {
+      const { calls, exec } = legacy(["keepalive"]);
+      expect(legacyAgentWindows(exec)).toEqual([]);
+      expect(calls[1]).toEqual(["tmux", "kill-session", "-t", "coordinator"]);
+    });
+
+    test("without that session there is nothing to do", () => {
+      const { calls, exec } = legacy(null);
+      expect(legacyAgentWindows(exec)).toEqual([]);
+      expect(calls).toHaveLength(1);
+    });
   });
 });

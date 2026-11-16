@@ -145,7 +145,7 @@ journalctl -u github-issue-coordinator -f                               # the lo
 
 Restarting the service leaves running agent sessions alone (`KillMode=process`); the Coordinator picks them up again. To look at a session on the server (you normally don't need to): `sudo -iu agent tmux -S <stateDir>/tmux/coordinator.sock attach -t coordinator`. The Coordinator runs tmux on that socket of its own, so Implementers' sandboxes can hide it (REQ-001-58).
 
-**Upgrading from a Coordinator before #90** (which used tmux's default socket): deploy while no agent session runs. If one still runs, the Coordinator refuses to start and says so in the log; let it finish, or end it with `sudo -iu agent tmux kill-session -t coordinator`, then restart the service.
+**Upgrading from a Coordinator before #90** (which used tmux's default socket): deploy while no agent session runs. The Coordinator then ends the old tmux session, which holds only its `keepalive` window, and starts. If an agent session still runs there, the Coordinator refuses to start and names it in the log; let it finish, or end it with `sudo -iu agent tmux kill-session -t coordinator`, then restart the service.
 
 **Keep the `agent` user out of `docker`, `lxd`, `incus`, `libvirt` and `podman`.** Implementers' sandboxes may open Unix sockets (for the headless browser, REQ-001-53); they hide the Coordinator's own control sockets, but not a root daemon's socket such as `/var/run/docker.sock`. `bun run doctor` warns when `agent` is in one of these groups.
 
