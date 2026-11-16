@@ -133,7 +133,14 @@ if (config) {
       "GitHub App",
       app.ok ? `${body.slug}, permissions ${JSON.stringify(body.permissions)}` : (body.message ?? ""),
     );
-    const wanted = { issues: "write", pull_requests: "write", contents: "write", checks: "read", metadata: "read" };
+    const wanted = {
+      issues: "write",
+      pull_requests: "write",
+      contents: "write",
+      workflows: "write",
+      checks: "read",
+      metadata: "read",
+    };
     for (const [perm, level] of Object.entries(wanted)) {
       const have = body.permissions?.[perm];
       if (app.ok && have !== level && !(level === "read" && have === "write"))
