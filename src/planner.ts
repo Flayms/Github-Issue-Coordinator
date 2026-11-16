@@ -109,7 +109,13 @@ export class Planner {
   ): Promise<number> {
     const rec = this.d.store.issue(repo, issue.number);
     const commentIds = feedback.comments.map((c) => c.id);
-    const lastHandledCommentId = Math.max(rec.lastHandledCommentId, ...commentIds);
+    // REQ-001-44: the feedback counts as handled only once a session has it, so a failed start keeps it for a retry.
+    const handled = (replyTo: number[]) =>
+      this.d.store.updateIssue(repo, issue.number, {
+        lastHandledCommentId: Math.max(rec.lastHandledCommentId, ...commentIds),
+        bodyHash: bodyHash(issue.body),
+        replyTo,
+      });
     const model = roleSettings(this.d.config, repo, "planner");
     const own = this.d.store.latestSession(repo, issue.number, "planner");
     const start = (context: string) =>
@@ -126,26 +132,19 @@ export class Planner {
 
     if (feedback.bodyChanged) {
       if (own?.kind === "issue" && own.state !== "closed") this.d.runner.close(own.id);
-      this.d.store.updateIssue(repo, issue.number, {
-        lastHandledCommentId,
-        bodyHash: bodyHash(issue.body),
-        replyTo: commentIds,
-      });
       const context = renderContext({ assess: [issue], ...all });
-      return start(feedback.comments.length ? `${context}\n\n${renderFeedback(feedback.comments, true)}` : context);
+      const id = start(feedback.comments.length ? `${context}\n\n${renderFeedback(feedback.comments, true)}` : context);
+      handled(commentIds);
+      return id;
     }
 
-    this.d.store.updateIssue(repo, issue.number, {
-      lastHandledCommentId,
-      bodyHash: bodyHash(issue.body),
-      replyTo: [...rec.replyTo, ...commentIds],
-    });
     const feedbackText = renderFeedback(feedback.comments, false);
     if (own?.kind === "issue" && own.claudeSessionId) {
       this.d.runner.resume(own.id, feedbackText, model);
+      handled([...rec.replyTo, ...commentIds]);
       return own.id;
     }
-    return start(
+    const id = start(
       [
         renderContext({ assess: [issue], issues: [], pulls: [] })
           .split("## All open issues")[0]
@@ -155,6 +154,8 @@ export class Planner {
         feedbackText,
       ].join("\n\n"),
     );
+    handled([...rec.replyTo, ...commentIds]);
+    return id;
   }
 
   /** REQ-001-02/03/19/21: after any turn, bring GitHub in line with the session's Result. */

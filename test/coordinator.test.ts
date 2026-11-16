@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { parseConfig } from "../src/config.ts";
 import { Coordinator, USAGE_LIMIT_PAUSE_MIN } from "../src/coordinator.ts";
 import type { Comment, Item, OpenPull } from "../src/github/client.ts";
-import type { StartOptions } from "../src/runner.ts";
+import { SessionStartError, type StartOptions } from "../src/runner.ts";
 import { Store } from "../src/store.ts";
 
 const OWNER = { login: "octo", id: 42 };
@@ -180,13 +180,22 @@ class FakeRunner {
   started: StartOptions[] = [];
   resumed: [number, string][] = [];
   closed: number[] = [];
+  /** Makes every launch fail like the real runner's: the session is recorded as closed (REQ-001-44). */
+  launchError: string | null = null;
   constructor(
     private store: Store,
     private dir: string,
   ) {}
+  private failLaunch(id: number): never {
+    this.store.patchSession(id, { state: "closed", coordinatorPromptPending: false });
+    const s = this.store.session(id);
+    if (!s) throw new Error("unknown session");
+    throw new SessionStartError(s, new Error(this.launchError ?? ""));
+  }
   start(o: StartOptions) {
     this.started.push(o);
     const id = this.store.createSession({ repo: o.repo, role: o.role, kind: o.kind, issues: o.issues });
+    if (this.launchError) this.failLaunch(id);
     this.store.setClaudeSessionId(id, `claude-${id}`);
     mkdirSync(this.sessionDir(id), { recursive: true });
     this.live.add(id);
@@ -195,6 +204,7 @@ class FakeRunner {
   kept: number[] = [];
   resume(id: number, prompt: string, _model?: unknown, opts: { keepResult?: boolean } = {}) {
     this.resumed.push([id, prompt]);
+    if (this.launchError) this.failLaunch(id);
     if (opts.keepResult) this.kept.push(id);
     this.store.patchSession(id, { state: "running", usageLimited: false });
     this.live.add(id);
@@ -973,6 +983,110 @@ describe("reconcile loop", () => {
     gh.changed = true;
     await coordinator.tick();
     expect(runner.resumed).toHaveLength(1);
+  });
+
+  describe("REQ-001-44 a session that cannot be launched fails its issues once, with the error", () => {
+    const TOO_LONG = "tmux new-window failed: command too long";
+    const failComments = (n: number) =>
+      gh.calls.filter((c) => c[0] === "createComment" && c[1] === n && String(c[2]).includes("gave up"));
+    /** Two more ticks must not fail the issue again (no "never reported its id", no "no … session to resume"). */
+    const expectFailedOnce = async (n: number) => {
+      gh.changed = true;
+      await coordinator.tick();
+      await coordinator.tick();
+      expect(failComments(n)).toHaveLength(1);
+      expect(String(failComments(n)[0]?.[2])).toContain(TOO_LONG);
+      expect(store.sessions("octo/app")).toEqual([]);
+    };
+
+    test("a Planner pass", async () => {
+      gh.items = [item(5)];
+      runner.launchError = TOO_LONG;
+      await coordinator.tick();
+      expect(gh.items[0]?.labels).toEqual(["agent:failed"]);
+      expect(String(failComments(5)[0]?.[2])).toContain("Planner session");
+      await expectFailedOnce(5);
+    });
+
+    const revisionFails = async (own: "batch" | "issue") => {
+      await proposed();
+      if (own === "issue") {
+        const id = store.createSession({ repo: "octo/app", role: "planner", kind: "issue", issues: [5] });
+        store.setClaudeSessionId(id, "claude-own");
+        store.patchSession(id, { state: "idle" });
+        runner.live.add(id);
+      }
+      gh.comments.set(5, [{ id: 901, body: "Use v2", author: OWNER, createdAt: "", updatedAt: "" }]);
+      gh.changed = true;
+      runner.launchError = TOO_LONG;
+      await coordinator.tick();
+      expect(gh.items[0]?.labels).toContain("agent:failed");
+      await expectFailedOnce(5);
+      // The Owner's comment is still unhandled: once the issue is retried, the revision gets it.
+      expect(store.issue("octo/app", 5).lastHandledCommentId).toBe(0);
+      runner.launchError = null;
+      gh.items[0] = { ...item(5), labels: (gh.items[0]?.labels ?? []).filter((l) => l !== "agent:failed") };
+      gh.changed = true;
+      await coordinator.tick();
+      const handedOver = [...runner.started.slice(1).map((o) => o.prompt), ...runner.resumed.map((r) => r[1])];
+      expect(handedOver.at(-1)).toContain("Use v2");
+      expect(store.issue("octo/app", 5).lastHandledCommentId).toBe(901);
+    };
+
+    test("a revision in a new Planner session", () => revisionFails("batch"));
+    test("a revision that resumes the issue's Planner session", () => revisionFails("issue"));
+
+    test("a revision from scratch after the Owner edited the issue", async () => {
+      await proposed();
+      const before = store.issue("octo/app", 5).bodyHash;
+      gh.items[0] = { ...item(5, ["agent:proposed"]), body: "Body 5, edited" };
+      gh.changed = true;
+      runner.launchError = TOO_LONG;
+      await coordinator.tick();
+      expect(gh.items[0]?.labels).toContain("agent:failed");
+      await expectFailedOnce(5);
+      // The edit is still unhandled: once the issue is retried, it is planned from scratch.
+      expect(store.issue("octo/app", 5).bodyHash).toBe(before);
+      runner.launchError = null;
+      gh.items[0] = { ...item(5, ["agent:proposed"]), body: "Body 5, edited" };
+      gh.changed = true;
+      await coordinator.tick();
+      expect(runner.started.at(-1)?.prompt).toContain("Body 5, edited");
+      expect(store.issue("octo/app", 5).bodyHash).not.toBe(before);
+    });
+
+    test("an Implementer run", async () => {
+      gh.items = [item(5, ["agent:approved"])];
+      store.updateIssue("octo/app", 5, { approvedAt: "2026-11-11T09:00:00Z" });
+      gh.labelActorOf.set(5, OWNER);
+      runner.launchError = TOO_LONG;
+      await coordinator.tick();
+      expect(gh.items[0]?.labels).toEqual(["agent:failed"]);
+      expect(String(failComments(5)[0]?.[2])).toContain("Implementer session");
+      await expectFailedOnce(5);
+    });
+
+    test("a Feedback round", async () => {
+      const id = prOpen({ pendingFeedback: "Blocking: crash" });
+      runner.launchError = TOO_LONG;
+      await coordinator.tick();
+      expect(runner.resumed).toEqual([[id, expect.stringContaining("Blocking: crash")]]);
+      expect(gh.items[0]?.labels).toEqual(["agent:failed"]);
+      expect(String(failComments(5)[0]?.[2])).toContain("Implementer session");
+      expect(gh.calls).toContainEqual(["addLabels", 70, ["agent:failed"]]);
+      await expectFailedOnce(5);
+    });
+
+    test("a Review", async () => {
+      gh.items = [item(5, ["agent:pr-open"]), item(70, [], { isPullRequest: true, author: { login: "bot", id: 1 } })];
+      store.updateIssue("octo/app", 5, { worktreePath: "/wt/5", prNumber: 70 });
+      runner.launchError = TOO_LONG;
+      await coordinator.tick();
+      expect(gh.items[0]?.labels).toEqual(["agent:failed"]);
+      expect(String(failComments(5)[0]?.[2])).toContain("Reviewer session");
+      expect(gh.calls).toContainEqual(["addLabels", 70, ["agent:failed"]]);
+      await expectFailedOnce(5);
+    });
   });
 
   test("only fetches comments when the repository's issues changed", async () => {

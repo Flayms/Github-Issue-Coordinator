@@ -763,7 +763,7 @@ describe("deriveActions", () => {
     expect(actions).toEqual([{ type: "mark-closed", session: s }]);
   });
 
-  test("REQ-001-16 a session that never reported its id cannot be resumed", () => {
+  test("REQ-001-16 a session that exited before Claude Code started cannot be resumed", () => {
     const s = session({ role: "planner", issues: [5], claudeSessionId: null });
     const actions = deriveActions(snap({ items: [issue(5, ["agent:planning"])], sessions: [s] }));
     expect(actions).toEqual([
@@ -772,7 +772,7 @@ describe("deriveActions", () => {
         repo: "octo/app",
         issues: [5],
         session: s,
-        reason: "session never reported its id, so it cannot be resumed",
+        reason: "the session exited before Claude Code started",
       },
     ]);
   });

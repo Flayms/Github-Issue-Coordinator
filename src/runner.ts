@@ -22,6 +22,17 @@ export class SessionBusyError extends Error {
   }
 }
 
+/** REQ-001-44: a session that could not be launched; it is recorded as closed. */
+export class SessionStartError extends Error {
+  constructor(
+    readonly session: SessionRecord,
+    cause: unknown,
+  ) {
+    super(`could not start the session: ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = "SessionStartError";
+  }
+}
+
 export const shellQuote = (args: string[]): string => args.map((a) => `'${a.replace(/'/g, `'\\''`)}'`).join(" ");
 
 const TITLE_LIMIT = 50;
@@ -38,9 +49,9 @@ export function remoteControlName(s: Pick<SessionRecord, "repo" | "role" | "kind
   return `#${s.issues[0]} ${title}${more} · ${role} · ${repoName}`;
 }
 
+/** The arguments before the prompt, which `launch` appends from the session's prompt file (REQ-001-45). */
 export function claudeArgs(o: {
   name: string;
-  prompt: string;
   settingsPath: string;
   addDir: string;
   model: RoleSettings;
@@ -53,7 +64,7 @@ export function claudeArgs(o: {
   if (o.model.effort) args.push("--effort", o.model.effort);
   if (o.permissions.allowedTools.length) args.push("--allowedTools", ...o.permissions.allowedTools);
   // The prompt must follow a single-value flag: --add-dir is variadic, --remote-control has an optional value.
-  args.push("--remote-control", o.name, "--permission-mode", o.permissions.permissionMode, o.prompt);
+  args.push("--remote-control", o.name, "--permission-mode", o.permissions.permissionMode);
   return args;
 }
 
@@ -99,6 +110,17 @@ export class SessionRunner {
       issues: opts.issues,
       title: opts.title,
     });
+    try {
+      this.prepare(id, opts);
+      this.launch(id, opts.cwd, opts.prompt, opts.model);
+    } catch (e) {
+      throw this.startFailed(id, e);
+    }
+    return id;
+  }
+
+  /** Writes the session folder: per-session hooks, permissions and sandbox, and the cwd for resumes. */
+  private prepare(id: number, opts: StartOptions): void {
     const dir = this.sessionDir(id);
     mkdirSync(dir, { recursive: true });
     const hooks = Object.fromEntries(
@@ -135,8 +157,6 @@ export class SessionRunner {
     const permissions = { deny: secrets.flatMap((p) => [`Read(/${p})`, `Read(/${p}/**)`]) };
     writeFileSync(join(dir, "settings.json"), JSON.stringify({ hooks, permissions, sandbox }, null, 2));
     writeFileSync(join(dir, "meta.json"), JSON.stringify({ cwd: opts.cwd }));
-    this.launch(id, opts.cwd, opts.prompt, opts.model);
-    return id;
   }
 
   /** Continues a session with a new prompt; refuses while it is running (REQ-001-19). */
@@ -145,9 +165,19 @@ export class SessionRunner {
     if (this.isBusy(s)) throw new SessionBusyError(id);
     if (!s.claudeSessionId) throw new Error(`session ${id} has no Claude session id to resume`);
     const meta = JSON.parse(readFileSync(join(this.sessionDir(id), "meta.json"), "utf8")) as { cwd: string };
-    this.o.tmux.killWindow(`s${id}`);
-    this.o.store.patchSession(id, { state: "running", resultFailures: 0, usageLimited: false });
-    this.launch(id, meta.cwd, prompt, model, s.claudeSessionId, opts.keepResult);
+    try {
+      this.o.tmux.killWindow(`s${id}`);
+      this.o.store.patchSession(id, { state: "running", resultFailures: 0, usageLimited: false });
+      this.launch(id, meta.cwd, prompt, model, s.claudeSessionId, opts.keepResult);
+    } catch (e) {
+      throw this.startFailed(id, e);
+    }
+  }
+
+  /** REQ-001-44: a session whose launch failed is closed, so it is not taken for an interrupted one (REQ-001-16). */
+  private startFailed(id: number, cause: unknown): SessionStartError {
+    this.o.store.patchSession(id, { state: "closed", coordinatorPromptPending: false });
+    return new SessionStartError(this.mustGet(id), cause);
   }
 
   /** Closes an idle session (REQ-001-20); it can be resumed later. */
@@ -185,16 +215,20 @@ export class SessionRunner {
     // A Result from an earlier turn must not pass for this one, unless the turn has no new task (a wake).
     if (!keepResult) rmSync(resultPath, { force: true });
     this.o.store.patchSession(id, { coordinatorPromptPending: true });
+    // REQ-001-45: tmux refuses long commands, so the prompt goes through a file. The shell substitutes it as one
+    // argument and does not interpret its content (issue text is untrusted).
+    const promptPath = join(dir, "prompt.md");
+    writeFileSync(promptPath, keepResult ? prompt : `${prompt}\n\n${resultInstructions(s.role, resultPath)}`);
     const args = claudeArgs({
       name: remoteControlName(s),
-      prompt: keepResult ? prompt : `${prompt}\n\n${resultInstructions(s.role, resultPath)}`,
       settingsPath: join(dir, "settings.json"),
       addDir: dir,
       model,
       permissions: rolePermissions(s.role, dir),
       resumeId,
     });
-    this.o.tmux.newWindow(`s${id}`, cwd, shellQuote([this.o.claudeBin ?? "claude", ...args]));
+    const command = `${shellQuote([this.o.claudeBin ?? "claude", ...args])} "$(cat ${shellQuote([promptPath])})"`;
+    this.o.tmux.newWindow(`s${id}`, cwd, command);
   }
 
   private mustGet(id: number): SessionRecord {

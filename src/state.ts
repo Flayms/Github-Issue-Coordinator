@@ -176,7 +176,7 @@ export function deriveActions(s: Snapshot): Action[] {
     if (s.liveSessionIds.has(session.id)) continue;
     if (session.state === "idle") actions.push({ type: "mark-closed", session });
     else if (session.claudeSessionId === null)
-      actions.push(fail(session, "session never reported its id, so it cannot be resumed"));
+      actions.push(fail(session, "the session exited before Claude Code started"));
     else if (session.resumeAttempts >= 1)
       actions.push(fail(session, "session was interrupted again after being resumed once"));
     else actions.push({ type: "resume-interrupted", session });
@@ -388,6 +388,8 @@ export function deriveActions(s: Snapshot): Action[] {
     const pull = openPull(s, w);
     if (!pull || w.prNumber === null || pull.headSha === w.reviewedHeadSha || withFeedback.has(w.prNumber)) continue;
     if (pull.mergeable !== true) continue; // REQ-001-28
+    // REQ-001-44: like automatic rounds, Reviews stop once the issue failed, e.g. because the Reviewer could not start.
+    if (w.issues.some((n) => issueState(s.items.find((i) => i.number === n)?.labels ?? []) === "failed")) continue;
     if (pull.checks !== "success" && pull.checks !== "none") continue;
     if (pull.checks === "none" && now - Date.parse(pull.headSeenAt) < graceMs) continue;
     const busy = s.sessions.some(

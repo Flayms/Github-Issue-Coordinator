@@ -10,7 +10,7 @@ import { Implementer, type ImplementerDeps } from "./implementer.ts";
 import { agentNote, ROLE_NAMES } from "./note.ts";
 import { bodyHash, Planner } from "./planner.ts";
 import { Reviewer, type ReviewerDeps } from "./reviewer.ts";
-import type { SessionRunner } from "./runner.ts";
+import { type SessionRunner, SessionStartError } from "./runner.ts";
 import { type LiveSession, type Queued, schedule, type WaitReason, type Work } from "./scheduler.ts";
 import {
   type Action,
@@ -261,13 +261,12 @@ export class Coordinator {
       }
       this.syncFailures.delete(s.id);
       this.d.store.patchSession(s.id, { needsSync: false });
-      const pr = s.role === "planner" ? null : this.d.store.issue(s.repo, s.issues[0] ?? 0).prNumber;
       await this.fail(
         s.repo,
         s.issues,
         `syncing the ${s.role}'s Result to GitHub failed ${attempts} times; last error: ${error}`,
         s,
-        pr ?? undefined,
+        this.prOf(s),
       );
     }
   }
@@ -440,6 +439,7 @@ export class Coordinator {
             const id = await this.implementer.start(a.repo, members);
             this.log(`${a.repo}: implementing ${a.issues.map((n) => `#${n}`).join(", ")} (session ${id})`);
           } catch (e) {
+            if (e instanceof SessionStartError) throw e; // reported by run() (REQ-001-44)
             await this.fail(
               a.repo,
               a.issues,
@@ -680,12 +680,24 @@ export class Coordinator {
         if (wait) waits.set(w.key, wait);
       } catch (e) {
         this.log(`${w.key} failed: ${e instanceof Error ? e.message : String(e)}`);
+        // REQ-001-44: a session that could not be launched fails its issues with the error, once.
+        if (e instanceof SessionStartError) {
+          await this.fail(e.session.repo, e.session.issues, e.message, e.session, this.prOf(e.session)).catch((f) =>
+            this.log(`${w.key}: could not report the failure: ${f instanceof Error ? f.message : String(f)}`),
+          );
+        }
       }
     }
     return plan.queue.map((q) => {
       const wait = q.wait ?? waits.get(q.work.key);
       return wait ? { work: q.work, wait } : { work: q.work };
     });
+  }
+
+  /** The agent PR of an Implementer's or Reviewer's issues, if one is open. */
+  private prOf(s: SessionRecord): number | undefined {
+    if (s.role === "planner") return undefined;
+    return this.d.store.issue(s.repo, s.issues[0] ?? 0).prNumber ?? undefined;
   }
 
   private toLive(s: SessionRecord): LiveSession {
