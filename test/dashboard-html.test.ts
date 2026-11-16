@@ -236,13 +236,20 @@ describe("dashboard html", () => {
     expect(asset("dashboard.css")).not.toContain("@import");
   });
 
-  test("REQ-003-14 reduced motion turns animations and the background off; a hidden tab pauses it", () => {
+  test("REQ-003-14 the animated background shows, also for reduced motion; other animations stay off; a hidden tab pauses it", () => {
     const css = asset("dashboard.css");
+    const rule = (selector: string) => css.match(new RegExp(`(?:^|\\n)${selector} \\{([^}]*)\\}`))?.[1] ?? "";
+    // The page backdrop sits on the root, which paints below #bg (z-index: -1); a body background would cover it.
+    expect(rule("html")).toContain("radial-gradient");
+    expect(rule("body")).not.toContain("background");
+    expect(rule("#bg")).toContain("z-index: -1");
     const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
     expect(reduced).toContain("animation: none");
-    expect(reduced).toMatch(/#bg\s*\{[^}]*display: none/);
+    expect(reduced).toContain("transition: none");
+    expect(reduced).not.toContain("#bg");
     const js = asset("dashboard.js");
-    expect(js).toContain("(prefers-reduced-motion: reduce)");
+    expect(js).not.toContain("prefers-reduced-motion");
     expect(js).toContain("visibilitychange");
+    expect(js).toContain('getContext("webgl"');
   });
 });

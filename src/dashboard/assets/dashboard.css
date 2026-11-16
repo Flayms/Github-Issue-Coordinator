@@ -51,8 +51,17 @@
   box-sizing: border-box;
 }
 
+/*
+ * The static backdrop lives on the root: the root background paints below everything, also below
+ * #bg (z-index: -1). On body it would cover the animated background (REQ-003-14).
+ */
 html {
-  background: var(--ink);
+  background:
+    radial-gradient(1200px 600px at 85% -10%, rgba(124, 114, 255, 0.16), transparent 60%),
+    radial-gradient(900px 500px at -10% 30%, rgba(59, 52, 128, 0.22), transparent 60%),
+    linear-gradient(180deg, var(--ink-2), var(--ink) 40%);
+  background-color: var(--ink);
+  background-attachment: fixed;
   scroll-behavior: smooth;
 }
 
@@ -63,12 +72,6 @@ body {
   font: 15px / 1.5 var(--font-body);
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
-  /* The static backdrop; the animated one (#bg) is drawn over it when the script may run. */
-  background:
-    radial-gradient(1200px 600px at 85% -10%, rgba(124, 114, 255, 0.16), transparent 60%),
-    radial-gradient(900px 500px at -10% 30%, rgba(59, 52, 128, 0.22), transparent 60%),
-    linear-gradient(180deg, var(--ink-2), var(--ink) 40%);
-  background-attachment: fixed;
 }
 
 #bg {
@@ -1071,7 +1074,7 @@ a.row:hover .r-ext {
   }
 }
 
-/* REQ-003-14: no animation and no animated background for reduced motion. */
+/* REQ-003-14: no animation for reduced motion; the animated background (#bg) stays on by design. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -1082,8 +1085,5 @@ a.row:hover .r-ext {
     transition: none !important;
     /* biome-ignore lint/complexity/noImportantStyles: must win over the smooth scrolling on html */
     scroll-behavior: auto !important;
-  }
-  #bg {
-    display: none;
   }
 }
