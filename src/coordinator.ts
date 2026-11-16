@@ -5,6 +5,7 @@
  */
 import { allPausedUntil } from "./accounts.ts";
 import { type Config, type Role, roleSettings } from "./config.ts";
+import { recordEvent, refs } from "./events.ts";
 import type { Clones } from "./git.ts";
 import type { Actor, Comment, GitHubClient, Item } from "./github/client.ts";
 import { Implementer, type ImplementerDeps } from "./implementer.ts";
@@ -22,7 +23,7 @@ import {
   issueState,
   type PullState,
 } from "./state.ts";
-import type { IssueRecord, SessionRecord, Store, WorktreeRecord } from "./store.ts";
+import type { CoordinatorEvent, EventKind, IssueRecord, SessionRecord, Store, WorktreeRecord } from "./store.ts";
 
 /** How long to wait after a usage limit before trying again; the reset time's format is still unknown. */
 export const USAGE_LIMIT_PAUSE_MIN = 30;
@@ -73,6 +74,8 @@ export interface TickSnapshot {
   sessions: (SessionRecord & { live: boolean })[];
   /** Queued work in the scheduler's order, with why it waits (REQ-003-04). */
   queue: Queued[];
+  /** The kept Events, newest first (REQ-003-16). */
+  events: CoordinatorEvent[];
 }
 
 export interface RepoSnapshot {
@@ -117,10 +120,10 @@ export class Coordinator {
   private last: TickSnapshot | undefined;
 
   constructor(private readonly d: CoordinatorDeps) {
-    this.planner = new Planner(d);
-    this.implementer = new Implementer(d);
     this.now = d.now ?? (() => new Date());
     this.log = d.log ?? ((m) => console.log(`${new Date().toISOString()} ${m}`));
+    this.planner = new Planner({ ...d, log: this.log });
+    this.implementer = new Implementer({ ...d, log: this.log });
     this.reviewer = new Reviewer({ ...d, log: this.log });
     d.store.adoptLegacyPause(this.accountNames()[0] as string);
   }
@@ -240,6 +243,7 @@ export class Coordinator {
       repos,
       sessions,
       queue,
+      events: this.d.store.events(),
     };
   }
 
@@ -376,6 +380,16 @@ export class Coordinator {
           view.prFeedback.delete(a.pr);
           const auto = a.causes.length ? { headSha: a.headSha, causes: a.causes } : undefined;
           const id = await this.implementer.feedbackRound(a.repo, a.pr, a.issues, a.text, auto);
+          const rounds = this.d.store.issue(a.repo, a.issues[0] ?? 0).feedbackRounds;
+          this.event(
+            a.repo,
+            "feedback-round",
+            a.issues,
+            a.pr,
+            a.counted
+              ? `Feedback round ${rounds}/${this.d.config.limits.maxFeedbackRounds} on PR #${a.pr}`
+              : `Feedback round on PR #${a.pr} (not counted)`,
+          );
           this.log(`${a.repo}: Feedback round on PR #${a.pr}${a.counted ? "" : " (from the Owner)"} (session ${id})`);
         });
         return;
@@ -429,6 +443,13 @@ export class Coordinator {
         } else await this.d.gh.addLabels(a.repo, a.issue, ["agent:approved"]);
         view.feedback.delete(a.issue);
         view.labelActors.delete(a.issue);
+        this.event(
+          a.repo,
+          "approved",
+          [a.issue],
+          null,
+          `#${a.issue} approved${a.blockers.length ? `, blocked by ${refs(a.blockers)}` : ""}`,
+        );
         this.log(
           `${a.repo}#${a.issue}: approved by the Owner${a.blockers.length ? `, blocked by ${a.blockers.map((n) => `#${n}`).join(", ")}` : ""}`,
         );
@@ -441,11 +462,13 @@ export class Coordinator {
       case "block":
         await this.d.gh.removeLabel(a.repo, a.issue, "agent:approved");
         await this.d.gh.addLabels(a.repo, a.issue, ["agent:blocked"]);
+        this.event(a.repo, "blocked", [a.issue], null, `#${a.issue} blocked by ${refs(a.blockers)}`);
         this.log(`${a.repo}#${a.issue}: blocked by ${a.blockers.map((n) => `#${n}`).join(", ")}`);
         return;
       case "unblock":
         await this.d.gh.removeLabel(a.repo, a.issue, "agent:blocked");
         await this.d.gh.addLabels(a.repo, a.issue, ["agent:approved"]);
+        this.event(a.repo, "unblocked", [a.issue], null, `#${a.issue} unblocked`);
         this.log(`${a.repo}#${a.issue}: unblocked`);
         return;
       case "implement": {
@@ -767,6 +790,12 @@ export class Coordinator {
         .setDraft(repo, pr, true)
         .catch((e) => this.log(`${repo}: PR #${pr} not converted to draft: ${e}`));
     }
+    this.event(repo, "failed", issues, pr ?? null, `${refs(issues)} failed: ${reason}`);
     this.log(`${repo}: ${issues.map((n) => `#${n}`).join(", ")} failed: ${reason}`);
+  }
+
+  /** REQ-003-15: only after the GitHub action succeeded; a store error is only logged. */
+  private event(repo: string, kind: EventKind, issues: number[], pr: number | null, text: string) {
+    recordEvent(this.d.store, this.log, { repo, kind, issues, pr, text });
   }
 }

@@ -3,8 +3,8 @@ import { parseConfig } from "../src/config.ts";
 import type { RepoSnapshot, TickSnapshot } from "../src/coordinator.ts";
 import { renderConfig } from "../src/dashboard/config-html.ts";
 import { renderDashboard } from "../src/dashboard/html.ts";
-import { dashboardView } from "../src/dashboard/view.ts";
-import type { SessionRecord } from "../src/store.ts";
+import { dashboardView, RECENT_SHOWN } from "../src/dashboard/view.ts";
+import type { CoordinatorEvent, SessionRecord } from "../src/store.ts";
 
 const config = parseConfig({
   owner: { login: "octo", id: 42 },
@@ -71,7 +71,18 @@ const snapshot = (s: Partial<TickSnapshot> = {}): TickSnapshot => ({
   repos: [],
   sessions: [],
   queue: [],
+  events: [],
   ...s,
+});
+
+const event = (e: Partial<CoordinatorEvent> = {}): CoordinatorEvent => ({
+  at: "2026-11-15T10:20:00.000Z",
+  repo: "octo/app",
+  kind: "approved",
+  issues: [5],
+  pr: null,
+  text: "#5 approved",
+  ...e,
 });
 
 describe("dashboard view", () => {
@@ -501,5 +512,100 @@ describe("dashboard view", () => {
     expect(html).not.toContain("<script");
     expect(html).not.toContain("<img");
     expect(html).toContain("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;");
+  });
+
+  test("REQ-003-16 shows the newest Events first, at most 15, each with its tone, time and links", () => {
+    const many = Array.from({ length: 20 }, (_, n) =>
+      event({ issues: [100 - n], text: `#${100 - n} unblocked`, kind: "unblocked" }),
+    );
+    const v = dashboardView(
+      snapshot({
+        events: [
+          event({ kind: "pr-opened", issues: [5, 6], pr: 70, text: "PR #70 opened for #5, #6: Fix" }),
+          event({ kind: "failed", issues: [7], text: "#7 failed: boom", at: "2026-11-15T10:10:00.000Z" }),
+          ...many,
+        ],
+      }),
+      config,
+      NOW,
+    );
+    expect(RECENT_SHOWN).toBe(15);
+    expect(v.recent).toHaveLength(15);
+    expect(v.recent[0]).toEqual({
+      repo: "octo/app",
+      kind: "pr-opened",
+      tone: "ok",
+      text: "PR #70 opened for #5, #6: Fix",
+      datetime: "2026-11-15T10:20:00.000Z",
+      at: "2026-11-15 10:20 UTC",
+      ago: "10 min ago",
+      links: [
+        { label: "PR #70", url: "https://github.com/octo/app/pull/70" },
+        { label: "#5", url: "https://github.com/octo/app/issues/5" },
+        { label: "#6", url: "https://github.com/octo/app/issues/6" },
+      ],
+    });
+    expect(v.recent[1]).toMatchObject({ kind: "failed", tone: "bad", text: "#7 failed: boom", ago: "20 min ago" });
+    expect(v.recent.at(-1)?.text).toBe("#88 unblocked");
+  });
+
+  test("REQ-003-16 gives each kind of Event a tone: success, neutral, attention or failure", () => {
+    const kinds = [
+      "assessed",
+      "approved",
+      "blocked",
+      "unblocked",
+      "pr-opened",
+      "review-passed",
+      "review-findings",
+      "feedback-round",
+      "failed",
+    ] as const;
+    const v = dashboardView(snapshot({ events: kinds.map((kind) => event({ kind })) }), config, NOW);
+    expect(Object.fromEntries(v.recent.map((e) => [e.kind, e.tone]))).toEqual({
+      assessed: "warn",
+      approved: "muted",
+      blocked: "warn",
+      unblocked: "muted",
+      "pr-opened": "ok",
+      "review-passed": "ok",
+      "review-findings": "muted",
+      "feedback-round": "muted",
+      failed: "bad",
+    });
+  });
+
+  test("REQ-003-16 / REQ-003-13 a picked repository narrows Recent too", () => {
+    const events = [
+      ...Array.from({ length: 20 }, (_, n) => event({ repo: "octo/app", issues: [n] })),
+      event({ repo: "octo/lib", issues: [2], text: "#2 approved" }),
+    ];
+    const v = dashboardView(snapshot({ events }), config, NOW, { repo: "octo/lib" });
+    expect(v.recent.map((e) => e.text)).toEqual(["#2 approved"]);
+    expect(v.recent[0]?.links).toEqual([{ label: "#2", url: "https://github.com/octo/lib/issues/2" }]);
+  });
+
+  test("REQ-003-16 with no Events yet Recent says so", () => {
+    expect(dashboardView(snapshot(), config, NOW).recent).toEqual([]);
+    expect(dashboardView(undefined, config, NOW).recent).toEqual([]);
+    expect(renderDashboard(dashboardView(snapshot(), config, NOW))).toContain("Nothing has happened yet");
+  });
+
+  test("REQ-003-16 / REQ-003-09 titles and failure reasons in Events are shown as text", () => {
+    const evil = `<script>alert("x")</script><img src=x onerror=alert(1)>`;
+    const v = dashboardView(
+      snapshot({
+        events: [
+          event({ kind: "failed", text: `#5 failed: ${evil}` }),
+          event({ kind: "pr-opened", pr: 70, text: `PR #70 opened for #5: ${evil}` }),
+        ],
+      }),
+      config,
+      NOW,
+    );
+    const html = renderDashboard(v).replace(/<script src="\/assets\/dashboard\.js\?v=[0-9a-f]+" defer><\/script>/, "");
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain("<img");
+    expect(html).toContain("#5 failed: &lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;");
   });
 });

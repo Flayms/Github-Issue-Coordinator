@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Store } from "../src/store.ts";
+import { EVENTS_KEPT, Store } from "../src/store.ts";
 
 const at = (iso: string) => () => new Date(iso);
 
@@ -348,5 +348,52 @@ describe("store", () => {
       lastHandledCommentId: 12,
       feedbackRounds: 1,
     });
+  });
+
+  test("REQ-003-15 records Events with their time and reads them newest first, also after a restart", () => {
+    const dir = mkdtempSync(join(tmpdir(), "store-"));
+    try {
+      const path = join(dir, "state.db");
+      let now = "2026-11-16T10:00:00Z";
+      const a = new Store(path, () => new Date(now));
+      a.recordEvent({ repo: "octo/app", kind: "approved", issues: [5], pr: null, text: "#5 approved" });
+      now = "2026-11-16T10:05:00Z";
+      a.recordEvent({ repo: "octo/lib", kind: "pr-opened", issues: [6, 7], pr: 70, text: "PR #70 opened for #6, #7" });
+      a.close();
+
+      const b = new Store(path);
+      expect(b.events()).toEqual([
+        {
+          at: "2026-11-16T10:05:00.000Z",
+          repo: "octo/lib",
+          kind: "pr-opened",
+          issues: [6, 7],
+          pr: 70,
+          text: "PR #70 opened for #6, #7",
+        },
+        {
+          at: "2026-11-16T10:00:00.000Z",
+          repo: "octo/app",
+          kind: "approved",
+          issues: [5],
+          pr: null,
+          text: "#5 approved",
+        },
+      ]);
+      b.close();
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  test("REQ-003-15 keeps only the newest 200 Events", () => {
+    const s = new Store(":memory:");
+    expect(EVENTS_KEPT).toBe(200);
+    for (let n = 1; n <= EVENTS_KEPT + 5; n++)
+      s.recordEvent({ repo: "octo/app", kind: "unblocked", issues: [n], pr: null, text: `#${n} unblocked` });
+    const events = s.events();
+    expect(events).toHaveLength(EVENTS_KEPT);
+    expect(events[0]?.issues).toEqual([EVENTS_KEPT + 5]);
+    expect(events.at(-1)?.issues).toEqual([6]);
   });
 });

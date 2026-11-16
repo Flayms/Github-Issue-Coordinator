@@ -7,6 +7,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Config, roleSettings } from "./config.ts";
+import { defaultLog, recordEvent, refs } from "./events.ts";
 import type { GitHubClient, Item } from "./github/client.ts";
 import { GitHubError } from "./github/http.ts";
 import { sessionNote } from "./note.ts";
@@ -104,6 +105,13 @@ export class Reviewer {
         pr,
         `${note}\n\nThe Reviewer could not produce a valid Result: ${check.problem}`,
       );
+      this.event({
+        repo: s.repo,
+        kind: "failed",
+        issues: s.issues,
+        pr,
+        text: `${refs(s.issues)} failed: the Reviewer could not produce a valid Result`,
+      });
       this.finish(sessionId, checkout);
       return;
     }
@@ -143,7 +151,21 @@ export class Reviewer {
       await this.d.gh.setDraft(s.repo, pr, false);
       await this.requestOwnerReview(s.repo, pr);
     }
+    this.event({
+      repo: s.repo,
+      kind: findings.length ? "review-findings" : "review-passed",
+      issues: s.issues,
+      pr,
+      text: findings.length
+        ? `Review of PR #${pr}: ${findings.length === 1 ? "1 finding" : `${findings.length} findings`}`
+        : `Review of PR #${pr}: no findings, ready for the Owner`,
+    });
     this.finish(sessionId, checkout);
+  }
+
+  /** REQ-003-15: after the Review is on GitHub; a store error is only logged. */
+  private event(e: Parameters<typeof recordEvent>[2]) {
+    recordEvent(this.d.store, this.d.log ?? defaultLog, e);
   }
 
   /** REQ-001-46: best effort; a refused request is logged and never fails the Review. */
