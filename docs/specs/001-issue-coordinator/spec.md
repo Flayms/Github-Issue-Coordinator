@@ -135,6 +135,7 @@ The Owner (the single human user) wants GitHub issues across their public and pr
 - **Given** any agent session
 - **When** it runs
 - **Then** it has no GitHub write credential: the Coordinator performs every comment, label, review, push and PR action
+- **And** the only GitHub credential it gets is read-only (REQ-001-55)
 - **And** the Coordinator's GitHub identity cannot update a repository's default branch
 
 ### REQ-001-16 Restart safety
@@ -214,11 +215,11 @@ The Owner (the single human user) wants GitHub issues across their public and pr
 
 - **Given** a Planner or Reviewer session
 - **When** it tries to use a tool
-- **Then** it may only read the repository, run read-only git commands, search the web, read web pages and write its Result; anything else is denied without asking
+- **Then** it may only read the repository, run read-only git commands, search the web, read web pages, read GitHub (REQ-001-55) and write its Result; anything else is denied without asking
 - **And** when one of its shell commands writes a file (e.g. `git log --output=<file>`), the write is denied everywhere except its session folder and the sandbox's temporary folder
 - **And** given an Implementer session, Claude Code's auto mode decides on routine actions without asking, and anything it will not allow on its own is left for the Owner to approve or refuse in the Claude app
 - **And** an Implementer's shell commands run in Claude Code's sandbox, and never unsandboxed: without a working sandbox the session runs no commands at all
-- **And** inside the sandbox, an Implementer's shell commands can reach only the network domains configured for the repository (by default, the common package registries)
+- **And** inside the sandbox, an Implementer's shell commands can reach only the network domains configured for the repository (by default, the common package registries) and GitHub (REQ-001-55)
 
 ### REQ-001-26 Agents can't read the Coordinator's secrets
 
@@ -466,6 +467,15 @@ The Owner (the single human user) wants GitHub issues across their public and pr
 - **And** the PR's labels are for display only: the Coordinator never reads them to decide anything, and the issue's label stays the source of truth (REQ-001-16)
 - **And** labels that are not agent labels stay on the PR
 
+### REQ-001-55 Agents can read GitHub
+
+- **Given** any agent session whose prompt lacks context that is on GitHub (e.g. a mockup in an issue comment, an earlier comment, a linked issue or PR, a check run)
+- **When** it reads it with the GitHub CLI (`gh issue view`, `gh pr view`, `gh pr diff`, `gh api`, …)
+- **Then** it can read the issues, comments, PRs, files and checks of every repository the GitHub App is installed on, and its shell commands can reach GitHub for that, in every Role
+- **And** its token is read-only, so GitHub refuses any write with it (REQ-001-15), and the session keeps a valid token for as long as it runs (tokens expire after an hour)
+- **And** a session still starts when no token can be minted; it then reads only public data
+- **And** a resumed session runs with the Coordinator's current permissions and sandbox settings, not those written at its first start, keeping its repository's network domains
+
 ## Out of scope
 
 - Webhooks (polling only for now; webhooks may later be added only to trigger a poll sooner).
@@ -546,3 +556,4 @@ Partial rows: the REQ is only covered for the parts built so far (noted in brack
 | REQ-001-52 | `GitHub client > REQ-001-52 adds the given users as assignees of an issue or PR`; `Reviewer run > REQ-001-52 …` (3 tests: clean Review assigns the Owner after leaving draft, any finding assigns nobody, refused assignment logged while the PR still goes ready and nothing fails); `reconcile loop > REQ-001-10 / REQ-001-23 / REQ-001-52 …` (no review request); manual: the next clean Review shows the Owner as assignee                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | pass (manual run open)                                                                                              |
 | REQ-001-53 | `headless browser check (doctor) > REQ-001-53 …` (8 tests: lookup order, `--no-sandbox` arguments, config and cache folders in a temporary folder, start with an unwritable home, PNG written, non-zero exit with its error, exit 0 without a PNG, nothing left behind); manual: `bun scripts/smoke-runner.ts --screenshot` on the host (a real sandboxed Implementer session serves a fixture page and shoots it; not runnable from an Implementer's sandbox, which blocks tmux sockets)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | pass (doctor); open (smoke run by the Owner)                                                                        |
 | REQ-001-54 | `REQ-001-54 an agent PR shows its state > …` in `Implementer run` tests (6 tests: PR opened, Feedback round and its sync, new head outside a round from agent:reviewed, new head on a failed PR, giving up on the Result in a round, re-attach) and `Reviewer run` tests (4 tests: Review start, findings, no findings, giving up on the Result); `reconcile loop > REQ-001-54 through Review, Feedback round, re-review and failure …`, `REQ-001-37 the Owner's /agent on a failed, conflicting PR …` (PR at agent:in-progress); `GitHub client > REQ-001-54 removing a label says whether the issue or PR had it`; `README Labels section > REQ-001-54 …`; manual: open PRs take their label at their next transition after deploy                                                                                                                                                                                                                                     | pass (manual run open)                                                                                              |
+| REQ-001-55 | `GitHub App auth > REQ-001-55 / REQ-001-15 mints a read-only token for agents …`; `agents' read tokens > REQ-001-55 …`; `session runner > REQ-001-55 …` (3 tests: token in gh's config folder for every Role and none without a token, renewed for live sessions, settings rewritten on resume keeping the domains); `session runner > REQ-001-25 …` (GitHub hosts in every Role's sandbox network); `permissions > REQ-001-25 / REQ-002-07 …` (`gh` read commands for Planner and Reviewer); manual: `gh` with a token in `GH_CONFIG_DIR/hosts.yml` read issue #70 (2026-11-16)                                                                                                                                                                                                                                                                                                                                                                                         | pass (unit); open (a real sandboxed session reading a comment with `gh`)                                            |

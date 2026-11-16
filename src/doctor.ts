@@ -72,6 +72,16 @@ if (existsSync("/etc/apparmor.d/bwrap-userns-restrict") && existsSync("/etc/appa
   );
 }
 
+// REQ-001-55: agents read GitHub (issue comments, linked issues and PRs) with the GitHub CLI.
+const ghCli = run(["gh", "--version"]);
+report(
+  ghCli.ok ? "ok" : "warn",
+  "gh installed",
+  ghCli.ok
+    ? ghCli.out.split("\n")[0]
+    : "not found; agents can't read GitHub beyond their prompt (see docs/setup.md step 1)",
+);
+
 // REQ-001-48 / REQ-001-53: the Implementer captures Screenshots of UI changes with the host's headless browser.
 // This starts it outside the sandbox; whether it also starts inside one is the smoke runner's --screenshot run.
 const browser = findBrowser();

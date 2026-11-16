@@ -166,6 +166,12 @@ describe("prompts (REQ-002)", () => {
     }
   });
 
+  test("REQ-002-14 every default prompt reads missing GitHub context with gh before calling it missing, and never writes", () => {
+    for (const role of ROLES) {
+      expectAll(prompt(role), [/`gh (issue|pr|api)/, /read-only/i, /before (you )?(say|report|call)/i, /comments/i]);
+    }
+  });
+
   /** The Result fields whose text the Coordinator posts to GitHub, per Role. */
   const postedFields: Record<Role, RegExp[]> = {
     planner: [/`approach`/, /`reply`/],
@@ -224,6 +230,14 @@ describe("permissions", () => {
         "Bash(git ls-files:*)",
         "WebSearch",
         "WebFetch",
+        // REQ-001-55: read GitHub; the session's token is read-only, so GitHub refuses any write.
+        "Bash(gh issue view:*)",
+        "Bash(gh issue list:*)",
+        "Bash(gh pr view:*)",
+        "Bash(gh pr list:*)",
+        "Bash(gh pr diff:*)",
+        "Bash(gh search:*)",
+        "Bash(gh api:*)",
         "Write(//state/sessions/3/result.json)",
         "Edit(//state/sessions/3/result.json)",
       ]);
