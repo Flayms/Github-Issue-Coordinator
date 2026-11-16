@@ -1222,6 +1222,7 @@ describe("reconcile loop", () => {
             state: expect.objectContaining({ headSha: "h1", checks: "success", mergeable: true }),
           },
         ],
+        worktrees: 1,
       },
     ]);
     expect(snap?.sessions.map((x) => [x.id, x.role, x.live])).toEqual([
@@ -1254,6 +1255,8 @@ describe("reconcile loop", () => {
       log: () => {},
     });
     await broken.tick();
-    expect(broken.snapshot()?.repos).toEqual([{ repo: "octo/app", error: "GitHub down", issues: [], pulls: [] }]);
+    expect(broken.snapshot()?.repos).toEqual([
+      { repo: "octo/app", error: "GitHub down", issues: [], pulls: [], worktrees: 0 },
+    ]);
   });
 });

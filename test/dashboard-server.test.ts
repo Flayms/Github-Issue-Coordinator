@@ -23,6 +23,7 @@ const snap: TickSnapshot = {
       error: null,
       issues: [{ number: 5, title: "Fix login", labels: ["agent:proposed"], blockedBy: [] }],
       pulls: [],
+      worktrees: 0,
     },
   ],
   sessions: [],
@@ -156,17 +157,86 @@ describe("dashboard server", () => {
     expect(second.logs.join("\n")).toContain("dashboard not started");
   });
 
-  test("REQ-003-09 the page loads nothing from elsewhere, runs no script and cannot be framed", async () => {
+  test("REQ-003-05 serves the Config page at /config", async () => {
     const { url } = start({ dashboard: { port: 0 } });
-    for (const path of ["/", "/nope"]) {
+    const res = await fetch(`${url}/config`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    const html = await res.text();
+    expect(html).toContain("Polling 1 repository every 60 s");
+    expect(html).not.toContain("Fix login");
+  });
+
+  test("REQ-003-13 ?repo= narrows the Pipeline", async () => {
+    const two: TickSnapshot = {
+      ...snap,
+      repos: [
+        ...snap.repos,
+        {
+          repo: "octo/lib",
+          error: null,
+          issues: [{ number: 2, title: "Lib thing", labels: [], blockedBy: [] }],
+          pulls: [],
+          worktrees: 0,
+        },
+      ],
+    };
+    const logs: string[] = [];
+    const server = startDashboard({
+      config: parseConfig({ ...base, repos: [{ name: "octo/app" }, { name: "octo/lib" }], dashboard: { port: 0 } }),
+      snapshot: () => two,
+      log: (m) => logs.push(m),
+    });
+    if (server) servers.push(server);
+    const html = await (await fetch(`http://127.0.0.1:${server?.port}/?repo=octo%2Flib`)).text();
+    expect(html).toContain("Lib thing");
+    expect(html).not.toContain("Fix login");
+  });
+
+  test("REQ-003-09 serves the CSS, script and fonts from a fixed list of files, behind the token", async () => {
+    const { url, calls } = start({ dashboard: { port: 0, tokenPath: "/t" }, token: TOKEN });
+    const auth = { authorization: `Bearer ${TOKEN}` };
+    const types: Record<string, string> = {
+      "/assets/dashboard.css?v=1": "text/css; charset=utf-8",
+      "/assets/dashboard.js": "text/javascript; charset=utf-8",
+      "/assets/fonts/inter.woff2": "font/woff2",
+      "/assets/fonts/plus-jakarta-sans.woff2": "font/woff2",
+      "/assets/fonts/jetbrains-mono.woff2": "font/woff2",
+    };
+    for (const [path, type] of Object.entries(types)) {
+      const res = await fetch(`${url}${path}`, { headers: auth });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toBe(type);
+      expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+      expect((await res.arrayBuffer()).byteLength).toBeGreaterThan(100);
+    }
+    expect((await fetch(`${url}/assets/dashboard.css`)).status).toBe(401);
+    for (const path of [
+      "/assets/server.ts",
+      "/assets/%2e%2e/server.ts",
+      "/assets/fonts/..%2f..%2fserver.ts",
+      "/assets/fonts/OFL-inter.txt",
+      "/assets/",
+    ]) {
+      expect((await fetch(`${url}${path}`, { headers: auth })).status).toBe(404);
+    }
+    expect(calls.snapshot).toBe(0);
+  });
+
+  test("REQ-003-09 the page loads nothing from elsewhere, runs only its own script and cannot be framed", async () => {
+    const { url } = start({ dashboard: { port: 0 } });
+    for (const path of ["/", "/config", "/assets/dashboard.css", "/nope"]) {
       const res = await fetch(`${url}${path}`);
       const csp = res.headers.get("content-security-policy") ?? "";
       expect(csp).toContain("default-src 'none'");
+      expect(csp).toContain("script-src 'self'");
+      expect(csp).toContain("style-src 'self'");
+      expect(csp).toContain("font-src 'self'");
       expect(csp).toContain("frame-ancestors 'none'");
-      expect(csp).not.toContain("script-src");
+      expect(csp).not.toContain("unsafe");
       expect(res.headers.get("x-content-type-options")).toBe("nosniff");
       expect(res.headers.get("referrer-policy")).toBe("no-referrer");
-      expect(res.headers.get("cache-control")).toBe("no-store");
+      if (!path.startsWith("/assets/")) expect(res.headers.get("cache-control")).toBe("no-store");
     }
   });
 });
