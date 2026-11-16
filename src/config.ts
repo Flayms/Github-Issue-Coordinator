@@ -51,7 +51,7 @@ const limitsSchema = z
     message: "must not exceed maxLiveSessions (running sessions are live sessions)",
   });
 
-/** The read-only web dashboard (spec 003); without this block no server is started. */
+/** The read-only web dashboard (spec 003); on by default, `dashboard: false` turns it off. */
 const dashboardSchema = z.strictObject({
   host: z.string().min(1).default("127.0.0.1"),
   port: z.number().int().min(0).max(65535).default(8080),
@@ -83,7 +83,11 @@ const configSchema = z
     limits: limitsSchema.prefault({}),
     roles: z.strictObject({ planner: roleSchema, implementer: roleSchema, reviewer: roleSchema }),
     repos: z.array(repoSchema).min(1),
-    dashboard: dashboardSchema.optional(),
+    /** Parsed `false` becomes `undefined`, the one "off" value callers check. */
+    dashboard: z
+      .union([z.literal(false), dashboardSchema])
+      .prefault({})
+      .transform((d) => d || undefined),
   })
   .superRefine((c, ctx) => {
     if (c.dashboard && !c.dashboard.tokenPath && !isLoopback(c.dashboard.host))

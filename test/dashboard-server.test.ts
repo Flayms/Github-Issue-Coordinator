@@ -38,7 +38,7 @@ afterEach(() => {
 const start = (opts: { dashboard?: ConfigInput["dashboard"]; token?: string; snapshot?: () => TickSnapshot }) => {
   const logs: string[] = [];
   const calls = { snapshot: 0 };
-  const config = parseConfig({ ...base, ...(opts.dashboard ? { dashboard: opts.dashboard } : {}) });
+  const config = parseConfig({ ...base, ...(opts.dashboard !== undefined ? { dashboard: opts.dashboard } : {}) });
   const server = startDashboard({
     config,
     token: opts.token,
@@ -54,8 +54,31 @@ const start = (opts: { dashboard?: ConfigInput["dashboard"]; token?: string; sna
 };
 
 describe("dashboard server", () => {
-  test("REQ-003-07 without a dashboard block no server is started", () => {
-    expect(start({}).server).toBeUndefined();
+  test("REQ-003-07 with `dashboard: false` no server is started and nothing is logged", () => {
+    const { server, logs } = start({ dashboard: false });
+    expect(server).toBeUndefined();
+    expect(logs).toEqual([]);
+  });
+
+  test("REQ-003-07 without a dashboard block the server starts on 127.0.0.1:8080", () => {
+    const config = parseConfig(base);
+    const seen: { hostname?: string; port?: string | number }[] = [];
+    const serve = Bun.serve;
+    // Records what would be bound, then binds a free port: the test cannot rely on 8080 being free.
+    Bun.serve = ((o: Parameters<typeof Bun.serve>[0] & { hostname?: string; port?: string | number }) => {
+      seen.push({ hostname: o.hostname, port: o.port });
+      return serve({ ...o, port: 0 } as Parameters<typeof Bun.serve>[0]);
+    }) as typeof Bun.serve;
+    const logs: string[] = [];
+    try {
+      const server = startDashboard({ config, snapshot: () => snap, log: (m) => logs.push(m) });
+      if (server) servers.push(server);
+      expect(server).toBeDefined();
+    } finally {
+      Bun.serve = serve;
+    }
+    expect(seen).toEqual([{ hostname: "127.0.0.1", port: 8080 }]);
+    expect(logs[0]).toStartWith("dashboard on http://127.0.0.1:");
   });
 
   test("REQ-003-07 listens on 127.0.0.1 by default and serves the page", async () => {
@@ -154,6 +177,22 @@ describe("dashboard server", () => {
     const second = start({ dashboard: { port: first.server?.port } });
     expect(second.server).toBeUndefined();
     expect(second.logs.join("\n")).toContain("dashboard not started");
+  });
+
+  test("REQ-003-08 without a dashboard block, a taken default port is logged instead of stopping the Coordinator", () => {
+    const config = parseConfig(base);
+    const serve = Bun.serve;
+    // Bun.serve throws like this when the port is taken; the test cannot occupy 8080 itself.
+    Bun.serve = (() => {
+      throw new Error("Failed to start server. Is port 8080 in use?");
+    }) as typeof Bun.serve;
+    const logs: string[] = [];
+    try {
+      expect(startDashboard({ config, snapshot: () => snap, log: (m) => logs.push(m) })).toBeUndefined();
+    } finally {
+      Bun.serve = serve;
+    }
+    expect(logs).toEqual(["dashboard not started: Failed to start server. Is port 8080 in use?"]);
   });
 
   test("REQ-003-09 the page loads nothing from elsewhere, runs no script and cannot be framed", async () => {

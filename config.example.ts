@@ -30,6 +30,7 @@ export default defineConfig({
   },
   // sandboxDomains: what the Implementer's shell commands may reach (default: npm and PyPI registries).
   repos: [{ name: "your-login/your-repo", setup: "bun install", roles: { reviewer: { model: "sonnet" } } }],
-  // Optional read-only dashboard (docs/setup.md step 6). Host defaults to 127.0.0.1; any other host needs a tokenPath.
+  // Read-only dashboard (docs/setup.md step 6), on by default at 127.0.0.1:8080 without a token; `dashboard: false` turns it off.
+  // Any host other than loopback needs a tokenPath.
   // dashboard: { port: 8080, tokenPath: "/home/agent/.config/coordinator/dashboard-token" },
 });

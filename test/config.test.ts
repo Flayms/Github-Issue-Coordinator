@@ -23,9 +23,11 @@ const issuesOf = (raw: unknown): string[] => {
 };
 
 describe("config", () => {
-  test("REQ-003-07 the dashboard is off without a dashboard block and listens on loopback by default", () => {
-    expect(parseConfig(valid()).dashboard).toBeUndefined();
+  test("REQ-003-07 the dashboard is on by default on 127.0.0.1:8080 without a token, and `dashboard: false` turns it off", () => {
+    expect(parseConfig(valid()).dashboard).toEqual({ host: "127.0.0.1", port: 8080 });
     expect(parseConfig({ ...valid(), dashboard: {} }).dashboard).toEqual({ host: "127.0.0.1", port: 8080 });
+    expect(parseConfig({ ...valid(), dashboard: false }).dashboard).toBeUndefined();
+    expect(issuesOf({ ...valid(), dashboard: true })).not.toEqual([]);
   });
 
   test("REQ-003-07 a dashboard on a host other than loopback needs a token", () => {
