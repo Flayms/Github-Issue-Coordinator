@@ -30,6 +30,7 @@ const item = (number: number): Item => ({
 class FakeGitHub {
   calls: unknown[][] = [];
   rejectInline = false;
+  rejectReviewers = false;
   async addLabels(_r: string, issue: number, labels: string[]) {
     this.calls.push(["addLabels", issue, labels]);
   }
@@ -42,6 +43,11 @@ class FakeGitHub {
   }
   async setDraft(_r: string, pr: number, draft: boolean) {
     this.calls.push(["setDraft", pr, draft]);
+  }
+  async requestReviewers(_r: string, pr: number, reviewers: string[]) {
+    if (this.rejectReviewers)
+      throw new GitHubError(422, "POST", "/requested_reviewers", "Reviews may only be requested from collaborators");
+    this.calls.push(["requestReviewers", pr, reviewers]);
   }
   async createReview(_r: string, pr: number, review: { commitId: string; body: string; comments: ReviewComment[] }) {
     if (this.rejectInline && review.comments.length)
@@ -99,6 +105,7 @@ let gh: FakeGitHub;
 let wt: FakeWorktrees;
 let runner: FakeRunner;
 let reviewer: Reviewer;
+let logs: string[];
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "rev-"));
@@ -106,7 +113,8 @@ beforeEach(() => {
   gh = new FakeGitHub();
   wt = new FakeWorktrees();
   runner = new FakeRunner(store, dir);
-  reviewer = new Reviewer({ config, store, gh, runner, worktrees: wt });
+  logs = [];
+  reviewer = new Reviewer({ config, store, gh, runner, worktrees: wt, log: (m) => logs.push(m) });
   for (const n of [5, 6]) store.updateIssue("octo/app", n, { prNumber: 9, worktreePath: "/wt/5" });
   store.updateIssue("octo/app", 5, {
     assessment: JSON.stringify({
@@ -230,6 +238,36 @@ describe("Reviewer run", () => {
     finish(id, [finding("medium")]);
     await reviewer.sync(id);
     expect(gh.of("setDraft")).toEqual([]);
+  });
+
+  test("REQ-001-46 a Review without findings requests a review from the Owner", async () => {
+    const id = await reviewer.start("octo/app", 9, [item(5)], "h1");
+    finish(id, []);
+    await reviewer.sync(id);
+    expect(gh.of("requestReviewers")).toEqual([["requestReviewers", 9, ["octo"]]]);
+    expect(gh.calls.findIndex((c) => c[0] === "setDraft")).toBeLessThan(
+      gh.calls.findIndex((c) => c[0] === "requestReviewers"),
+    );
+  });
+
+  test("REQ-001-46 a Review with any finding requests no review", async () => {
+    const id = await reviewer.start("octo/app", 9, [item(5)], "h1");
+    finish(id, [finding("medium")]);
+    await reviewer.sync(id);
+    expect(gh.of("requestReviewers")).toEqual([]);
+  });
+
+  test("REQ-001-46 a refused review request is logged; the PR is still ready and nothing fails", async () => {
+    gh.rejectReviewers = true;
+    const id = await reviewer.start("octo/app", 9, [item(5)], "h1");
+    finish(id, []);
+    await reviewer.sync(id);
+    expect(gh.of("setDraft")).toEqual([["setDraft", 9, false]]);
+    expect(gh.calls.flatMap((c) => (c[0] === "addLabels" ? (c[2] as string[]) : []))).not.toContain("agent:failed");
+    expect(
+      logs.some((m) => m.includes("PR #9") && m.includes("Reviews may only be requested from collaborators")),
+    ).toBe(true);
+    expect(runner.closed).toEqual([id]);
   });
 
   test("REQ-001-36 a re-review's context holds the earlier findings and the Implementer's answers", async () => {

@@ -270,7 +270,7 @@ describe("GitHub client", () => {
     }
   });
 
-  test("REQ-001-46 reads a linked PR's history: state, draft, labels, key timeline events, Reviews and comments", async () => {
+  test("REQ-001-47 reads a linked PR's history: state, draft, labels, key timeline events, Reviews and comments", async () => {
     const octo = { login: "octo", id: 42 };
     const bot = { login: "coordinator[bot]", id: 900 };
     const { gh, requests } = client({
@@ -362,7 +362,7 @@ describe("GitHub client", () => {
     expect(apiRequests(requests).every((r) => r.method === "GET")).toBe(true);
   });
 
-  test("REQ-001-46 reads a linked issue's history without fetching a PR", async () => {
+  test("REQ-001-47 reads a linked issue's history without fetching a PR", async () => {
     const { gh, requests } = client({
       "GET /repos/octo/app/issues/8": { body: rawIssue(8, { state: "open", labels: [] }) },
       "GET /repos/octo/app/issues/8/timeline": { body: [] },
@@ -420,6 +420,14 @@ describe("GitHub client", () => {
       "POST /graphql": { body: { errors: [{ message: "Resource not accessible by integration" }] } },
     });
     await expect(gh.setDraft("octo/app", 9, false)).rejects.toThrow("Resource not accessible by integration");
+  });
+
+  test("REQ-001-46 requests a review from the given users", async () => {
+    const { gh, requests } = client({ "POST /repos/octo/app/pulls/9/requested_reviewers": { body: {} } });
+    await gh.requestReviewers("octo/app", 9, ["octo"]);
+    const call = apiRequests(requests).find((r) => r.url.pathname === "/repos/octo/app/pulls/9/requested_reviewers");
+    expect(call?.method).toBe("POST");
+    expect(call?.body).toEqual({ reviewers: ["octo"] });
   });
 
   test("REQ-001-12 lists PR reviews with their author and state", async () => {

@@ -72,7 +72,7 @@ export interface OpenPull {
 
 export type PullStatus = "open" | "closed" | "merged";
 
-/** A key timeline event of a linked item (REQ-001-46); `detail` is the label, or a commit's short sha and subject. */
+/** A key timeline event of a linked item (REQ-001-47); `detail` is the label, or a commit's short sha and subject. */
 export interface HistoryEvent {
   event: string;
   actor?: string;
@@ -80,7 +80,7 @@ export interface HistoryEvent {
   detail?: string;
 }
 
-/** The Linked history of an issue or PR (REQ-001-46), oldest first. */
+/** The Linked history of an issue or PR (REQ-001-47), oldest first. */
 export interface ItemHistory {
   number: number;
   title: string;
@@ -93,7 +93,7 @@ export interface ItemHistory {
   comments: { author: string; body: string; at: string }[];
 }
 
-/** Timeline events that make it into the Linked history (REQ-001-46). */
+/** Timeline events that make it into the Linked history (REQ-001-47). */
 const HISTORY_EVENTS = new Set([
   "labeled",
   "unlabeled",
@@ -186,7 +186,7 @@ export class GitHubClient {
   }
 
   /**
-   * The Linked history of an issue or PR (REQ-001-46): read-only, one paginated timeline call plus the
+   * The Linked history of an issue or PR (REQ-001-47): read-only, one paginated timeline call plus the
    * issue, and the PR for its draft and merged state.
    */
   async itemHistory(repo: string, n: number): Promise<ItemHistory> {
@@ -289,6 +289,11 @@ export class GitHubClient {
     });
     if (res.errors?.length)
       throw new GitHubError(200, "POST", "/graphql", `${mutation}: ${res.errors.map((e) => e.message).join("; ")}`);
+  }
+
+  /** Requests a review from the given users (REQ-001-46). */
+  async requestReviewers(repo: string, pr: number, reviewers: string[]): Promise<void> {
+    await this.request(repo, "POST", `/repos/${repo}/pulls/${pr}/requested_reviewers`, { reviewers });
   }
 
   async updatePull(repo: string, pr: number, patch: { title?: string; body?: string }): Promise<void> {

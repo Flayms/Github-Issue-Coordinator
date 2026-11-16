@@ -84,7 +84,7 @@ class FakeGitHub {
     this.calls.push(["updateComment", repo, id, body]);
     if (this.deleted.has(id)) throw new GitHubError(404, "PATCH", `/repos/${repo}/issues/comments/${id}`, "Not Found");
   }
-  /** Linked history per item (REQ-001-46); items not listed fail to fetch. */
+  /** Linked history per item (REQ-001-47); items not listed fail to fetch. */
   histories = new Map<number, ItemHistory>();
   async itemHistory(repo: string, n: number) {
     this.calls.push(["itemHistory", repo, n]);
@@ -615,7 +615,7 @@ const history = (number: number, extra: Partial<ItemHistory> = {}): ItemHistory 
 });
 
 describe("Linked history", () => {
-  test("REQ-001-46 picks #N, same-repo shorthand and URLs in order, once each, and ignores other repositories", () => {
+  test("REQ-001-47 picks #N, same-repo shorthand and URLs in order, once each, and ignores other repositories", () => {
     const text = [
       "Since #47 the PR stays in draft, see https://github.com/octo/app/pull/48 and octo/app#49.",
       "Also https://github.com/OCTO/App/issues/50#issuecomment-1 and #47 again.",
@@ -626,7 +626,7 @@ describe("Linked history", () => {
     expect(findLinks("octo/app", "no links here")).toEqual([]);
   });
 
-  test("REQ-001-46 renders kind, title, state, draft, labels, events with actor and time, Reviews and the last comments", () => {
+  test("REQ-001-47 renders kind, title, state, draft, labels, events with actor and time, Reviews and the last comments", () => {
     const text = renderLinkedHistory(
       [
         {
@@ -663,7 +663,7 @@ describe("Linked history", () => {
     expect(text).toContain("comment 7");
   });
 
-  test("REQ-001-46 caps each item's history, and lists failed and not fetched items", () => {
+  test("REQ-001-47 caps each item's history, and lists failed and not fetched items", () => {
     const long = history(8, {
       events: Array.from({ length: 200 }, (_, i) => ({ event: "labeled", actor: "octo", at: `t${i}`, detail: "x" })),
       comments: Array.from({ length: 5 }, () => ({ author: "octo", body: "y".repeat(5_000), at: "t" })),
@@ -685,7 +685,7 @@ describe("Linked history", () => {
     expect(renderLinkedHistory([], [])).toBe("");
   });
 
-  test("REQ-001-46 a Planner pass gets the Linked history of what the issues link to, fetched once, at most 5 per issue, never the issue itself", async () => {
+  test("REQ-001-47 a Planner pass gets the Linked history of what the issues link to, fetched once, at most 5 per issue, never the issue itself", async () => {
     for (const n of [47, 1, 2, 3, 4, 6]) gh.histories.set(n, history(n));
     await planner.startPass(
       "octo/app",
@@ -701,19 +701,19 @@ describe("Linked history", () => {
     expect(prompt).not.toContain("### Issue #51");
   });
 
-  test("REQ-001-46 a failed fetch does not stop the pass", async () => {
+  test("REQ-001-47 a failed fetch does not stop the pass", async () => {
     const id = await planner.startPass("octo/app", "/c", [item(5, { body: "see #9" })], none);
     expect(store.session(id)).toBeDefined();
     expect(runner.started[0]?.prompt).toContain("### #9 (linked from #5) could not be fetched");
   });
 
-  test("REQ-001-46 an issue without links gets the prompt it got before, with no fetch", async () => {
+  test("REQ-001-47 an issue without links gets the prompt it got before, with no fetch", async () => {
     await planner.startPass("octo/app", "/c", [item(5)], none);
     expect(gh.of("itemHistory")).toEqual([]);
     expect(runner.started[0]?.prompt).toEndWith(`## Context\n\n${renderContext({ assess: [item(5)], ...none })}\n`);
   });
 
-  test("REQ-001-46 a revision gets the history of what the description and the new comments link to; a resumed session only what is new", async () => {
+  test("REQ-001-47 a revision gets the history of what the description and the new comments link to; a resumed session only what is new", async () => {
     for (const n of [47, 48]) gh.histories.set(n, history(n));
     const linking = item(5, { body: "Since #47 …" });
     const batch = await planner.startPass("octo/app", "/c", [linking], none);

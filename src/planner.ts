@@ -61,7 +61,7 @@ export function renderContext(c: { assess: Item[]; issues: Item[]; pulls: Item[]
   ].join("\n\n");
 }
 
-/** REQ-001-46: caps of the Linked history; tune here. */
+/** REQ-001-47: caps of the Linked history; tune here. */
 const LINKS_PER_ISSUE = 5;
 const HISTORY_LIMIT = 3_000;
 const HISTORY_EVENTS = 20;
@@ -69,7 +69,7 @@ const HISTORY_ENTRIES = 5;
 const SNIPPET_LIMIT = 150;
 
 /**
- * REQ-001-46: issues and PRs of `repo` that `text` refers to (`#N`, `owner/repo#N`, issue or PR URLs),
+ * REQ-001-47: issues and PRs of `repo` that `text` refers to (`#N`, `owner/repo#N`, issue or PR URLs),
  * in order of appearance and once each. Links into other repositories are left out.
  */
 export function findLinks(repo: string, text: string): number[] {
@@ -83,7 +83,7 @@ export function findLinks(repo: string, text: string): number[] {
   return [...new Set(numbers)].filter((n) => n > 0);
 }
 
-/** A linked item of the Planner's issues and its history, or why it could not be fetched (REQ-001-46). */
+/** A linked item of the Planner's issues and its history, or why it could not be fetched (REQ-001-47). */
 export interface LinkedItem {
   number: number;
   linkedFrom: number[];
@@ -129,7 +129,7 @@ function renderHistory(h: ItemHistory, linkedFrom: number[]): string {
   return truncate(parts.join("\n\n"), HISTORY_LIMIT);
 }
 
-/** REQ-001-46: the Linked history section of a Planner prompt; empty when nothing is linked. */
+/** REQ-001-47: the Linked history section of a Planner prompt; empty when nothing is linked. */
 export function renderLinkedHistory(items: LinkedItem[], notFetched: { issue: number; numbers: number[] }[]): string {
   if (!items.length && !notFetched.length) return "";
   return [
@@ -224,7 +224,7 @@ export class Planner {
         model,
       });
 
-    // REQ-001-46: what the description and the new comments link to.
+    // REQ-001-47: what the description and the new comments link to.
     const commentText = feedback.comments.map((c) => c.body).join("\n\n");
     const linked = (text: string, skip: number[] = []) =>
       this.linkedHistory(repo, [{ issue: issue.number, text, skip }]);
@@ -266,7 +266,7 @@ export class Planner {
   }
 
   /**
-   * REQ-001-46: fetches the history of what each source links to (at most LINKS_PER_ISSUE per issue, each item
+   * REQ-001-47: fetches the history of what each source links to (at most LINKS_PER_ISSUE per issue, each item
    * once, never the issue itself or `skip`) and renders it. A failed fetch is reported in the section instead.
    */
   private async linkedHistory(
