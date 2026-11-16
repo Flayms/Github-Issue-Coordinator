@@ -34,6 +34,8 @@ export interface SessionRecord {
   modelId: string | null;
   /** Title of the first issue, for the Remote Control name (REQ-001-33); null for a batch Planner and older sessions. */
   title: string | null;
+  /** When the session was created (REQ-003-01); null for sessions stored before this was kept. */
+  startedAt: string | null;
 }
 
 /** An issue the Coordinator created from a Planner's proposal while assessing `parent` (REQ-001-34). */
@@ -117,7 +119,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   needs_sync INTEGER NOT NULL DEFAULT 0,
   usage_limited INTEGER NOT NULL DEFAULT 0,
   model_id TEXT,
-  title TEXT
+  title TEXT,
+  started_at TEXT
 );
 CREATE TABLE IF NOT EXISTS issues (
   repo TEXT NOT NULL,
@@ -175,6 +178,7 @@ interface SessionRow {
   usage_limited: number;
   model_id: string | null;
   title: string | null;
+  started_at: string | null;
 }
 
 const toSession = (r: SessionRow): SessionRecord => ({
@@ -194,6 +198,7 @@ const toSession = (r: SessionRow): SessionRecord => ({
   usageLimited: r.usage_limited === 1,
   modelId: r.model_id ?? null,
   title: r.title ?? null,
+  startedAt: r.started_at ?? null,
 });
 
 const ISSUE_COLUMNS = {
@@ -246,7 +251,7 @@ export class Store {
         reply_to: "TEXT",
         auto_round: "TEXT",
       },
-      sessions: { model_id: "TEXT", title: "TEXT" },
+      sessions: { model_id: "TEXT", title: "TEXT", started_at: "TEXT" },
     };
     for (const [table, cols] of Object.entries(added)) {
       const have = new Set(
@@ -271,8 +276,8 @@ export class Store {
   createSession(s: Pick<SessionRecord, "repo" | "role" | "kind" | "issues"> & { title?: string | null }): number {
     const row = this.db
       .query<{ id: number }, Record<string, string | null>>(
-        `INSERT INTO sessions (repo, role, kind, issues, title, state, last_activity_at)
-         VALUES ($repo, $role, $kind, $issues, $title, 'running', $at) RETURNING id`,
+        `INSERT INTO sessions (repo, role, kind, issues, title, state, last_activity_at, started_at)
+         VALUES ($repo, $role, $kind, $issues, $title, 'running', $at, $at) RETURNING id`,
       )
       .get({
         repo: s.repo,

@@ -1174,4 +1174,78 @@ describe("reconcile loop", () => {
     await broken.tick();
     expect(logs.join("\n")).toContain("GitHub down");
   });
+
+  test("REQ-003-01 / REQ-003-02 / REQ-003-04 publishes a snapshot of the tick: issues, agent PRs, sessions and the queue", async () => {
+    expect(coordinator.snapshot()).toBeUndefined();
+    gh.items = [
+      item(5, ["agent:pr-open"]),
+      item(6),
+      item(7, [], { author: { login: "mallory", id: 666 } }),
+      item(9, ["agent:blocked"]),
+      item(70, ["agent:pr-open"], { isPullRequest: true, title: "Fix 5", author: { login: "bot", id: 1 } }),
+      item(71, [], { isPullRequest: true, author: { login: "mallory", id: 666 } }),
+    ];
+    store.updateIssue("octo/app", 5, { worktreePath: "/wt/5", prNumber: 70, reviewedHeadSha: "h1", feedbackRounds: 1 });
+    store.updateIssue("octo/app", 9, { approvedAt: "t", assessment: JSON.stringify({ blockedBy: [6, 99] }) });
+    const impl = store.createSession({ repo: "octo/app", role: "implementer", kind: "issue", issues: [5] });
+    store.setClaudeSessionId(impl, "claude-impl");
+    store.patchSession(impl, { state: "idle" });
+    runner.live.add(impl);
+    await coordinator.tick();
+
+    const snap = coordinator.snapshot();
+    expect(snap?.finishedAt).toBe("2026-11-11T10:00:00.000Z");
+    expect(snap?.repos).toEqual([
+      {
+        repo: "octo/app",
+        error: null,
+        issues: [
+          { number: 5, title: "Issue 5", labels: ["agent:pr-open"], blockedBy: [] },
+          { number: 6, title: "Issue 6", labels: ["agent:planning"], blockedBy: [] },
+          { number: 9, title: "Issue 9", labels: ["agent:blocked"], blockedBy: [6] },
+        ],
+        pulls: [
+          {
+            number: 70,
+            title: "Fix 5",
+            labels: ["agent:pr-open"],
+            issues: [5],
+            feedbackRounds: 1,
+            state: expect.objectContaining({ headSha: "h1", checks: "success", mergeable: true }),
+          },
+        ],
+      },
+    ]);
+    expect(snap?.sessions.map((x) => [x.id, x.role, x.live])).toEqual([
+      [impl, "implementer", true],
+      [impl + 1, "planner", true],
+    ]);
+    expect(snap?.queue).toEqual([{ work: expect.objectContaining({ key: "octo/app plan", kind: "plan" }) }]);
+  });
+
+  test("REQ-003-04 an implement job without room for a Worktree waits on maxWorktrees", async () => {
+    gh.items = [item(5, ["agent:approved"])];
+    store.updateIssue("octo/app", 5, { approvedAt: "2026-11-11T09:00:00Z", assessment: "{}" });
+    worktrees.room = false;
+    await coordinator.tick();
+    expect(runner.started).toEqual([]);
+    expect(coordinator.snapshot()?.queue).toEqual([
+      { work: expect.objectContaining({ key: "octo/app#5 implement" }), wait: { kind: "max-worktrees" } },
+    ]);
+  });
+
+  test("REQ-003-06 a repository whose poll failed shows the error in the snapshot", async () => {
+    const broken = new Coordinator({
+      config,
+      store,
+      gh: { ...gh, listOpenItems: async () => Promise.reject(new Error("GitHub down")) } as unknown as FakeGitHub,
+      runner,
+      worktrees,
+      clones: { mainClone: async () => "/c" },
+      now: () => now,
+      log: () => {},
+    });
+    await broken.tick();
+    expect(broken.snapshot()?.repos).toEqual([{ repo: "octo/app", error: "GitHub down", issues: [], pulls: [] }]);
+  });
 });

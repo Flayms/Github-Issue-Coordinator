@@ -43,11 +43,28 @@ export interface LiveSession {
   ownerMessagedAt?: string | null;
 }
 
+/** Why queued work does not start (REQ-003-04). `max-worktrees` is found out by the implement job itself. */
+export type WaitReason =
+  | { kind: "paused"; until: string }
+  | { kind: "max-running" }
+  | { kind: "slot"; role: Role }
+  | { kind: "session-busy" }
+  | { kind: "max-live-sessions" }
+  | { kind: "max-worktrees" };
+
+export interface Queued {
+  work: Work;
+  /** Absent when the work starts now. */
+  wait?: WaitReason;
+}
+
 export interface Plan {
   /** Store ids of idle sessions to close, in order. */
   close: number[];
   /** Work to start now, in order. */
   start: Work[];
+  /** The whole queue in priority order, for the dashboard (REQ-003-04). */
+  queue: Queued[];
 }
 
 export function schedule(input: {
@@ -70,8 +87,14 @@ export function schedule(input: {
     else idle.set(s.id, s);
   }
 
+  const queue = [...input.queue].sort(
+    (a, b) => RANK[a.kind] - RANK[b.kind] || Date.parse(a.queuedAt) - Date.parse(b.queuedAt),
+  );
+
   // REQ-001-17: nothing starts until the reported reset time.
-  if (input.pausedUntil && Date.parse(input.pausedUntil) > now.getTime()) return { close, start: [] };
+  const { pausedUntil } = input;
+  if (pausedUntil && Date.parse(pausedUntil) > now.getTime())
+    return { close, start: [], queue: queue.map((work) => ({ work, wait: { kind: "paused", until: pausedUntil } })) };
 
   const slots: Record<Role, number> = {
     planner: limits.maxPlanners,
@@ -80,9 +103,6 @@ export function schedule(input: {
   };
   const runningIn = (role: Role) => [...running.values()].filter((s) => s.role === role).length;
 
-  const queue = [...input.queue].sort(
-    (a, b) => RANK[a.kind] - RANK[b.kind] || Date.parse(a.queuedAt) - Date.parse(b.queuedAt),
-  );
   // Sessions about to be resumed must not be closed to make room.
   const reserved = new Set(
     queue.flatMap((w) => (w.sessionId !== undefined && idle.has(w.sessionId) ? [w.sessionId] : [])),
@@ -110,13 +130,28 @@ export function schedule(input: {
   while (running.size + idle.size > limits.maxLiveSessions && evict()) {}
 
   const start: Work[] = [];
+  const listed: Queued[] = [];
   for (const w of queue) {
-    if (running.size >= limits.maxRunning) break;
-    if (runningIn(w.role) >= slots[w.role]) continue;
-    if (w.sessionId !== undefined && running.has(w.sessionId)) continue; // busy, e.g. the Owner is chatting
+    const wait = (reason: WaitReason) => listed.push({ work: w, wait: reason });
+    if (running.size >= limits.maxRunning) {
+      wait({ kind: "max-running" });
+      continue;
+    }
+    if (runningIn(w.role) >= slots[w.role]) {
+      wait({ kind: "slot", role: w.role });
+      continue;
+    }
+    // Busy, e.g. the Owner is chatting.
+    if (w.sessionId !== undefined && running.has(w.sessionId)) {
+      wait({ kind: "session-busy" });
+      continue;
+    }
 
     const resumesLive = w.sessionId !== undefined && idle.has(w.sessionId);
-    if (!resumesLive && running.size + idle.size >= limits.maxLiveSessions && !evict()) continue;
+    if (!resumesLive && running.size + idle.size >= limits.maxLiveSessions && !evict()) {
+      wait({ kind: "max-live-sessions" });
+      continue;
+    }
 
     if (resumesLive && w.sessionId !== undefined) {
       idle.delete(w.sessionId);
@@ -125,6 +160,7 @@ export function schedule(input: {
     const id = w.sessionId ?? -(start.length + 1);
     running.set(id, { id, role: w.role, state: "running", lastActivityAt: now.toISOString() });
     start.push(w);
+    listed.push({ work: w });
   }
-  return { close, start };
+  return { close, start, queue: listed };
 }

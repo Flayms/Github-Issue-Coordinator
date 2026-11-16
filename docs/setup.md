@@ -92,7 +92,26 @@ Then check everything:
 sudo -iu agent bash -lc 'cd ~/github-issue-coordinator && git pull -q && bun install && bun run doctor'
 ```
 
-## 6. Run as a service
+## 6. Dashboard (optional)
+
+A read-only web page with the running agents, the pipeline, what is ready to merge, the planned order and the settings ([spec 003](specs/003-dashboard/spec.md)). It changes nothing: approving, feedback and merging stay on GitHub. It is off unless `config.ts` has a `dashboard` block.
+
+Keep it on loopback (the default) and reach it over Tailscale or an SSH tunnel. Don't expose it on the internet: the machine runs agents that can push code. Use a token even on loopback, because `tailscale serve` forwards from localhost and the agents run on the same machine. The Coordinator denies every agent session reading the token's folder.
+
+```sh
+sudo -iu agent bash -lc 'umask 077 && openssl rand -hex 32 > ~/.config/coordinator/dashboard-token'
+```
+
+```ts
+dashboard: { port: 8080, tokenPath: "/home/agent/.config/coordinator/dashboard-token" }, // host defaults to 127.0.0.1
+```
+
+- **Tailscale (recommended):** on the server, `sudo tailscale serve --bg 8080`. The page is then at `https://<machine>.<tailnet>.ts.net/` with HTTPS, and only devices in your tailnet can reach it.
+- **SSH tunnel:** `ssh -N -L 8080:127.0.0.1:8080 <you>@<server>`, then `http://localhost:8080/`.
+
+Open it once as `…/?token=<token>`: the token is then kept in a cookie and removed from the address, so a bookmark of `/` works from then on. Scripts can send `Authorization: Bearer <token>`. A host other than loopback (e.g. `0.0.0.0`) is refused without a `tokenPath`. The page reloads itself every `pollIntervalSec` and shows the state of the last tick; it makes no GitHub requests of its own.
+
+## 7. Run as a service
 
 ```sh
 sudo cp deploy/github-issue-coordinator.service /etc/systemd/system/   # adjust User and paths if needed

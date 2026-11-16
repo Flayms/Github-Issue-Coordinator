@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ConfigError, loadConfig, parseConfig, roleSettings } from "../src/config.ts";
+import { ConfigError, loadConfig, parseConfig, roleSettings, secretPaths } from "../src/config.ts";
 
 const valid = () => ({
   owner: { login: "octo", id: 42 },
@@ -23,6 +23,30 @@ const issuesOf = (raw: unknown): string[] => {
 };
 
 describe("config", () => {
+  test("REQ-003-07 the dashboard is off without a dashboard block and listens on loopback by default", () => {
+    expect(parseConfig(valid()).dashboard).toBeUndefined();
+    expect(parseConfig({ ...valid(), dashboard: {} }).dashboard).toEqual({ host: "127.0.0.1", port: 8080 });
+  });
+
+  test("REQ-003-07 a dashboard on a host other than loopback needs a token", () => {
+    for (const host of ["127.0.0.1", "127.1.2.3", "localhost", "::1"])
+      expect(issuesOf({ ...valid(), dashboard: { host } })).toEqual([]);
+    for (const host of ["0.0.0.0", "100.64.0.1", "::", "example.com"])
+      expect(issuesOf({ ...valid(), dashboard: { host } })).toEqual([
+        "dashboard.tokenPath: required when the dashboard listens on a host other than loopback",
+      ]);
+    expect(issuesOf({ ...valid(), dashboard: { host: "0.0.0.0", tokenPath: "/etc/c/token" } })).toEqual([]);
+  });
+
+  test("REQ-003-10 / REQ-001-26 agents are denied the App key's folder, Claude's login and the dashboard token's folder", () => {
+    expect(secretPaths(parseConfig(valid()), "/home/a")).toEqual([
+      "/etc/coordinator",
+      "/home/a/.claude/.credentials.json",
+    ]);
+    const c = parseConfig({ ...valid(), dashboard: { tokenPath: "/srv/dash/token" } });
+    expect(secretPaths(c, "/home/a")).toEqual(["/etc/coordinator", "/home/a/.claude/.credentials.json", "/srv/dash"]);
+  });
+
   test("applies the defaults the Owner accepted", () => {
     const c = parseConfig(valid());
     expect(c.pollIntervalSec).toBe(60);
