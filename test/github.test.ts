@@ -320,6 +320,14 @@ describe("GitHub client", () => {
     await expect(gh.setDraft("octo/app", 9, false)).rejects.toThrow("Resource not accessible by integration");
   });
 
+  test("REQ-001-46 requests a review from the given users", async () => {
+    const { gh, requests } = client({ "POST /repos/octo/app/pulls/9/requested_reviewers": { body: {} } });
+    await gh.requestReviewers("octo/app", 9, ["octo"]);
+    const call = apiRequests(requests).find((r) => r.url.pathname === "/repos/octo/app/pulls/9/requested_reviewers");
+    expect(call?.method).toBe("POST");
+    expect(call?.body).toEqual({ reviewers: ["octo"] });
+  });
+
   test("REQ-001-12 lists PR reviews with their author and state", async () => {
     const { gh } = client({
       "GET /repos/octo/app/pulls/9/reviews": {

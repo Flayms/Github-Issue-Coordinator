@@ -210,6 +210,11 @@ export class GitHubClient {
       throw new GitHubError(200, "POST", "/graphql", `${mutation}: ${res.errors.map((e) => e.message).join("; ")}`);
   }
 
+  /** Requests a review from the given users (REQ-001-46). */
+  async requestReviewers(repo: string, pr: number, reviewers: string[]): Promise<void> {
+    await this.request(repo, "POST", `/repos/${repo}/pulls/${pr}/requested_reviewers`, { reviewers });
+  }
+
   async updatePull(repo: string, pr: number, patch: { title?: string; body?: string }): Promise<void> {
     await this.request(repo, "PATCH", `/repos/${repo}/pulls/${pr}`, patch);
   }

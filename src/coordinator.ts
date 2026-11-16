@@ -48,6 +48,7 @@ export interface CoordinatorDeps {
     | "createPull"
     | "updatePull"
     | "setDraft"
+    | "requestReviewers"
     | "getPull"
     | "checks"
     | "createReview"
@@ -114,9 +115,9 @@ export class Coordinator {
   constructor(private readonly d: CoordinatorDeps) {
     this.planner = new Planner(d);
     this.implementer = new Implementer(d);
-    this.reviewer = new Reviewer(d);
     this.now = d.now ?? (() => new Date());
     this.log = d.log ?? ((m) => console.log(`${new Date().toISOString()} ${m}`));
+    this.reviewer = new Reviewer({ ...d, log: this.log });
   }
 
   /** The last tick's snapshot; undefined before the first tick ended (REQ-003-06). */
