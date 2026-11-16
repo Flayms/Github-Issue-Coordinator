@@ -72,6 +72,39 @@ export interface OpenPull {
 
 export type PullStatus = "open" | "closed" | "merged";
 
+/** A key timeline event of a linked item (REQ-001-47); `detail` is the label, or a commit's short sha and subject. */
+export interface HistoryEvent {
+  event: string;
+  actor?: string;
+  at?: string;
+  detail?: string;
+}
+
+/** The Linked history of an issue or PR (REQ-001-47), oldest first. */
+export interface ItemHistory {
+  number: number;
+  title: string;
+  isPullRequest: boolean;
+  state: PullStatus;
+  draft: boolean;
+  labels: string[];
+  events: HistoryEvent[];
+  reviews: { state: string; author: string; body: string; at?: string }[];
+  comments: { author: string; body: string; at: string }[];
+}
+
+/** Timeline events that make it into the Linked history (REQ-001-47). */
+const HISTORY_EVENTS = new Set([
+  "labeled",
+  "unlabeled",
+  "ready_for_review",
+  "convert_to_draft",
+  "head_ref_force_pushed",
+  "closed",
+  "merged",
+  "reopened",
+]);
+
 interface RawUser {
   login: string;
   id: number;
@@ -150,6 +183,54 @@ export class GitHubClient {
     const events = await this.all<RawTimelineEvent>(repo, `/repos/${repo}/issues/${issue}/timeline?per_page=100`);
     const last = events.findLast((e) => e.event === "labeled" && e.label?.name === label);
     return last?.actor ? actor(last.actor) : undefined;
+  }
+
+  /**
+   * The Linked history of an issue or PR (REQ-001-47): read-only, one paginated timeline call plus the
+   * issue, and the PR for its draft and merged state.
+   */
+  async itemHistory(repo: string, n: number): Promise<ItemHistory> {
+    const issue = await this.request<RawItem & { state: string }>(repo, "GET", `/repos/${repo}/issues/${n}`);
+    const isPullRequest = issue.pull_request !== undefined;
+    const pull = isPullRequest ? await this.getPull(repo, n) : undefined;
+    const timeline = await this.all<RawTimelineEvent>(repo, `/repos/${repo}/issues/${n}/timeline?per_page=100`);
+    const history: ItemHistory = {
+      number: n,
+      title: issue.title,
+      isPullRequest,
+      state: pull?.state ?? (issue.state === "closed" ? "closed" : "open"),
+      draft: pull?.draft ?? false,
+      labels: toItem(issue).labels,
+      events: [],
+      reviews: [],
+      comments: [],
+    };
+    for (const e of timeline) {
+      if (e.event === "reviewed")
+        history.reviews.push({
+          state: e.state ?? "",
+          author: e.user?.login ?? "",
+          body: e.body ?? "",
+          at: e.submitted_at,
+        });
+      else if (e.event === "commented")
+        history.comments.push({ author: (e.user ?? e.actor)?.login ?? "", body: e.body ?? "", at: e.created_at ?? "" });
+      else if (e.event === "committed")
+        history.events.push({
+          event: "committed",
+          actor: e.author?.name,
+          at: e.author?.date,
+          detail: `${(e.sha ?? "").slice(0, 7)} ${(e.message ?? "").split("\n")[0]}`,
+        });
+      else if (HISTORY_EVENTS.has(e.event))
+        history.events.push({
+          event: e.event,
+          actor: e.actor?.login,
+          at: e.created_at,
+          ...(e.label ? { detail: e.label.name } : {}),
+        });
+    }
+    return history;
   }
 
   async addLabels(repo: string, issue: number, labels: string[]): Promise<void> {
@@ -366,6 +447,17 @@ interface RawTimelineEvent {
   event: string;
   label?: { name: string };
   actor?: RawUser;
+  created_at?: string;
+  /** `reviewed` and `commented` events */
+  user?: RawUser;
+  body?: string | null;
+  /** `reviewed` events */
+  state?: string;
+  submitted_at?: string;
+  /** `committed` events, which have no actor */
+  sha?: string;
+  message?: string;
+  author?: { name: string; date: string };
 }
 
 interface RawPull {

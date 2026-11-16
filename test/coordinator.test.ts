@@ -34,6 +34,10 @@ class FakeGitHub {
   async labelActor(_r: string, issue: number) {
     return this.labelActorOf.get(issue);
   }
+  /** Linked history (REQ-001-47): the bodies here link nothing, so any call is a test bug. */
+  async itemHistory(_r: string, n: number): Promise<never> {
+    throw new Error(`unexpected itemHistory(#${n})`);
+  }
   comments = new Map<number, Comment[]>();
   changed = true;
   calls: unknown[][] = [];

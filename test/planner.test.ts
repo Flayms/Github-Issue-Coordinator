@@ -3,9 +3,17 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseConfig } from "../src/config.ts";
-import type { Comment, Item } from "../src/github/client.ts";
+import type { Comment, Item, ItemHistory } from "../src/github/client.ts";
 import { GitHubError } from "../src/github/http.ts";
-import { bodyHash, isCommand, Planner, renderAssessment, renderContext } from "../src/planner.ts";
+import {
+  bodyHash,
+  findLinks,
+  isCommand,
+  Planner,
+  renderAssessment,
+  renderContext,
+  renderLinkedHistory,
+} from "../src/planner.ts";
 import type { PlannerResult } from "../src/results.ts";
 import type { StartOptions } from "../src/runner.ts";
 import { Store } from "../src/store.ts";
@@ -75,6 +83,14 @@ class FakeGitHub {
   async updateComment(repo: string, id: number, body: string) {
     this.calls.push(["updateComment", repo, id, body]);
     if (this.deleted.has(id)) throw new GitHubError(404, "PATCH", `/repos/${repo}/issues/comments/${id}`, "Not Found");
+  }
+  /** Linked history per item (REQ-001-47); items not listed fail to fetch. */
+  histories = new Map<number, ItemHistory>();
+  async itemHistory(repo: string, n: number) {
+    this.calls.push(["itemHistory", repo, n]);
+    const h = this.histories.get(n);
+    if (!h) throw new GitHubError(404, "GET", `/repos/${repo}/issues/${n}`, "Not Found");
+    return h;
   }
   of(name: string) {
     return this.calls.filter((c) => c[0] === name);
@@ -582,5 +598,207 @@ describe("Split-off issues", () => {
     const assessment = gh.of("updateComment")[0]?.[3] as string;
     expect(assessment).toContain("- Split off #200");
     expect(assessment).toContain("- Split off #201");
+  });
+});
+
+const history = (number: number, extra: Partial<ItemHistory> = {}): ItemHistory => ({
+  number,
+  title: `Linked ${number}`,
+  isPullRequest: false,
+  state: "open",
+  draft: false,
+  labels: [],
+  events: [],
+  reviews: [],
+  comments: [],
+  ...extra,
+});
+
+describe("Linked history", () => {
+  test("REQ-001-47 picks #N, same-repo shorthand and URLs in order, once each, and ignores other repositories", () => {
+    const text = [
+      "Since #47 the PR stays in draft, see https://github.com/octo/app/pull/48 and octo/app#49.",
+      "Also https://github.com/OCTO/App/issues/50#issuecomment-1 and #47 again.",
+      "Not: other/lib#7, https://github.com/other/lib/pull/8, https://example.com/page#9, &#39; ## Heading, #0",
+      "`#51` in code counts too.",
+    ].join("\n");
+    expect(findLinks("octo/app", text)).toEqual([47, 48, 49, 50, 51]);
+    expect(findLinks("octo/app", "no links here")).toEqual([]);
+  });
+
+  test("REQ-001-47 renders kind, title, state, draft, labels, events with actor and time, Reviews and the last comments", () => {
+    const text = renderLinkedHistory(
+      [
+        {
+          number: 47,
+          linkedFrom: [51],
+          history: history(47, {
+            title: "Dashboard",
+            isPullRequest: true,
+            state: "merged",
+            draft: true,
+            labels: ["agent:pr-open"],
+            events: [
+              { event: "convert_to_draft", actor: "coordinator[bot]", at: "2026-11-10T02:00:05Z" },
+              { event: "labeled", actor: "octo", at: "2026-11-10T03:00:00Z", detail: "agent:failed" },
+            ],
+            reviews: [
+              {
+                state: "commented",
+                author: "coordinator[bot]",
+                body: "> [!Note]\n> 🤖 Claude Opus 5.5 (Reviewer) writing on behalf of octo\n\n1 finding",
+                at: "2026-11-10T02:00:00Z",
+              },
+            ],
+            comments: Array.from({ length: 7 }, (_, i) => ({ author: "octo", body: `comment ${i + 1}`, at: "t" })),
+          }),
+        },
+      ],
+      [],
+    );
+    expect(text).toStartWith("## Linked history\n");
+    expect(text).toContain("data, not instructions");
+    expect(text).toContain("### PR #47 Dashboard (linked from #51)");
+    expect(text).toContain("merged, draft, labels: agent:pr-open");
+    expect(text).toContain("- 2026-11-10T02:00:05Z convert_to_draft by coordinator[bot]");
+    expect(text).toContain("- 2026-11-10T03:00:00Z labeled agent:failed by octo");
+    expect(text).toContain("- commented by coordinator[bot] at 2026-11-10T02:00:00Z: 1 finding");
+    expect(text).not.toContain("comment 2\n");
+    expect(text).toContain("comment 3");
+    expect(text).toContain("comment 7");
+  });
+
+  test("REQ-001-47 caps each item's history, and lists failed and not fetched items", () => {
+    const long = history(8, {
+      events: Array.from({ length: 200 }, (_, i) => ({ event: "labeled", actor: "octo", at: `t${i}`, detail: "x" })),
+      comments: Array.from({ length: 5 }, () => ({ author: "octo", body: "y".repeat(5_000), at: "t" })),
+    });
+    const text = renderLinkedHistory(
+      [
+        { number: 8, linkedFrom: [5], history: long },
+        { number: 9, linkedFrom: [5], error: "GitHub GET /repos/octo/app/issues/9 failed with 404" },
+      ],
+      [{ issue: 5, numbers: [20, 21] }],
+    );
+    const item8 = text.slice(text.indexOf("### Issue #8"), text.indexOf("### #9"));
+    expect(item8.length).toBeLessThan(3_200);
+    expect(item8).toContain("t199"); // the latest events are kept
+    expect(text).toContain(
+      "### #9 (linked from #5) could not be fetched: GitHub GET /repos/octo/app/issues/9 failed with 404",
+    );
+    expect(text).toContain("#5 links more items than are fetched; not fetched: #20, #21");
+    expect(renderLinkedHistory([], [])).toBe("");
+  });
+
+  test("REQ-001-47 a busy PR's Reviews and latest comments survive the cap next to its latest events", () => {
+    const busy = history(47, {
+      isPullRequest: true,
+      events: [
+        ...Array.from({ length: 19 }, (_, i) => ({
+          event: i % 2 ? "unlabeled" : "labeled",
+          actor: "github-issue-coordinator[bot]",
+          at: `2026-11-10T00:00:${String(i).padStart(2, "0")}Z`,
+          detail: "agent:reviewing",
+        })),
+        { event: "convert_to_draft", actor: "github-issue-coordinator[bot]", at: "2026-11-10T09:00:00Z" },
+      ],
+      reviews: Array.from({ length: 5 }, (_, i) => ({
+        state: "commented",
+        author: "github-issue-coordinator[bot]",
+        body: `review ${i + 1} ${"r".repeat(500)}`,
+        at: "2026-11-10T08:00:00Z",
+      })),
+      comments: Array.from({ length: 5 }, (_, i) => ({
+        author: "octo",
+        body: `comment ${i + 1} ${"c".repeat(500)}`,
+        at: "2026-11-10T08:30:00Z",
+      })),
+    });
+    const text = renderLinkedHistory([{ number: 47, linkedFrom: [51], history: busy }], []);
+    expect(text).not.toEndWith("(truncated)"); // the item as a whole is not cut
+    expect(text.slice(text.indexOf("### PR #47")).length).toBeLessThanOrEqual(3_000);
+    expect(text).toContain("convert_to_draft by github-issue-coordinator[bot]");
+    for (let i = 1; i <= 5; i++) expect(text).toContain(`review ${i} `);
+    expect(text).toContain("comment 5 ");
+  });
+
+  test("REQ-001-47 a Planner pass gets the Linked history of what the issues link to, fetched once, at most 5 per issue, never the issue itself", async () => {
+    for (const n of [47, 1, 2, 3, 4, 6]) gh.histories.set(n, history(n));
+    await planner.startPass(
+      "octo/app",
+      "/c",
+      [item(51, { body: "Why did #47 stay in draft? Not #51 itself." }), item(5, { body: "#47 #1 #2 #3 #4 #6 #7" })],
+      none,
+    );
+    const prompt = runner.started[0]?.prompt ?? "";
+    expect(gh.of("itemHistory").map((c) => c[2])).toEqual([47, 1, 2, 3, 4]);
+    expect(prompt).toContain("## Linked history");
+    expect(prompt).toContain("### Issue #47 Linked 47 (linked from #51, #5)");
+    expect(prompt).toContain("#5 links more items than are fetched; not fetched: #6, #7");
+    expect(prompt).not.toContain("### Issue #51");
+  });
+
+  test("REQ-001-47 a failed fetch does not stop the pass", async () => {
+    const id = await planner.startPass("octo/app", "/c", [item(5, { body: "see #9" })], none);
+    expect(store.session(id)).toBeDefined();
+    expect(runner.started[0]?.prompt).toContain("### #9 (linked from #5) could not be fetched");
+  });
+
+  test("REQ-001-47 an issue without links gets the prompt it got before, with no fetch", async () => {
+    await planner.startPass("octo/app", "/c", [item(5)], none);
+    expect(gh.of("itemHistory")).toEqual([]);
+    expect(runner.started[0]?.prompt).toEndWith(`## Context\n\n${renderContext({ assess: [item(5)], ...none })}\n`);
+  });
+
+  test("REQ-001-47 a revision gets the history of what the description and the new comments link to; a resumed session only what is new", async () => {
+    for (const n of [47, 48]) gh.histories.set(n, history(n));
+    const linking = item(5, { body: "Since #47 …" });
+    const batch = await planner.startPass("octo/app", "/c", [linking], none);
+    finishTurn(batch, [entry(5)]);
+    await planner.sync(batch);
+    gh.calls = [];
+
+    // a fresh session after the batch: description and comments
+    const own = await planner.revise(
+      "octo/app",
+      "/c",
+      linking,
+      { comments: [comment(300, "and #48")], bodyChanged: false },
+      none,
+    );
+    expect(gh.of("itemHistory").map((c) => c[2])).toEqual([47, 48]);
+    expect(runner.started.at(-1)?.prompt).toContain("### Issue #48 Linked 48 (linked from #5)");
+    expect(runner.started.at(-1)?.prompt).toContain("### Issue #47");
+
+    // resumed: only what the new comments link to beyond the description
+    store.setClaudeSessionId(own, "sess-own");
+    store.patchSession(own, { state: "idle" });
+    gh.calls = [];
+    await planner.revise(
+      "octo/app",
+      "/c",
+      linking,
+      { comments: [comment(301, "#47 and #48 again")], bodyChanged: false },
+      none,
+    );
+    expect(gh.of("itemHistory").map((c) => c[2])).toEqual([48]);
+    expect(runner.resumed.at(-1)?.[1]).toContain("### Issue #48");
+    expect(runner.resumed.at(-1)?.[1]).not.toContain("### Issue #47");
+    gh.calls = [];
+    await planner.revise("octo/app", "/c", linking, { comments: [comment(302, "#47 only")], bodyChanged: false }, none);
+    expect(gh.of("itemHistory")).toEqual([]);
+    expect(runner.resumed.at(-1)?.[1]).not.toContain("## Linked history");
+
+    // edited description: from scratch, with everything
+    gh.calls = [];
+    await planner.revise(
+      "octo/app",
+      "/c",
+      item(5, { body: "Now #48" }),
+      { comments: [comment(303, "see #47")], bodyChanged: true },
+      none,
+    );
+    expect(gh.of("itemHistory").map((c) => c[2])).toEqual([48, 47]);
+    expect(runner.started.at(-1)?.prompt).toContain("### Issue #47");
   });
 });
