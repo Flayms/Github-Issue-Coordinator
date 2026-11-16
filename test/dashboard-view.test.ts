@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { parseConfig } from "../src/config.ts";
 import type { RepoSnapshot, TickSnapshot } from "../src/coordinator.ts";
+import { renderConfig } from "../src/dashboard/config-html.ts";
 import { renderDashboard } from "../src/dashboard/html.ts";
 import { dashboardView } from "../src/dashboard/view.ts";
 import type { SessionRecord } from "../src/store.ts";
@@ -43,6 +44,7 @@ const repo = (r: Partial<RepoSnapshot> & Pick<RepoSnapshot, "repo">): RepoSnapsh
   error: null,
   issues: [],
   pulls: [],
+  worktrees: 0,
   ...r,
 });
 
@@ -93,6 +95,7 @@ describe("dashboard view", () => {
         startedAt: "2026-11-15T09:00:00.000Z",
         idleFor: null,
         name: "#5 Fix login · Implementer · app",
+        model: "sonnet",
       },
       {
         role: "Planner",
@@ -105,8 +108,23 @@ describe("dashboard view", () => {
         startedAt: "2026-11-15T09:00:00.000Z",
         idleFor: "30 min",
         name: "Planner · #6, #7 · app",
+        model: "opus",
       },
     ]);
+  });
+
+  test("REQ-003-01 shows the model the session reported, else the configured one", () => {
+    const v = dashboardView(
+      snapshot({
+        sessions: [
+          session({ id: 1, role: "reviewer", issues: [5], modelId: "claude-opus-5-5" }),
+          session({ id: 2, role: "reviewer", issues: [6] }),
+        ],
+      }),
+      config,
+      NOW,
+    );
+    expect(v.sessions.map((s) => s.model)).toEqual(["claude-opus-5-5", "haiku"]);
   });
 
   test("REQ-003-01 marks a session whose tmux window is gone", () => {
@@ -118,30 +136,79 @@ describe("dashboard view", () => {
     expect(v.sessions[0]?.state).toBe("gone");
   });
 
-  test("REQ-003-02 puts each issue in the column of its phase, in workflow order, leaving out empty columns", () => {
+  test("REQ-003-02 groups the issues into seven columns with counts, in workflow order (also within a column)", () => {
+    const issue = (number: number, labels: string[]) => ({ number, title: `I${number}`, labels, blockedBy: [] });
     const v = dashboardView(
       snapshot({
         repos: [
           repo({
             repo: "octo/app",
             issues: [
-              { number: 9, title: "Failed", labels: ["agent:failed", "agent:pr-open"], blockedBy: [] },
-              { number: 3, title: "New", labels: ["bug"], blockedBy: [] },
-              { number: 4, title: "Prop", labels: ["agent:proposed"], blockedBy: [] },
+              issue(9, ["agent:failed", "agent:pr-open"]),
+              issue(3, ["bug"]),
+              issue(2, ["agent:planning"]),
+              issue(4, ["agent:proposed"]),
+              issue(5, ["agent:needs-refinement"]),
+              issue(6, ["agent:wontfix-proposed"]),
+              issue(7, ["agent:approved"]),
+              issue(8, ["agent:blocked"]),
+              issue(10, ["agent:in-progress"]),
+              issue(11, ["agent:pr-open"]),
+              issue(12, ["agent:reviewing"]),
+              issue(13, ["agent:reviewed"]),
             ],
           }),
-          repo({ repo: "octo/lib", issues: [{ number: 1, title: "Lib new", labels: [], blockedBy: [] }] }),
+          repo({ repo: "octo/lib", issues: [issue(1, [])] }),
         ],
       }),
       config,
       NOW,
     );
-    expect(v.columns.map((c) => [c.phase, c.issues.map((i) => `${i.repo}#${i.number}`)])).toEqual([
-      ["new", ["octo/app#3", "octo/lib#1"]],
-      ["proposed", ["octo/app#4"]],
-      ["failed", ["octo/app#9"]],
+    expect(v.columns.map((c) => [c.title, c.issues.map((i) => `${i.repo}#${i.number}`)])).toEqual([
+      ["Intake", ["octo/app#3", "octo/lib#1", "octo/app#2"]],
+      ["Your move", ["octo/app#4", "octo/app#5", "octo/app#6"]],
+      ["Approved", ["octo/app#7", "octo/app#8"]],
+      ["Building", ["octo/app#10"]],
+      ["In review", ["octo/app#11", "octo/app#12"]],
+      ["Reviewed", ["octo/app#13"]],
+      ["Failed", ["octo/app#9"]],
     ]);
     expect(v.columns[0]?.issues[0]?.url).toBe("https://github.com/octo/app/issues/3");
+    expect(dashboardView(snapshot(), config, NOW).columns.map((c) => c.issues.length)).toEqual([0, 0, 0, 0, 0, 0, 0]);
+  });
+
+  test("REQ-003-02 says in words what is happening or what the Owner must do", () => {
+    const v = dashboardView(
+      snapshot({
+        repos: [
+          repo({
+            repo: "octo/app",
+            issues: [
+              { number: 4, title: "A", labels: ["agent:proposed"], blockedBy: [] },
+              { number: 5, title: "B", labels: ["agent:needs-refinement"], blockedBy: [] },
+              { number: 8, title: "C", labels: ["agent:blocked"], blockedBy: [4, 5] },
+              { number: 10, title: "D", labels: ["agent:in-progress"], blockedBy: [] },
+              { number: 13, title: "E", labels: ["agent:reviewed"], blockedBy: [] },
+              { number: 14, title: "F", labels: ["agent:reviewed"], blockedBy: [] },
+              { number: 9, title: "G", labels: ["agent:failed"], blockedBy: [] },
+            ],
+            pulls: [pull(71, [13], {}), pull(72, [14], { mergeable: false })],
+          }),
+        ],
+      }),
+      config,
+      NOW,
+    );
+    const status = Object.fromEntries(v.columns.flatMap((c) => c.issues.map((i) => [i.number, [i.status, i.tone]])));
+    expect(status).toEqual({
+      4: ["Approve it, or reply to revise", "warn"],
+      5: ["Answer the Planner's questions", "warn"],
+      8: ["Blocked by #4, #5", "bad"],
+      10: ["The Implementer is building it", "acc"],
+      13: ["Ready: merge the PR", "ok"],
+      14: ["Reviewed; the PR has conflicts or pending checks", "warn"],
+      9: ["The Coordinator gave up; see its comment", "bad"],
+    });
   });
 
   test("REQ-003-02 shows an issue's agent PR with its Feedback rounds, checks and mergeability", () => {
@@ -158,7 +225,7 @@ describe("dashboard view", () => {
       config,
       NOW,
     );
-    expect(v.columns[0]?.issues[0]?.pr).toEqual({
+    expect(v.columns.find((c) => c.title === "In review")?.issues[0]?.pr).toEqual({
       repo: "octo/app",
       number: 70,
       title: "PR 70",
@@ -283,12 +350,116 @@ describe("dashboard view", () => {
           { role: "Implementer", model: "sonnet", effort: null },
           { role: "Reviewer", model: "haiku", effort: "low" },
         ],
+        overrides: [{ role: "Reviewer", model: "haiku", effort: "low" }],
+        counts: null,
       },
-      expect.objectContaining({ name: "octo/lib", setup: null }),
+      expect.objectContaining({ name: "octo/lib", setup: null, overrides: [] }),
     ]);
-    const all = JSON.stringify(v) + renderDashboard(v);
+    expect(v.settings.roles).toEqual([
+      { role: "Planner", model: "opus", effort: "high" },
+      { role: "Implementer", model: "sonnet", effort: null },
+      { role: "Reviewer", model: "opus", effort: null },
+    ]);
+    expect(v.settings.access).toEqual({ host: "0.0.0.0", port: 8080, tokenRequired: true });
+    const all = JSON.stringify(v) + renderDashboard(v) + renderConfig(v);
     expect(all).not.toContain("/secret");
     expect(all).not.toContain("app.pem");
+  });
+
+  test("REQ-003-05 counts each repository's open issues, agent PRs and Worktrees from the last tick", () => {
+    const v = dashboardView(
+      snapshot({
+        repos: [
+          repo({
+            repo: "octo/app",
+            issues: [
+              { number: 1, title: "A", labels: [], blockedBy: [] },
+              { number: 2, title: "B", labels: ["agent:pr-open"], blockedBy: [] },
+            ],
+            pulls: [pull(70, [2], {})],
+            worktrees: 2,
+          }),
+        ],
+      }),
+      config,
+      NOW,
+    );
+    expect(v.settings.repos.map((r) => [r.name, r.counts])).toEqual([
+      ["octo/app", { issues: 2, pulls: 1, worktrees: 2 }],
+      ["octo/lib", null],
+    ]);
+  });
+
+  test("REQ-003-11 sums up ready PRs, running sessions, what needs the Owner, what is stuck and what waits", () => {
+    const issue = (number: number, label: string) => ({ number, title: "x", labels: [label], blockedBy: [] });
+    const work = (key: string) => ({ key, kind: "plan" as const, role: "planner" as const, queuedAt: "t" });
+    const v = dashboardView(
+      snapshot({
+        repos: [
+          repo({
+            repo: "octo/app",
+            issues: [
+              issue(1, "agent:proposed"),
+              issue(2, "agent:needs-refinement"),
+              issue(3, "agent:wontfix-proposed"),
+              issue(4, "agent:reviewed"),
+              issue(5, "agent:failed"),
+              issue(6, "agent:blocked"),
+              issue(7, "agent:in-progress"),
+            ],
+            pulls: [pull(70, [4], {})],
+          }),
+        ],
+        sessions: [
+          session({ id: 1, role: "implementer", issues: [7] }),
+          session({ id: 2, role: "planner", issues: [1], state: "idle" }),
+          session({ id: 3, role: "reviewer", issues: [4], live: false }),
+        ],
+        queue: [{ work: work("a") }, { work: work("b"), wait: { kind: "max-running" } }],
+      }),
+      config,
+      NOW,
+    );
+    expect(v.summary).toEqual({ ready: 1, working: 1, needYou: 4, stuck: 2, queued: 1 });
+  });
+
+  test("REQ-003-12 shows used out of the limit for running and live sessions, each Role's Slots and Worktrees", () => {
+    const v = dashboardView(
+      snapshot({
+        repos: [repo({ repo: "octo/app", worktrees: 2 }), repo({ repo: "octo/lib", worktrees: 1 })],
+        sessions: [
+          session({ id: 1, role: "implementer", issues: [7] }),
+          session({ id: 2, role: "planner", issues: [1], state: "idle" }),
+          session({ id: 3, role: "reviewer", issues: [4], live: false }),
+        ],
+      }),
+      config,
+      NOW,
+    );
+    expect(v.capacity).toEqual([
+      { label: "Running", used: 1, limit: 1 },
+      { label: "Live", used: 2, limit: 2 },
+      { label: "Planner Slots", used: 0, limit: 1 },
+      { label: "Implementer Slots", used: 1, limit: 1 },
+      { label: "Reviewer Slots", used: 0, limit: 1 },
+      { label: "Worktrees", used: 3, limit: 3 },
+    ]);
+  });
+
+  test("REQ-003-13 a picked repository narrows the Pipeline; an unknown one shows all", () => {
+    const snap = snapshot({
+      repos: [
+        repo({ repo: "octo/app", issues: [{ number: 1, title: "A", labels: [], blockedBy: [] }] }),
+        repo({ repo: "octo/lib", issues: [{ number: 2, title: "B", labels: [], blockedBy: [] }] }),
+      ],
+    });
+    const picked = dashboardView(snap, config, NOW, { repo: "octo/lib" });
+    expect(picked.repoFilter).toBe("octo/lib");
+    expect(picked.repos).toEqual(["octo/app", "octo/lib"]);
+    expect(picked.columns[0]?.issues.map((i) => i.number)).toEqual([2]);
+    const unknown = dashboardView(snap, config, NOW, { repo: "evil/repo" });
+    expect(unknown.repoFilter).toBeNull();
+    expect(unknown.columns[0]?.issues.map((i) => i.number)).toEqual([1, 2]);
   });
 
   test("REQ-003-06 shows when the last tick finished and reloads every poll interval", () => {
@@ -324,7 +495,8 @@ describe("dashboard view", () => {
       config,
       NOW,
     );
-    const html = renderDashboard(v);
+    // The page's own script (REQ-003-09) is the only one.
+    const html = renderDashboard(v).replace(/<script src="\/assets\/dashboard\.js\?v=[0-9a-f]+" defer><\/script>/, "");
     expect(html).not.toContain("<script");
     expect(html).not.toContain("<img");
     expect(html).toContain("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;");

@@ -19,6 +19,8 @@
 - A render exception gives 500 and is logged; a server that cannot bind is logged and the loop runs without it.
 - The token file's folder joins the secret paths every session is denied (REQ-001-26).
 
+**Redesign (#60).** The look follows the Owner's mockup in #41 (dark, indigo/green/amber/red by meaning, Plus Jakarta Sans, Inter and JetBrains Mono, divided rows, one glass panel, a frosted band around Up next and the Pipeline). The page stays server-rendered and complete without JavaScript; the mockup's hash routing became server routes (`/config`, `?repo=`). CSS, an optional script (countdown and reload, copy buttons, WebGL background) and the fonts are files under `src/dashboard/assets/`, served from a fixed list (`assets.ts`) with a content hash in their URL. That replaces the inline CSS and lets the CSP name `'self'` for scripts, styles and fonts, with no `unsafe-*`. The meta refresh stays inside `<noscript>`. The view model gains the Summary, Capacity, the seven columns with a status per issue, the model per session, the repository filter and per-repository counts; the Tick snapshot gains the Worktree count per repository.
+
 **Remote access.** Documented in `docs/setup.md`: keep loopback and use `tailscale serve` (HTTPS, tailnet only) or an SSH tunnel. A token is recommended even on loopback, since `tailscale serve` proxies from localhost and agents run on the same machine.
 
 ## Tasks
@@ -32,3 +34,13 @@
 - [x] Server: auth, GET only, headers, isolation (REQ-003-07, 08, 09)
 - [x] Wire into `src/index.ts`; docs: README, architecture, setup, glossary, spec index, `config.example.ts`
 - [ ] Manual: open it on a phone over Tailscale, screenshots on the PR (needs the Owner's server)
+
+Redesign (#60):
+
+- [x] Spec: amend REQ-003-01, 02, 03, 04, 05, 06, 09; add REQ-003-11 … 14
+- [x] Snapshot: Worktree count per repository (REQ-003-05, REQ-003-12)
+- [x] View model: Summary, Capacity, seven columns with status, model, filter, Config data (REQ-003-01, 02, 05, 11, 12, 13)
+- [x] Markup: Overview and Config page, no inline styles or scripts (REQ-003-01 … 06, 09, 11 … 13)
+- [x] Assets: CSS, script, self-hosted fonts with their licences (REQ-003-06, 09, 14)
+- [x] Server: `/config`, `?repo=`, `/assets/*` from a fixed list, CSP (REQ-003-05, 09, 13)
+- [ ] Manual: screenshots on phone and desktop (no browser in the Implementer's sandbox)
