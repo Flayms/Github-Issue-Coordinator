@@ -51,7 +51,7 @@ export function loadDashboardToken(config: Config): string | undefined {
   return token;
 }
 
-/** Starts the server if the config has a `dashboard` block; a server that cannot listen is logged (REQ-003-08). */
+/** Starts the server unless the config turns it off (`dashboard: false`); a server that cannot listen is logged (REQ-003-08). */
 export function startDashboard(d: DashboardDeps): DashboardServer | undefined {
   const dash = d.config.dashboard;
   if (!dash) return undefined;

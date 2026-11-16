@@ -13,7 +13,7 @@ flowchart LR
   D -. Tailscale / SSH tunnel .-> P
 ```
 
-At the end of every tick the Coordinator publishes a Tick snapshot (issues, agent PRs, sessions, the queue with wait reasons). The optional dashboard ([spec 003](specs/003-dashboard/spec.md)) serves only that snapshot: no GitHub calls, no store writes.
+At the end of every tick the Coordinator publishes a Tick snapshot (issues, agent PRs, sessions, the queue with wait reasons). The dashboard (on by default, [spec 003](specs/003-dashboard/spec.md)) serves only that snapshot: no GitHub calls, no store writes.
 
 ## Modules
 
