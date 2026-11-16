@@ -643,7 +643,12 @@ describe("Linked history", () => {
               { event: "labeled", actor: "octo", at: "2026-11-10T03:00:00Z", detail: "agent:failed" },
             ],
             reviews: [
-              { state: "commented", author: "coordinator[bot]", body: "1 finding", at: "2026-11-10T02:00:00Z" },
+              {
+                state: "commented",
+                author: "coordinator[bot]",
+                body: "> [!Note]\n> 🤖 Claude Opus 5.5 (Reviewer) writing on behalf of octo\n\n1 finding",
+                at: "2026-11-10T02:00:00Z",
+              },
             ],
             comments: Array.from({ length: 7 }, (_, i) => ({ author: "octo", body: `comment ${i + 1}`, at: "t" })),
           }),
@@ -683,6 +688,38 @@ describe("Linked history", () => {
     );
     expect(text).toContain("#5 links more items than are fetched; not fetched: #20, #21");
     expect(renderLinkedHistory([], [])).toBe("");
+  });
+
+  test("REQ-001-47 a busy PR's Reviews and latest comments survive the cap next to its latest events", () => {
+    const busy = history(47, {
+      isPullRequest: true,
+      events: [
+        ...Array.from({ length: 19 }, (_, i) => ({
+          event: i % 2 ? "unlabeled" : "labeled",
+          actor: "github-issue-coordinator[bot]",
+          at: `2026-11-10T00:00:${String(i).padStart(2, "0")}Z`,
+          detail: "agent:reviewing",
+        })),
+        { event: "convert_to_draft", actor: "github-issue-coordinator[bot]", at: "2026-11-10T09:00:00Z" },
+      ],
+      reviews: Array.from({ length: 5 }, (_, i) => ({
+        state: "commented",
+        author: "github-issue-coordinator[bot]",
+        body: `review ${i + 1} ${"r".repeat(500)}`,
+        at: "2026-11-10T08:00:00Z",
+      })),
+      comments: Array.from({ length: 5 }, (_, i) => ({
+        author: "octo",
+        body: `comment ${i + 1} ${"c".repeat(500)}`,
+        at: "2026-11-10T08:30:00Z",
+      })),
+    });
+    const text = renderLinkedHistory([{ number: 47, linkedFrom: [51], history: busy }], []);
+    expect(text).not.toEndWith("(truncated)"); // the item as a whole is not cut
+    expect(text.slice(text.indexOf("### PR #47")).length).toBeLessThanOrEqual(3_000);
+    expect(text).toContain("convert_to_draft by github-issue-coordinator[bot]");
+    for (let i = 1; i <= 5; i++) expect(text).toContain(`review ${i} `);
+    expect(text).toContain("comment 5 ");
   });
 
   test("REQ-001-47 a Planner pass gets the Linked history of what the issues link to, fetched once, at most 5 per issue, never the issue itself", async () => {

@@ -66,7 +66,9 @@ const LINKS_PER_ISSUE = 5;
 const HISTORY_LIMIT = 3_000;
 const HISTORY_EVENTS = 20;
 const HISTORY_ENTRIES = 5;
-const SNIPPET_LIMIT = 150;
+const SNIPPET_LIMIT = 100;
+/** Per-section budgets, so a long Events list never crowds out the Reviews and comments. */
+const BUDGET = { events: 800, reviews: 900, comments: 900 };
 
 /**
  * REQ-001-47: issues and PRs of `repo` that `text` refers to (`#N`, `owner/repo#N`, issue or PR URLs),
@@ -91,7 +93,14 @@ export interface LinkedItem {
   error?: string;
 }
 
-const snippet = (s: string) => truncate(s.replace(/\s+/g, " ").trim(), SNIPPET_LIMIT).replace("\n", " ");
+/** One line of a Review or comment body, without the agent note that heads the Coordinator's own (REQ-001-29). */
+const snippet = (s: string) => {
+  const line = s
+    .replace(/^> \[!Note\]\s*\n> .*\n?/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return line.length > SNIPPET_LIMIT ? `${line.slice(0, SNIPPET_LIMIT)}…` : line;
+};
 const refs = (ns: number[]) => ns.map((n) => `#${n}`).join(", ");
 
 function renderHistory(h: ItemHistory, linkedFrom: number[]): string {
@@ -102,7 +111,15 @@ function renderHistory(h: ItemHistory, linkedFrom: number[]): string {
     h.labels.length ? `labels: ${h.labels.join(", ")}` : "no labels",
   ].join(", ");
   const parts = [`### ${kind} #${h.number} ${h.title} (linked from ${refs(linkedFrom)})`, status];
-  const section = (title: string, all: unknown[], lines: string[]) => {
+  /** Keeps the latest lines that fit the section's budget. */
+  const section = (title: string, all: unknown[], latest: string[], budget: number) => {
+    const lines: string[] = [];
+    let used = 0;
+    for (const line of latest.toReversed()) {
+      if (lines.length && used + line.length + 1 > budget) break;
+      lines.unshift(line);
+      used += line.length + 1;
+    }
     if (!lines.length) return;
     const older = all.length - lines.length;
     parts.push(`${title}${older > 0 ? ` (last ${lines.length} of ${all.length})` : ""}:\n${lines.join("\n")}`);
@@ -113,6 +130,7 @@ function renderHistory(h: ItemHistory, linkedFrom: number[]): string {
     h.events
       .slice(-HISTORY_EVENTS)
       .map((e) => `- ${e.at ?? "?"} ${e.event}${e.detail ? ` ${e.detail}` : ""}${e.actor ? ` by ${e.actor}` : ""}`),
+    BUDGET.events,
   );
   section(
     "Reviews",
@@ -120,13 +138,15 @@ function renderHistory(h: ItemHistory, linkedFrom: number[]): string {
     h.reviews
       .slice(-HISTORY_ENTRIES)
       .map((r) => `- ${r.state} by ${r.author}${r.at ? ` at ${r.at}` : ""}${r.body ? `: ${snippet(r.body)}` : ""}`),
+    BUDGET.reviews,
   );
   section(
     "Comments",
     h.comments,
     h.comments.slice(-HISTORY_ENTRIES).map((c) => `- ${c.author} at ${c.at}: ${snippet(c.body)}`),
+    BUDGET.comments,
   );
-  return truncate(parts.join("\n\n"), HISTORY_LIMIT);
+  return truncate(parts.join("\n\n"), HISTORY_LIMIT); // a backstop for long titles and label lists
 }
 
 /** REQ-001-47: the Linked history section of a Planner prompt; empty when nothing is linked. */

@@ -395,6 +395,7 @@ The Owner (the single human user) wants GitHub issues across their public and pr
 - **When** the Coordinator starts the Planner pass (REQ-001-02) or a revision turn (REQ-001-03, REQ-001-41)
 - **Then** the prompt has a _Linked history_ section with, for each linked item: kind, title, state (open, closed or merged), draft status, labels, its latest timeline events with actor and time (labeled/unlabeled, ready_for_review, convert_to_draft, commits and force pushes, closed/merged/reopened), its last few Reviews (state, author, short body) and its last few comments
 - **And** at most 5 linked items per issue are fetched, each item's history is capped in size, and any further links are listed as not fetched
+- **And** a long list of events never crowds out the item's Reviews and latest comments
 - **And** an item linked from several issues of a pass is fetched once
 - **And** the issue itself and links into other repositories are not followed
 - **And** a revision that resumes the issue's own session gets the history only of items the new comments link to and the description does not
