@@ -6,6 +6,7 @@
 import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { dirname } from "node:path";
+import { DEFAULT_ACCOUNT } from "./accounts.ts";
 import { checkBrowserStarts, findBrowser } from "./browser.ts";
 import { loadConfig } from "./config.ts";
 import { AppAuth, createAppJwt } from "./github/app-auth.ts";
@@ -17,9 +18,9 @@ const report = (status: Status, check: string, detail = "") => {
   results.push({ status, check, detail });
   console.log(`${{ ok: "✓", fail: "✗", warn: "!" }[status]} ${check}${detail ? `: ${detail}` : ""}`);
 };
-const run = (cmd: string[]) => {
+const run = (cmd: string[], env?: Record<string, string | undefined>) => {
   try {
-    const p = Bun.spawnSync(cmd, { stdout: "pipe", stderr: "pipe" });
+    const p = Bun.spawnSync(cmd, { stdout: "pipe", stderr: "pipe", env });
     return { ok: p.exitCode === 0, out: p.stdout.toString().trim() || p.stderr.toString().trim() };
   } catch (e) {
     return { ok: false, out: String(e) };
@@ -71,7 +72,7 @@ if (existsSync("/etc/apparmor.d/bwrap-userns-restrict") && existsSync("/etc/appa
   );
 }
 
-// REQ-001-48 / REQ-001-52: the Implementer captures Screenshots of UI changes with the host's headless browser.
+// REQ-001-48 / REQ-001-53: the Implementer captures Screenshots of UI changes with the host's headless browser.
 // This starts it outside the sandbox; whether it also starts inside one is the smoke runner's --screenshot run.
 const browser = findBrowser();
 const browserStart = browser ? checkBrowserStarts(browser, tmpdir()) : undefined;
@@ -83,24 +84,31 @@ report(
     : `${browser} ${browserStart?.ok ? "" : "does not start headless: "}${browserStart?.detail}`,
 );
 
-const auth = run(["claude", "auth", "status"]);
-try {
-  const s = JSON.parse(auth.out) as { loggedIn?: boolean; subscriptionType?: string };
-  report(
-    s.loggedIn ? "ok" : "fail",
-    "claude logged in",
-    s.loggedIn ? `${s.subscriptionType ?? "?"} subscription` : "run `claude` and /login",
-  );
-} catch {
-  report("fail", "claude logged in", "could not read `claude auth status`");
-}
-
 let config: Awaited<ReturnType<typeof loadConfig>> | undefined;
 try {
   config = await loadConfig(process.env.COORDINATOR_CONFIG ?? "config.ts");
   report("ok", "config valid", `${config.repos.length} repositories, Owner ${config.owner.login} (${config.owner.id})`);
 } catch (e) {
   report("fail", "config valid", e instanceof Error ? e.message : String(e));
+}
+
+// REQ-004-03: every Account's login (each in its own Claude config folder); without a config, the default one.
+const accounts = config?.accounts ?? [DEFAULT_ACCOUNT];
+for (const a of accounts) {
+  const check = accounts.length > 1 || a.configDir ? `claude logged in (Account ${a.name})` : "claude logged in";
+  const env = a.configDir ? { ...process.env, CLAUDE_CONFIG_DIR: a.configDir } : process.env;
+  const auth = run(["claude", "auth", "status"], env);
+  const login = a.configDir ? `CLAUDE_CONFIG_DIR=${a.configDir} claude` : "claude";
+  try {
+    const s = JSON.parse(auth.out) as { loggedIn?: boolean; subscriptionType?: string };
+    report(
+      s.loggedIn ? "ok" : "fail",
+      check,
+      s.loggedIn ? `${s.subscriptionType ?? "?"} subscription` : `run \`${login}\` and /login`,
+    );
+  } catch {
+    report("fail", check, `could not read \`${login} auth status\``);
+  }
 }
 
 if (config) {

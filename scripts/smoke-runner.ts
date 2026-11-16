@@ -9,7 +9,7 @@
  * sandbox confines Bash (REQ-001-25, -26, -27): it runs probe.sh, which tries a write outside the
  * repo, a read of a secret, and network requests, and records what each did. A fake secret is used
  * unless --secret points at a real file (its content only goes to /dev/null). Exits 1 on a mismatch.
- * With --screenshot (implementer only, REQ-001-52) the session also runs shoot.sh, which serves a fixture
+ * With --screenshot (implementer only, REQ-001-53) the session also runs shoot.sh, which serves a fixture
  * page on localhost and shoots it with the host's headless browser, as an Implementer would for its
  * Screenshots. It reports pass, fail with the browser's error, or inconclusive if shoot.sh never ran.
  */
@@ -72,7 +72,7 @@ writeFileSync(
     "",
   ].join("\n"),
 );
-// REQ-001-52: the Screenshot scenario's files. shoot.txt gets "pass" or "fail: <error>".
+// REQ-001-53: the Screenshot scenario's files. shoot.txt gets "pass" or "fail: <error>".
 const shot = join(repo, ".coordinator", "screenshots", "smoke.png");
 const shootFile = join(repo, "shoot.txt");
 writeFileSync(join(repo, ".git", "info", "exclude"), ".coordinator/\n");
@@ -185,7 +185,7 @@ async function waitIdle(id: number, label: string, ms = 240_000) {
   throw new Error(`timeout waiting for ${label}`);
 }
 
-/** REQ-001-52: pass, fail with the browser's error, or inconclusive when shoot.sh never ran. */
+/** REQ-001-53: pass, fail with the browser's error, or inconclusive when shoot.sh never ran. */
 function screenshotReport() {
   if (!existsSync(shootFile)) {
     console.log("  ? screenshot: inconclusive");

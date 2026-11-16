@@ -106,7 +106,7 @@ The Owner gets plans they can approve on a phone, code that matches those plans,
 - **Given** the default Implementer prompt and a repository whose conventions ask for screenshots of UI changes
 - **When** the Implementer changes a page
 - **Then** it captures the pages its change affects with the host's headless browser, saves them in `.coordinator/screenshots/` and lists them in `screenshots` with a caption each (REQ-001-48)
-- **And** it uses only the host's browser, started with `--no-sandbox` (REQ-001-52), and never downloads or installs one (a Chromium from npm, `playwright install`)
+- **And** it uses only the host's browser, started with `--no-sandbox` (REQ-001-53), and never downloads or installs one (a Chromium from npm, `playwright install`)
 - **And** if it can't capture them (no browser, the browser won't start, or auto mode refuses the command), it says so in `prBody`, quotes the error, and doesn't try other ways or fail the task
 
 ## Out of scope

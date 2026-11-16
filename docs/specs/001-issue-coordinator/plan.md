@@ -89,7 +89,7 @@ export default {
   - [x] Prepared: `deploy/github-issue-coordinator.service` (`KillMode=process` keeps sessions alive across restarts), `docs/setup.md`, `bun run doctor`.
   - [ ] Owner: create the GitHub App and rulesets, decide on the `agent` user, install the service.
 - [ ] T16 Screenshots of UI changes (#59). Captured in the Implementer's sandbox with a headless Chrome the Owner installs on the host (no new sandbox domains, no GitHub access for the Implementer); published by the Coordinator on the orphan branch `agent-screenshots`, which keeps binaries out of the default branch's history. (REQ-001-48–51, REQ-002-13)
-  - [ ] Verify that the sandbox can serve a page locally and shoot it with the host's browser (`--no-sandbox` inside bubblewrap). (#66, REQ-001-52)
+  - [ ] Verify that the sandbox can serve a page locally and shoot it with the host's browser (`--no-sandbox` inside bubblewrap). (#66, REQ-001-53)
     - [x] `bun scripts/smoke-runner.ts --screenshot`: a real Implementer session runs a fixed `shoot.sh` (fixture page on localhost, host browser headless) and reports pass, fail with the browser's error, or inconclusive.
     - [x] `bun run doctor` starts the browser headless and checks it writes a PNG (`src/browser.ts`, shared with the smoke runner).
     - [x] Implementer prompt: only the host's browser, with `--no-sandbox`, never a downloaded one; quote the error otherwise. (REQ-002-13)

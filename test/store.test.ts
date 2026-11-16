@@ -15,6 +15,7 @@ describe("store", () => {
       const a = new Store(path, at("2026-11-10T10:00:00Z"));
       const id = a.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [5, 6] });
       a.setClaudeSessionId(id, "sess-xyz");
+      a.setAccount(id, "main");
       a.close();
 
       const b = new Store(path);
@@ -37,6 +38,7 @@ describe("store", () => {
           modelId: null,
           title: null,
           startedAt: "2026-11-10T10:00:00.000Z",
+          account: "main",
         },
       ]);
       b.close();
@@ -159,21 +161,48 @@ describe("store", () => {
     expect(s.latestSession("octo/app", 7, "planner")).toBeUndefined();
   });
 
-  test("REQ-001-17 keeps the usage-limit pause across a restart", () => {
+  test("REQ-001-17 keeps each Account's usage-limit pause across a restart", () => {
     const dir = mkdtempSync(join(tmpdir(), "store-"));
     try {
       const a = new Store(join(dir, "state.db"));
-      expect(a.pausedUntil()).toBeUndefined();
-      a.setPausedUntil("2026-11-10T15:00:00.000Z");
+      expect(a.pausedUntil("main")).toBeUndefined();
+      a.setPausedUntil("main", "2026-11-10T15:00:00.000Z");
       a.close();
       const b = new Store(join(dir, "state.db"));
-      expect(b.pausedUntil()).toBe("2026-11-10T15:00:00.000Z");
-      b.setPausedUntil(undefined);
-      expect(b.pausedUntil()).toBeUndefined();
+      expect(b.pausedUntil("main")).toBe("2026-11-10T15:00:00.000Z");
+      expect(b.pausedUntil("spare")).toBeUndefined();
+      b.setPausedUntil("main", undefined);
+      expect(b.pausedUntil("main")).toBeUndefined();
       b.close();
     } finally {
       rmSync(dir, { recursive: true });
     }
+  });
+
+  test("REQ-001-17 the single pause of an older store becomes the first Account's", () => {
+    const dir = mkdtempSync(join(tmpdir(), "store-"));
+    try {
+      const old = new Database(join(dir, "state.db"));
+      old.exec("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+      old.exec("INSERT INTO meta VALUES ('pausedUntil', '2026-11-10T15:00:00.000Z')");
+      old.close();
+      const s = new Store(join(dir, "state.db"));
+      s.adoptLegacyPause("main");
+      expect(s.pausedUntil("main")).toBe("2026-11-10T15:00:00.000Z");
+      s.adoptLegacyPause("spare");
+      expect(s.pausedUntil("spare")).toBeUndefined();
+      s.close();
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  test("REQ-004-01 records the Account a session runs on", () => {
+    const s = new Store(":memory:");
+    const id = s.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [5] });
+    expect(s.session(id)?.account).toBeNull();
+    s.setAccount(id, "spare");
+    expect(s.session(id)?.account).toBe("spare");
   });
 
   test("REQ-001-14 lists Worktrees on record with their issues and PR", () => {

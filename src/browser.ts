@@ -1,5 +1,5 @@
 /**
- * The host's headless browser that Implementers shoot Screenshots with (REQ-001-48, REQ-001-52).
+ * The host's headless browser that Implementers shoot Screenshots with (REQ-001-48, REQ-001-53).
  * Shared by `bun run doctor` and the smoke runner's Screenshot scenario, so both start it the same way.
  */
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";

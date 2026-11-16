@@ -99,8 +99,8 @@ class FakeGitHub {
   async setDraft(_r: string, pr: number, draft: boolean) {
     this.calls.push(["setDraft", pr, draft]);
   }
-  async requestReviewers(_r: string, pr: number, reviewers: string[]) {
-    this.calls.push(["requestReviewers", pr, reviewers]);
+  async addAssignees(_r: string, issue: number, assignees: string[]) {
+    this.calls.push(["addAssignees", issue, assignees]);
   }
   heads = new Map<number, string>();
   checkState: "none" | "pending" | "success" | "failure" = "success";
@@ -708,7 +708,7 @@ describe("reconcile loop", () => {
     expect(gh.calls.filter((c) => c[0] === "setDraft")).toEqual([]);
   });
 
-  test("REQ-001-10 / REQ-001-23 / REQ-001-46 an agent PR is reviewed once its checks pass, then the Reviewer closes, asking the Owner for a review", async () => {
+  test("REQ-001-10 / REQ-001-23 / REQ-001-52 an agent PR is reviewed once its checks pass, then the Reviewer closes, assigning the Owner", async () => {
     gh.items = [item(5, ["agent:pr-open"]), item(70, [], { isPullRequest: true, author: { login: "bot", id: 1 } })];
     store.updateIssue("octo/app", 5, { worktreePath: "/wt/5", prNumber: 70 });
     gh.checkState = "pending";
@@ -727,7 +727,8 @@ describe("reconcile loop", () => {
     expect(gh.calls).toContainEqual(["createReview", 70, "h1"]);
     expect(gh.items[0]?.labels).toEqual(["agent:reviewed"]);
     expect(gh.calls).toContainEqual(["setDraft", 70, false]); // REQ-001-31
-    expect(gh.calls).toContainEqual(["requestReviewers", 70, ["octo"]]); // REQ-001-46
+    expect(gh.calls).toContainEqual(["addAssignees", 70, ["octo"]]); // REQ-001-52
+    expect(gh.calls.some((c) => c[0] === "requestReviewers")).toBe(false);
     expect(store.session(1)?.state).toBe("closed");
     await coordinator.tick();
     expect(runner.started).toHaveLength(1);
@@ -1126,7 +1127,7 @@ describe("reconcile loop", () => {
     expect(runner.resumed).toHaveLength(1);
   });
 
-  test("REQ-001-17 pauses after the usage limit, then continues the interrupted session", async () => {
+  test("REQ-001-17 with one Account, pauses after the usage limit, then continues the interrupted session", async () => {
     gh.items = [item(5), item(6, ["agent:planning"])];
     const id = store.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [6] });
     store.setClaudeSessionId(id, "c1");
@@ -1134,9 +1135,10 @@ describe("reconcile loop", () => {
     store.patchSession(id, { state: "idle", usageLimited: true });
 
     await coordinator.tick();
-    expect(store.pausedUntil()).toBe(new Date(now.getTime() + USAGE_LIMIT_PAUSE_MIN * 60_000).toISOString());
+    expect(store.pausedUntil("default")).toBe(new Date(now.getTime() + USAGE_LIMIT_PAUSE_MIN * 60_000).toISOString());
     expect(runner.started).toEqual([]);
     expect(runner.resumed).toEqual([]);
+    expect(coordinator.snapshot()?.pausedUntil).toBe(store.pausedUntil("default") ?? "missing");
 
     now = new Date(now.getTime() + (USAGE_LIMIT_PAUSE_MIN + 1) * 60_000);
     await coordinator.tick();
@@ -1146,7 +1148,55 @@ describe("reconcile loop", () => {
     // The limit hits again later: the pause is extended.
     store.patchSession(id, { state: "idle", usageLimited: true });
     await coordinator.tick();
-    expect(store.pausedUntil()).toBe(new Date(now.getTime() + USAGE_LIMIT_PAUSE_MIN * 60_000).toISOString());
+    expect(store.pausedUntil("default")).toBe(new Date(now.getTime() + USAGE_LIMIT_PAUSE_MIN * 60_000).toISOString());
+  });
+
+  test("REQ-001-17 / REQ-004-01 a usage limit pauses only its Account; the session continues right away on another one", async () => {
+    const two = parseConfig({
+      ...config,
+      accounts: [
+        { name: "a", configDir: "/home/agent/.claude-a" },
+        { name: "b", configDir: "/home/agent/.claude-b" },
+      ],
+    });
+    coordinator = new Coordinator({
+      config: two,
+      store,
+      gh,
+      runner,
+      worktrees,
+      clones: { mainClone: async (repo: string) => `/clones/${repo}` },
+      now: () => now,
+      log: (m) => logs.push(m),
+    });
+    gh.items = [item(6, ["agent:planning"])];
+    const id = store.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [6] });
+    store.setClaudeSessionId(id, "c1");
+    store.setAccount(id, "a");
+    runner.live.add(id);
+    store.patchSession(id, { state: "idle", usageLimited: true });
+
+    await coordinator.tick();
+    const until = new Date(now.getTime() + USAGE_LIMIT_PAUSE_MIN * 60_000).toISOString();
+    expect(store.pausedUntil("a")).toBe(until);
+    expect(store.pausedUntil("b")).toBeUndefined();
+    expect(logs).toContainEqual(expect.stringContaining(`Account a is paused until ${until}`));
+    expect(runner.resumed).toEqual([[id, expect.stringContaining("usage limit")]]);
+    expect(coordinator.snapshot()?.pausedUntil).toBeNull();
+
+    // Then B hits the limit too: all new work waits until the first Account is free again.
+    store.setAccount(id, "b");
+    now = new Date(now.getTime() + 10 * 60_000);
+    store.patchSession(id, { state: "idle", usageLimited: true });
+    gh.items = [item(5), item(6, ["agent:planning"])];
+    gh.changed = true;
+    await coordinator.tick();
+    expect(runner.resumed).toHaveLength(1);
+    expect(runner.started).toEqual([]);
+    expect(coordinator.snapshot()?.queue.map((q) => q.wait)).toEqual([
+      { kind: "paused", until },
+      { kind: "paused", until },
+    ]);
   });
 
   test("REQ-001-20 closes sessions idle longer than idleTimeoutMin", async () => {

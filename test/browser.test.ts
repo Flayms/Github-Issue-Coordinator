@@ -21,13 +21,13 @@ function fakeBrowser(body: string) {
 const WRITES_PNG = `for a in "$@"; do case "$a" in --screenshot=*) printf '\\211PNG\\r\\n\\032\\n' > "\${a#--screenshot=}";; esac; done`;
 
 describe("headless browser check (doctor)", () => {
-  test("REQ-001-52 the doctor finds the first browser on PATH", () => {
+  test("REQ-001-53 the doctor finds the first browser on PATH", () => {
     const which = (b: string) => (b === "chromium" ? "/usr/bin/chromium" : null);
     expect(findBrowser(which)).toBe("chromium");
     expect(findBrowser(() => null)).toBeUndefined();
   });
 
-  test("REQ-001-52 shoots headless with --no-sandbox, a throwaway profile and no proxy", () => {
+  test("REQ-001-53 shoots headless with --no-sandbox, a throwaway profile and no proxy", () => {
     const args = screenshotArgs("/w/shot.png", "http://127.0.0.1:1/", "/t/profile");
     expect(args).toEqual(
       expect.arrayContaining([
@@ -41,25 +41,25 @@ describe("headless browser check (doctor)", () => {
     expect(args.at(-1)).toBe("http://127.0.0.1:1/");
   });
 
-  test("REQ-001-52 a browser that writes a non-empty PNG starts", () => {
+  test("REQ-001-53 a browser that writes a non-empty PNG starts", () => {
     const r = checkBrowserStarts(fakeBrowser(`${WRITES_PNG}\nexit 0`), dir);
     expect(r).toEqual({ ok: true, detail: expect.stringContaining("PNG") });
   });
 
-  test("REQ-001-52 a browser that exits non-zero fails with its error", () => {
+  test("REQ-001-53 a browser that exits non-zero fails with its error", () => {
     const r = checkBrowserStarts(fakeBrowser("echo 'No usable sandbox!' >&2\nexit 1"), dir);
     expect(r.ok).toBe(false);
     expect(r.detail).toContain("exit code 1");
     expect(r.detail).toContain("No usable sandbox!");
   });
 
-  test("REQ-001-52 a browser that exits 0 without writing a PNG fails", () => {
+  test("REQ-001-53 a browser that exits 0 without writing a PNG fails", () => {
     const r = checkBrowserStarts(fakeBrowser("echo started\nexit 0"), dir);
     expect(r.ok).toBe(false);
     expect(r.detail).toContain("no PNG");
   });
 
-  test("REQ-001-52 the check leaves nothing behind", () => {
+  test("REQ-001-53 the check leaves nothing behind", () => {
     checkBrowserStarts(fakeBrowser(`${WRITES_PNG}\nexit 0`), dir);
     expect(readdirSync(dir)).toEqual(["fake-chrome"]);
   });

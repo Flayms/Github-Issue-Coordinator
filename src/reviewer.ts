@@ -2,7 +2,7 @@
  * Reviewer run (REQ-001-10): a fresh read-only session on a checkout of the PR head; its findings
  * are posted as one COMMENT review. The session is closed right after (REQ-001-23). Every finding
  * is kept for a Feedback round (REQ-001-11); without findings the PR leaves draft (REQ-001-31) and the
- * Owner is asked to review it (REQ-001-46).
+ * Owner is assigned to it (REQ-001-52).
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -22,10 +22,7 @@ export type Finding = ReviewerResult["findings"][number];
 export interface ReviewerDeps {
   config: Config;
   store: Store;
-  gh: Pick<
-    GitHubClient,
-    "addLabels" | "removeLabel" | "createComment" | "createReview" | "setDraft" | "requestReviewers"
-  >;
+  gh: Pick<GitHubClient, "addLabels" | "removeLabel" | "createComment" | "createReview" | "setDraft" | "addAssignees">;
   runner: Pick<SessionRunner, "start" | "close" | "sessionDir">;
   worktrees: Pick<Worktrees, "reviewCheckout" | "reviewPath" | "head" | "remove">;
   log?: (message: string) => void;
@@ -149,7 +146,7 @@ export class Reviewer {
       await this.d.gh.addLabels(s.repo, pr, ["agent:reviewed"]);
       // REQ-001-31: only a reviewed head without findings leaves draft.
       await this.d.gh.setDraft(s.repo, pr, false);
-      await this.requestOwnerReview(s.repo, pr);
+      await this.assignOwner(s.repo, pr);
     }
     this.event({
       repo: s.repo,
@@ -168,13 +165,13 @@ export class Reviewer {
     recordEvent(this.d.store, this.d.log ?? defaultLog, e);
   }
 
-  /** REQ-001-46: best effort; a refused request is logged and never fails the Review. */
-  private async requestOwnerReview(repo: string, pr: number) {
+  /** REQ-001-52: best effort; a refused assignment is logged and never fails the Review. */
+  private async assignOwner(repo: string, pr: number) {
     try {
-      await this.d.gh.requestReviewers(repo, pr, [this.d.config.owner.login]);
+      await this.d.gh.addAssignees(repo, pr, [this.d.config.owner.login]);
     } catch (e) {
       const log = this.d.log ?? ((m: string) => console.log(`${new Date().toISOString()} ${m}`));
-      log(`${repo}: could not request the Owner's review on PR #${pr}: ${e instanceof Error ? e.message : String(e)}`);
+      log(`${repo}: could not assign the Owner to PR #${pr}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 

@@ -42,8 +42,9 @@ async function main() {
     stateDir,
     dbPath,
     hookCommand: [process.execPath, resolve(import.meta.dir, "hook.ts")],
-    // REQ-001-26: the App key's folder and Claude's login.
+    // REQ-001-26 / REQ-004-02: the App key's folder and every Account's Claude login.
     secretPaths: secretPaths(config, homedir()),
+    accounts: config.accounts,
   });
   const clones = new Clones({ root: join(stateDir, "clones"), token: (repo) => auth.tokenFor(repo) });
   const worktrees = new Worktrees({

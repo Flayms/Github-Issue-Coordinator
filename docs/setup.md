@@ -42,6 +42,19 @@ sudo -iu agent
 claude          # then /login, and /exit when done
 ```
 
+**More than one subscription (optional).** When one subscription hits its usage limit, the Coordinator can go on with another one ([spec 004](specs/004-accounts/spec.md)). Each extra subscription is an Account with its own Claude config folder; log in to it once the same way, with the folder set:
+
+```sh
+sudo -iu agent
+CLAUDE_CONFIG_DIR=/home/agent/.claude-spare claude   # then /login with the other subscription, and /exit
+```
+
+Then list the Accounts in `config.ts` (step 5). Good to know:
+
+- Claude keeps its settings per folder, so an extra Account starts without your user settings and asks for folder trust again; the Coordinator answers the trust dialog as before.
+- Each login expires on its own; `bun run doctor` checks every Account.
+- A session shows up in the Claude app only under the claude.ai account it runs on. To follow a session on a fallback Account, switch accounts in the app.
+
 ## 2. GitHub App (the Coordinator's identity)
 
 Create a private GitHub App: GitHub → Settings → Developer settings → GitHub Apps → New GitHub App.
@@ -88,6 +101,7 @@ The setup script already cloned this repository for `agent` to `/home/agent/gith
 - `stateDir`: where the store, session files and clones live, e.g. `/home/agent/coordinator-state`.
 - `roles`: a model per Role (`sonnet`, `opus`, …), optionally an effort.
 - `repos`: each managed repository with its `setup` command (e.g. `bun install`), run once in every new Worktree.
+- `accounts` (optional): your Claude subscriptions in priority order, e.g. `[{ name: "main" }, { name: "spare", configDir: "/home/agent/.claude-spare" }]`. An Account without `configDir` is the login in `~/.claude` from step 1. Sessions run on the first Account that isn't paused by a usage limit. Leave it out for a single subscription.
 
 `config.ts` is not committed; it only exists on the server. One way to write it is in your own checkout, then hand it over:
 
