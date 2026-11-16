@@ -17,7 +17,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { BROWSERS, isPng, screenshotArgs } from "../src/browser.ts";
+import { BROWSERS, isPng, screenshotArgs, screenshotEnv } from "../src/browser.ts";
 import { SessionRunner } from "../src/runner.ts";
 import { Store } from "../src/store.ts";
 import { TmuxCli } from "../src/tmux.ts";
@@ -93,6 +93,10 @@ writeFileSync(
 const browserArgs = screenshotArgs(shot, "http://127.0.0.1:$port/", join(repo, ".coordinator", "chrome-profile"))
   .map((a) => `"${a}"`)
   .join(" ");
+// REQ-001-53: the sandbox's home folder is read-only, so the browser's config and cache go to the Worktree too.
+const browserEnv = Object.entries(screenshotEnv(join(repo, ".coordinator", "chrome")))
+  .map(([k, v]) => `${k}="${v}"`)
+  .join(" ");
 writeFileSync(
   join(repo, "shoot.sh"),
   [
@@ -106,7 +110,7 @@ writeFileSync(
     "i=0; while [ ! -s port.txt ] && [ $i -lt 50 ]; do sleep 0.2; i=$((i + 1)); done",
     '[ -s port.txt ] || fail "the fixture server did not start"',
     "port=$(cat port.txt)",
-    `timeout 90 "$browser" ${browserArgs} > shoot.log 2>&1`,
+    `${browserEnv} timeout 90 "$browser" ${browserArgs} > shoot.log 2>&1`,
     "code=$?",
     "[ \"$code\" -eq 0 ] || fail \"$browser exit code $code: $(tail -n 5 shoot.log | tr '\\n' ' ')\"",
     `[ -s '${shot}' ] || fail "$browser exited 0 but wrote no screenshot: $(tail -n 5 shoot.log | tr '\\n' ' ')"`,

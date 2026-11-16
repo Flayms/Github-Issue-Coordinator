@@ -10,6 +10,8 @@ export const BROWSERS = ["google-chrome", "google-chrome-stable", "chromium", "c
 
 const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47];
 const START_TIMEOUT_MS = 60_000;
+/** Doesn't exist and can't be created without root: stands in for the sandbox's read-only home folder. */
+const UNWRITABLE_HOME = "/nonexistent";
 
 export function findBrowser(which: (bin: string) => string | null = Bun.which): string | undefined {
   return BROWSERS.find((b) => which(b));
@@ -33,6 +35,15 @@ export function screenshotArgs(file: string, url: string, userDataDir: string): 
   ];
 }
 
+/**
+ * Environment for a screenshot: the sandbox's home folder is read-only, and with `--user-data-dir` alone
+ * Chrome's crash handler still writes under `~/.config` and core-dumps (exit 133). So config and cache
+ * go to `tmp` too.
+ */
+export function screenshotEnv(tmp: string): { XDG_CONFIG_HOME: string; XDG_CACHE_HOME: string } {
+  return { XDG_CONFIG_HOME: join(tmp, "config"), XDG_CACHE_HOME: join(tmp, "cache") };
+}
+
 export function isPng(file: string): boolean {
   if (!existsSync(file)) return false;
   const head = readFileSync(file).subarray(0, 4);
@@ -46,6 +57,8 @@ export function checkBrowserStarts(browser: string, tmp: string): { ok: boolean;
   try {
     const page = "data:text/html,<h1>Coordinator doctor</h1>";
     const p = Bun.spawnSync([browser, ...screenshotArgs(file, page, join(work, "profile"))], {
+      // A home folder nobody can write, so the check fails like the sandbox would if Chrome still wrote there.
+      env: { ...process.env, HOME: UNWRITABLE_HOME, ...screenshotEnv(work) },
       stdout: "pipe",
       stderr: "pipe",
       timeout: START_TIMEOUT_MS,

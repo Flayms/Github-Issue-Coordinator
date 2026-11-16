@@ -116,6 +116,10 @@ describe("prompts (REQ-002)", () => {
     ]);
   });
 
+  test("REQ-002-13 the Implementer prompt keeps the browser's config and cache out of the read-only home folder", () => {
+    expectAll(prompt("implementer"), [/XDG_CONFIG_HOME="\$TMPDIR\//, /XDG_CACHE_HOME="\$TMPDIR\//, /read-only/i]);
+  });
+
   test("REQ-002-05 the Reviewer prompt checks against the Assessment with a checklist and well-founded findings", () => {
     expectAll(prompt("reviewer"), [
       /Assessment/,
