@@ -460,6 +460,54 @@ describe("session runner", () => {
     ]);
   });
 
+  /** The screen Claude Code 2.1.3xx shows for an untrusted `--add-dir` folder (seen on the server, sessions 127 and 135). */
+  const addDirScreen = (folder: string) =>
+    [
+      " Adding a new directory:",
+      "",
+      ` ${folder}`,
+      "",
+      " This session hasn't worked here before. Is this a directory you created or one you trust?",
+      "",
+      " Security guide",
+      "",
+      " ❯ No, exit",
+      "   Yes, add it",
+      "",
+      " Enter to confirm · Esc to cancel",
+    ].join("\n");
+
+  test("REQ-001-56 answers yes when Claude Code asks to trust the session's own folder", () => {
+    const id = startImplementer();
+    const win = tmux.windows.get(`s${id}`);
+    if (win) win.pane = addDirScreen(runner.sessionDir(id));
+    runner.answerDialogs();
+    expect(tmux.keys).toEqual([
+      [`s${id}`, ["Down"]],
+      [`s${id}`, ["Enter"]],
+    ]);
+  });
+
+  test("REQ-001-56 leaves the question unanswered for any other folder", () => {
+    const id = startImplementer();
+    const win = tmux.windows.get(`s${id}`);
+    if (win) win.pane = addDirScreen("/home/agent/somewhere-else");
+    runner.answerDialogs();
+    if (win) win.pane = addDirScreen(`${runner.sessionDir(id)}-other`);
+    runner.answerDialogs();
+    expect(tmux.keys).toEqual([]);
+  });
+
+  test("REQ-001-57 a session that did not start can be abandoned: its window is closed and it is recorded closed", () => {
+    const id = startImplementer();
+    const win = tmux.windows.get(`s${id}`);
+    if (win) win.pane = "  some screen  \n\n";
+    expect(runner.screen(id)).toBe("  some screen  \n\n");
+    runner.abandon(id);
+    expect(runner.liveSessionIds().has(id)).toBe(false);
+    expect(store.session(id)).toMatchObject({ state: "closed", coordinatorPromptPending: false });
+  });
+
   test("REQ-001-45 a long prompt reaches claude in full, as one argument, without shell interpretation", () => {
     // tmux refuses commands over about 16 KB ("command too long"); untrusted issue text must not be run.
     const tricky = `it's "quoted" $(touch pwned) \`touch pwned\` $HOME \\ ; | & \n`;

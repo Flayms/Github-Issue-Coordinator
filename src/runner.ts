@@ -29,6 +29,8 @@ interface SessionMeta {
 
 const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "Notification", "SessionEnd"] as const;
 const TRUST_DIALOG = /Yes, I trust this folder/;
+/** REQ-001-56: newer Claude Code versions also ask about each `--add-dir` folder (docs/known-pitfalls.md). */
+const ADD_DIR_DIALOG = /Adding a new directory[\s\S]*Yes, add it/;
 const WINDOW = /^s(\d+)$/;
 
 export class SessionBusyError extends Error {
@@ -265,14 +267,32 @@ export class SessionRunner {
     return new Set(this.o.tmux.listWindows().flatMap((w) => (WINDOW.test(w) ? [Number(w.slice(1))] : [])));
   }
 
-  /** Answers the folder trust dialog that blocks `claude` in a new folder (docs/known-pitfalls.md). */
+  /**
+   * Answers the folder trust dialog that blocks `claude` in a new folder, and the question whether to trust the
+   * session's own folder given with `--add-dir` (REQ-001-56); any other folder stays unanswered (docs/known-pitfalls.md).
+   */
   answerDialogs(): void {
     for (const id of this.liveSessionIds()) {
-      if (TRUST_DIALOG.test(this.o.tmux.capture(`s${id}`))) {
+      const screen = this.o.tmux.capture(`s${id}`);
+      const ownFolder = this.sessionDir(id);
+      const asksOwnFolder = ADD_DIR_DIALOG.test(screen) && screen.split("\n").some((line) => line.trim() === ownFolder);
+      if (TRUST_DIALOG.test(screen) || asksOwnFolder) {
         this.o.tmux.sendKeys(`s${id}`, "Down");
         this.o.tmux.sendKeys(`s${id}`, "Enter");
       }
     }
+  }
+
+  /** What the session's window shows now, e.g. to say why it did not start (REQ-001-57). */
+  screen(id: number): string {
+    return this.o.tmux.capture(`s${id}`);
+  }
+
+  /** REQ-001-57: ends a session that never took its prompt, even though it counts as running. */
+  abandon(id: number): void {
+    this.mustGet(id);
+    this.o.tmux.killWindow(`s${id}`);
+    this.o.store.patchSession(id, { state: "closed", coordinatorPromptPending: false });
   }
 
   /** REQ-004-01: the first Account that isn't paused; the first one if all are (the scheduler holds work back then). */
