@@ -29,11 +29,18 @@ const item = (number: number, extra: Partial<Item> = {}): Item => ({
 
 class FakeGitHub {
   calls: unknown[][] = [];
+  /** Labels on each issue and PR, as GitHub would have them after the calls. */
+  labels = new Map<number, Set<string>>();
   async addLabels(_r: string, issue: number, labels: string[]) {
     this.calls.push(["addLabels", issue, labels]);
+    for (const l of labels) this.labels.set(issue, new Set([...(this.labels.get(issue) ?? []), l]));
   }
   async removeLabel(_r: string, issue: number, label: string) {
     this.calls.push(["removeLabel", issue, label]);
+    return this.labels.get(issue)?.delete(label) ?? false;
+  }
+  agentLabels(n: number) {
+    return [...(this.labels.get(n) ?? [])].filter((l) => l.startsWith("agent:")).sort();
   }
   async createComment(_r: string, issue: number, body: string) {
     this.calls.push(["createComment", issue, body]);
@@ -226,10 +233,15 @@ describe("Implementer run", () => {
     expect(gh.of("addLabels")).toEqual([
       ["addLabels", 5, ["agent:pr-open"]],
       ["addLabels", 6, ["agent:pr-open"]],
+      ["addLabels", 77, ["agent:pr-open"]], // REQ-001-52
     ]);
     expect(gh.of("removeLabel")).toEqual([
       ["removeLabel", 5, "agent:in-progress"],
       ["removeLabel", 6, "agent:in-progress"],
+      ["removeLabel", 77, "agent:in-progress"],
+      ["removeLabel", 77, "agent:reviewing"],
+      ["removeLabel", 77, "agent:reviewed"],
+      ["removeLabel", 77, "agent:failed"],
     ]);
     expect(store.issue("octo/app", 6).prNumber).toBe(77);
     expect(store.session(id)?.needsSync).toBe(false);
@@ -286,11 +298,16 @@ describe("Implementer run", () => {
     const id = await withPr();
     await impl.feedbackRound("octo/app", 77, [5], "Blocking: crash on empty input");
     expect(runner.resumed).toEqual([[id, expect.stringContaining("crash on empty input")]]);
-    expect(gh.of("addLabels")).toEqual([["addLabels", 5, ["agent:in-progress"]]]);
+    expect(gh.of("addLabels")).toEqual([
+      ["addLabels", 5, ["agent:in-progress"]],
+      ["addLabels", 77, ["agent:in-progress"]], // REQ-001-52
+    ]);
     expect(gh.of("removeLabel").map((c) => [c[1], c[2]])).toEqual([
       [5, "agent:pr-open"],
       [5, "agent:reviewed"],
       [5, "agent:failed"],
+      [77, "agent:pr-open"],
+      [77, "agent:reviewing"],
       [77, "agent:reviewed"],
       [77, "agent:failed"],
     ]);
@@ -320,8 +337,17 @@ describe("Implementer run", () => {
     finish(id);
     await impl.sync(id);
     expect(gh.of("updatePull")).toHaveLength(1);
-    expect(gh.of("addLabels")).toEqual([["addLabels", 5, ["agent:pr-open"]]]);
-    expect(gh.of("removeLabel")).toEqual([["removeLabel", 5, "agent:in-progress"]]);
+    expect(gh.of("addLabels")).toEqual([
+      ["addLabels", 5, ["agent:pr-open"]],
+      ["addLabels", 77, ["agent:pr-open"]], // REQ-001-52
+    ]);
+    expect(gh.of("removeLabel")).toEqual([
+      ["removeLabel", 5, "agent:in-progress"],
+      ["removeLabel", 77, "agent:in-progress"],
+      ["removeLabel", 77, "agent:reviewing"],
+      ["removeLabel", 77, "agent:reviewed"],
+      ["removeLabel", 77, "agent:failed"],
+    ]);
   });
 
   test("REQ-001-31 a push of a new head after the PR was reviewed converts it back to draft", async () => {
@@ -422,7 +448,10 @@ describe("Implementer run", () => {
     finish(id, answered([{ finding: 1, answer: "declined", reason: "Input is never empty here" }]));
     await impl.sync(id);
     expect(gh.of("setDraft")).toEqual([]);
-    expect(gh.of("addLabels")).toEqual([["addLabels", 5, ["agent:pr-open"]]]);
+    expect(gh.of("addLabels")).toEqual([
+      ["addLabels", 5, ["agent:pr-open"]],
+      ["addLabels", 77, ["agent:pr-open"]], // REQ-001-52
+    ]);
     const comments = gh.of("createComment");
     expect(comments).toHaveLength(1); // REQ-001-38: the stall is part of the answers comment, not a second one
     const [, , body] = comments[0] as [string, number, string];
@@ -443,7 +472,10 @@ describe("Implementer run", () => {
     finish(id);
     await impl.sync(id);
     expect(gh.of("setDraft")).toEqual([]);
-    expect(gh.of("addLabels")).toEqual([["addLabels", 5, ["agent:pr-open"]]]);
+    expect(gh.of("addLabels")).toEqual([
+      ["addLabels", 5, ["agent:pr-open"]],
+      ["addLabels", 77, ["agent:pr-open"]], // REQ-001-52
+    ]);
     const comments = gh.of("createComment");
     expect(comments).toHaveLength(1);
     const [, pr, body] = comments[0] as [string, number, string];
@@ -529,8 +561,11 @@ describe("Implementer run", () => {
     expect(gh.of("addLabels")).toEqual([
       ["addLabels", 5, ["agent:pr-open"]],
       ["addLabels", 6, ["agent:pr-open"]],
+      ["addLabels", 34, ["agent:pr-open"]], // REQ-001-52
     ]);
     expect(gh.of("removeLabel").filter((c) => c[1] === 34)).toEqual([
+      ["removeLabel", 34, "agent:in-progress"],
+      ["removeLabel", 34, "agent:reviewing"],
       ["removeLabel", 34, "agent:reviewed"],
       ["removeLabel", 34, "agent:failed"],
     ]);
@@ -544,6 +579,73 @@ describe("Implementer run", () => {
     await impl.start("octo/app", [item(5)]);
     expect(await impl.cleanup("octo/app", [5], "/wt/5")).toBe(false);
     expect(wt.removed).toEqual([]);
+  });
+});
+
+describe("REQ-001-52 an agent PR shows its state", () => {
+  const opened = async () => {
+    const id = await impl.start("octo/app", [item(5), item(6)]);
+    store.setClaudeSessionId(id, "claude-1");
+    wt.ahead = 1;
+    finish(id);
+    await impl.sync(id);
+    return id;
+  };
+
+  test("REQ-001-52 opening the PR labels it agent:pr-open, like its issues", async () => {
+    await opened();
+    expect(gh.agentLabels(77)).toEqual(["agent:pr-open"]);
+    expect(gh.agentLabels(5)).toEqual(["agent:pr-open"]);
+    expect(gh.agentLabels(6)).toEqual(["agent:pr-open"]);
+  });
+
+  test("REQ-001-52 a Feedback round labels the PR agent:in-progress, and its end agent:pr-open again", async () => {
+    const id = await opened();
+    gh.labels.set(77, new Set(["agent:failed", "bug"]));
+    await impl.feedbackRound("octo/app", 77, [5, 6], "/agent fix it");
+    expect(gh.agentLabels(77)).toEqual(["agent:in-progress"]);
+    expect(gh.agentLabels(5)).toEqual(["agent:in-progress"]);
+    expect([...(gh.labels.get(77) ?? [])]).toContain("bug"); // labels that aren't agent labels stay
+    finish(id);
+    await impl.sync(id);
+    expect(gh.agentLabels(77)).toEqual(["agent:pr-open"]);
+    expect(gh.agentLabels(6)).toEqual(["agent:pr-open"]);
+  });
+
+  test("REQ-001-52 / REQ-001-31 a new head pushed outside a Feedback round takes agent:reviewed off the PR and its issues", async () => {
+    const id = await opened();
+    for (const n of [5, 6, 77]) gh.labels.set(n, new Set(["agent:reviewed"]));
+    for (const n of [5, 6]) store.updateIssue("octo/app", n, { reviewedHeadSha: "h1" });
+    wt.headSha = "h2"; // e.g. the Owner chatting with the session
+    finish(id);
+    await impl.sync(id);
+    expect(gh.of("setDraft")).toEqual([["setDraft", 77, true]]);
+    for (const n of [5, 6, 77]) expect(gh.agentLabels(n)).toEqual(["agent:pr-open"]);
+  });
+
+  test("REQ-001-52 / REQ-001-31 a new head on a failed PR keeps agent:failed on the PR and its issues", async () => {
+    const id = await opened();
+    for (const n of [5, 6, 77]) gh.labels.set(n, new Set(["agent:failed"]));
+    for (const n of [5, 6]) store.updateIssue("octo/app", n, { reviewedHeadSha: "h1" });
+    wt.headSha = "h2";
+    finish(id);
+    await impl.sync(id);
+    for (const n of [5, 6, 77]) expect(gh.agentLabels(n)).toEqual(["agent:failed"]);
+  });
+
+  test("REQ-001-52 an Implementer that gives up on its Result in a Feedback round labels the PR agent:failed", async () => {
+    const id = await opened();
+    await impl.feedbackRound("octo/app", 77, [5, 6], "/agent fix it");
+    rmSync(join(runner.sessionDir(id), "result.json")); // no valid Result this time
+    store.patchSession(id, { state: "idle", needsSync: true, resultFailures: 3 });
+    await impl.sync(id);
+    for (const n of [5, 6, 77]) expect(gh.agentLabels(n)).toEqual(["agent:failed"]);
+  });
+
+  test("REQ-001-52 / REQ-001-43 re-attaching labels the PR agent:pr-open alone", async () => {
+    gh.labels.set(34, new Set(["agent:failed", "agent:reviewed"]));
+    await impl.reattach("octo/app", 34, "agent/5-x", [5, 6]);
+    for (const n of [5, 6, 34]) expect(gh.agentLabels(n)).toEqual(["agent:pr-open"]);
   });
 });
 

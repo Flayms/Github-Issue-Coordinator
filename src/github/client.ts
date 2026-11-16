@@ -237,12 +237,14 @@ export class GitHubClient {
     await this.request(repo, "POST", `/repos/${repo}/issues/${issue}/labels`, { labels });
   }
 
-  /** Removes a label; a label that is already gone is fine. */
-  async removeLabel(repo: string, issue: number, label: string): Promise<void> {
+  /** Removes a label; a label that is already gone is fine. Returns whether the issue or PR had it. */
+  async removeLabel(repo: string, issue: number, label: string): Promise<boolean> {
     try {
       await this.request(repo, "DELETE", `/repos/${repo}/issues/${issue}/labels/${encodeURIComponent(label)}`);
+      return true;
     } catch (e) {
       if (!(e instanceof GitHubError && e.status === 404)) throw e;
+      return false;
     }
   }
 

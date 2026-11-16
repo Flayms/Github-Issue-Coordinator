@@ -8,6 +8,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Config, roleSettings } from "./config.ts";
 import type { GitHubClient, Item } from "./github/client.ts";
+import { labelPr, setPrPhase } from "./labels.ts";
 import { agentNote, sessionNote } from "./note.ts";
 import { loadPrompt, renderPrompt } from "./prompts.ts";
 import { findingsToAnswer, type ImplementerResult, validateResult } from "./results.ts";
@@ -108,10 +109,8 @@ export class Implementer {
         pendingFeedback: null,
         reviewFindings: null,
       });
-      for (const l of CLEARED_ON_REATTACH) await this.d.gh.removeLabel(repo, n, l);
-      await this.d.gh.addLabels(repo, n, ["agent:pr-open"]);
     }
-    for (const l of ["agent:reviewed", "agent:failed"]) await this.d.gh.removeLabel(repo, pr, l);
+    await setPrPhase(this.d.gh, repo, { issues, pr }, "agent:pr-open", CLEARED_ON_REATTACH);
     const note = agentNote({ owner: this.d.config.owner.login });
     await this.d.gh.createComment(
       repo,
@@ -144,6 +143,7 @@ export class Implementer {
           s.issues,
           `${note}\n\nThe Implementer could not produce a valid Result: ${check.problem}`,
           sessionId,
+          first.prNumber,
         );
       return;
     }
@@ -157,6 +157,7 @@ export class Implementer {
         s.issues,
         `${note}\n\nThe Implementer finished without committing anything:\n\n${result.summary}`,
         sessionId,
+        null,
       );
       return;
     }
@@ -173,11 +174,8 @@ export class Implementer {
         head: branch,
         base: this.d.worktrees.defaultBranch(wt),
       });
-      for (const n of s.issues) {
-        this.d.store.updateIssue(s.repo, n, { prNumber: pr });
-        await this.d.gh.removeLabel(s.repo, n, "agent:in-progress");
-        await this.d.gh.addLabels(s.repo, n, ["agent:pr-open"]);
-      }
+      for (const n of s.issues) this.d.store.updateIssue(s.repo, n, { prNumber: pr });
+      await setPrPhase(this.d.gh, s.repo, { issues: s.issues, pr }, "agent:pr-open", ["agent:in-progress"]);
       // REQ-001-49: Screenshots are published per PR, so only once it exists.
       if (listed) {
         const section = await this.publishScreenshots(s.repo, s.issues, wt, pr, listed);
@@ -190,7 +188,11 @@ export class Implementer {
       await this.d.gh.updatePull(s.repo, first.prNumber, { title: result.prTitle, body: body(section) });
       // REQ-001-31: a reviewed PR goes back to draft once a head it was not reviewed at is pushed.
       const unchanged = first.reviewedHeadSha !== null && this.d.worktrees.head(wt) === first.reviewedHeadSha;
-      if (first.reviewedHeadSha !== null && !unchanged) await this.d.gh.setDraft(s.repo, first.prNumber, true);
+      if (first.reviewedHeadSha !== null && !unchanged) {
+        await this.d.gh.setDraft(s.repo, first.prNumber, true);
+        // REQ-001-52: a round's end below relabels the issues; outside one, `agent:reviewed` must go here.
+        if (!first.inFeedbackRound) await this.unreview(s.repo, s.issues, first.prNumber);
+      }
       // REQ-001-38: an automatic round that ends without a new commit tells the Owner why the PR waits.
       const auto = first.inFeedbackRound && first.autoRound ? (JSON.parse(first.autoRound) as AutoRound) : null;
       const stall = auto && this.d.worktrees.head(wt) === auto.headSha ? stallText(auto.causes) : null;
@@ -202,11 +204,9 @@ export class Implementer {
         for (const n of s.issues) this.d.store.updateIssue(s.repo, n, { reviewFindings: null, reviewHistory: history });
       } else if (stall) await this.d.gh.createComment(s.repo, first.prNumber, `${note}\n\n${stall}`);
       if (first.inFeedbackRound) {
-        for (const n of s.issues) {
-          this.d.store.updateIssue(s.repo, n, { inFeedbackRound: 0, autoRound: null });
-          await this.d.gh.removeLabel(s.repo, n, "agent:in-progress");
-          await this.d.gh.addLabels(s.repo, n, ["agent:pr-open"]);
-        }
+        for (const n of s.issues) this.d.store.updateIssue(s.repo, n, { inFeedbackRound: 0, autoRound: null });
+        const target = { issues: s.issues, pr: first.prNumber };
+        await setPrPhase(this.d.gh, s.repo, target, "agent:pr-open", ["agent:in-progress"]);
       }
     }
   }
@@ -224,12 +224,10 @@ export class Implementer {
    * round (REQ-001-38). A round clears `agent:failed`, which only the Owner's rounds can meet (REQ-001-37).
    */
   async feedbackRound(repo: string, pr: number, issues: number[], text: string, auto?: AutoRound): Promise<number> {
-    for (const n of issues) {
-      for (const l of ["agent:pr-open", "agent:reviewed", "agent:failed"]) await this.d.gh.removeLabel(repo, n, l);
-      await this.d.gh.addLabels(repo, n, ["agent:in-progress"]);
+    const clear = ["agent:pr-open", "agent:reviewed", "agent:failed"];
+    await setPrPhase(this.d.gh, repo, { issues, pr }, "agent:in-progress", clear);
+    for (const n of issues)
       this.d.store.updateIssue(repo, n, { inFeedbackRound: 1, autoRound: auto ? JSON.stringify(auto) : null });
-    }
-    for (const l of ["agent:reviewed", "agent:failed"]) await this.d.gh.removeLabel(repo, pr, l);
     const prompt = `## Feedback round on PR #${pr}\n\n${text}\n\nAddress this with new commits on the same branch, then update your Result (prTitle and prBody describe the whole PR).`;
     const model = roleSettings(this.d.config, repo, "implementer");
     const own = this.d.store.latestSession(repo, issues[0] ?? 0, "implementer");
@@ -307,11 +305,23 @@ export class Implementer {
     return this.d.config.repos.find((r) => r.name.toLowerCase() === repo.toLowerCase())?.sandboxDomains ?? [];
   }
 
-  private async failAll(repo: string, issues: number[], comment: string, sessionId: number) {
+  /**
+   * REQ-001-52 / REQ-001-31: a new head outside a Feedback round takes a reviewed PR and its issues back to
+   * `agent:pr-open`. Issues without `agent:reviewed` (e.g. `agent:failed` ones) and their PR keep their label.
+   */
+  private async unreview(repo: string, issues: number[], pr: number) {
+    let reviewed = false;
     for (const n of issues) {
-      await this.d.gh.removeLabel(repo, n, "agent:in-progress");
-      await this.d.gh.addLabels(repo, n, ["agent:failed"]);
+      if (!(await this.d.gh.removeLabel(repo, n, "agent:reviewed"))) continue;
+      reviewed = true;
+      await this.d.gh.addLabels(repo, n, ["agent:pr-open"]);
     }
+    if (reviewed) await labelPr(this.d.gh, repo, pr, "agent:pr-open");
+    else await this.d.gh.removeLabel(repo, pr, "agent:reviewed");
+  }
+
+  private async failAll(repo: string, issues: number[], comment: string, sessionId: number, pr: number | null) {
+    await setPrPhase(this.d.gh, repo, { issues, pr }, "agent:failed", ["agent:in-progress"]);
     await this.d.gh.createComment(repo, issues[0] ?? 0, comment);
     try {
       this.d.runner.close(sessionId);

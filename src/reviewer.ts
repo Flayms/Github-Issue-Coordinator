@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { type Config, roleSettings } from "./config.ts";
 import type { GitHubClient, Item } from "./github/client.ts";
 import { GitHubError } from "./github/http.ts";
+import { setPrPhase } from "./labels.ts";
 import { sessionNote } from "./note.ts";
 import { loadPrompt, renderPrompt } from "./prompts.ts";
 import { type ReviewerResult, validateResult } from "./results.ts";
@@ -44,10 +45,7 @@ export class Reviewer {
 
   async start(repo: string, pr: number, issues: Item[], headSha: string): Promise<number> {
     const numbers = issues.map((i) => i.number);
-    for (const n of numbers) {
-      for (const l of ["agent:pr-open", "agent:reviewed"]) await this.d.gh.removeLabel(repo, n, l);
-      await this.d.gh.addLabels(repo, n, ["agent:reviewing"]);
-    }
+    await setPrPhase(this.d.gh, repo, { issues: numbers, pr }, "agent:reviewing", ["agent:pr-open", "agent:reviewed"]);
     const path = await this.d.worktrees.reviewCheckout(repo, pr, headSha);
     const parts = ["## Issues", ...issues.map((i) => `### #${i.number} ${i.title}\n\n${i.body}`)];
     for (const n of numbers) {
@@ -95,10 +93,7 @@ export class Reviewer {
 
     if (!check.ok) {
       if (s.resultFailures < 3) return;
-      for (const n of s.issues) {
-        await this.d.gh.removeLabel(s.repo, n, "agent:reviewing");
-        await this.d.gh.addLabels(s.repo, n, ["agent:failed"]);
-      }
+      await setPrPhase(this.d.gh, s.repo, { issues: s.issues, pr }, "agent:failed", ["agent:reviewing"]);
       await this.d.gh.createComment(
         s.repo,
         pr,
@@ -134,11 +129,10 @@ export class Reviewer {
         pendingFeedback: findings.length ? feedbackText(findings) : null,
         reviewFindings: findings.length ? JSON.stringify(findings) : null,
       });
-      await this.d.gh.removeLabel(s.repo, n, "agent:reviewing");
-      await this.d.gh.addLabels(s.repo, n, [findings.length ? "agent:in-progress" : "agent:reviewed"]);
     }
+    const label = findings.length ? "agent:in-progress" : "agent:reviewed";
+    await setPrPhase(this.d.gh, s.repo, { issues: s.issues, pr }, label, ["agent:reviewing"]);
     if (!findings.length) {
-      await this.d.gh.addLabels(s.repo, pr, ["agent:reviewed"]);
       // REQ-001-31: only a reviewed head without findings leaves draft.
       await this.d.gh.setDraft(s.repo, pr, false);
       await this.requestOwnerReview(s.repo, pr);
