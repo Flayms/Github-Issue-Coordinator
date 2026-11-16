@@ -137,6 +137,47 @@ describe("prompts (REQ-002)", () => {
       expect(prompt(role).split("\n").length).toBeLessThan(80);
     }
   });
+
+  /** The Result fields whose text the Coordinator posts to GitHub, per Role. */
+  const postedFields: Record<Role, RegExp[]> = {
+    planner: [/`approach`/, /`reply`/],
+    implementer: [/`prBody`/],
+    reviewer: [/`summary`/, /`body`/],
+  };
+
+  test("REQ-002-11 every default prompt asks for a summary first and scannable GitHub Markdown in the posted text", () => {
+    for (const role of ROLES) {
+      expectAll(prompt(role), [
+        /## Formatting/,
+        ...postedFields[role],
+        /phone/i,
+        /open with a one- or two-line summary/i,
+        /`###` or lower/,
+        /short bullets/i,
+        /table/i,
+        /<details>/,
+        /paragraphs to a few sentences/i,
+        /bold only key terms/i,
+        /proportionate/i,
+      ]);
+    }
+  });
+
+  test("REQ-002-11 the Planner writes Given/When/Then as bullets and the Reviewer opens with a verdict line", () => {
+    expectAll(prompt("planner"), [/Given\/When\/Then as three bullets/i, /`###` sections or a compact list/i]);
+    expectAll(prompt("reviewer"), [/verdict line/i]);
+  });
+
+  test("REQ-002-12 every default prompt allows a Mermaid diagram only where a flow or state change is clearer drawn", () => {
+    for (const role of ROLES) {
+      expectAll(prompt(role), [
+        /Mermaid/,
+        /flow, a state machine or how components interact/i,
+        /small/i,
+        /no ASCII art/i,
+      ]);
+    }
+  });
 });
 
 describe("permissions", () => {
