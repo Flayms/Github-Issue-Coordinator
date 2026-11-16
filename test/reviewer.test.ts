@@ -30,7 +30,7 @@ const item = (number: number): Item => ({
 class FakeGitHub {
   calls: unknown[][] = [];
   rejectInline = false;
-  rejectReviewers = false;
+  rejectAssignees = false;
   /** Labels on each issue and PR, as GitHub would have them after the calls. */
   labels = new Map<number, Set<string>>();
   async addLabels(_r: string, issue: number, labels: string[]) {
@@ -51,10 +51,10 @@ class FakeGitHub {
   async setDraft(_r: string, pr: number, draft: boolean) {
     this.calls.push(["setDraft", pr, draft]);
   }
-  async requestReviewers(_r: string, pr: number, reviewers: string[]) {
-    if (this.rejectReviewers)
-      throw new GitHubError(422, "POST", "/requested_reviewers", "Reviews may only be requested from collaborators");
-    this.calls.push(["requestReviewers", pr, reviewers]);
+  async addAssignees(_r: string, issue: number, assignees: string[]) {
+    if (this.rejectAssignees)
+      throw new GitHubError(403, "POST", "/assignees", "Resource not accessible by integration");
+    this.calls.push(["addAssignees", issue, assignees]);
   }
   async createReview(_r: string, pr: number, review: { commitId: string; body: string; comments: ReviewComment[] }) {
     if (this.rejectInline && review.comments.length)
@@ -171,7 +171,7 @@ describe("Reviewer run", () => {
     expect(gh.of("addLabels")).toEqual([
       ["addLabels", 5, ["agent:reviewing"]],
       ["addLabels", 6, ["agent:reviewing"]],
-      ["addLabels", 9, ["agent:reviewing"]], // REQ-001-52
+      ["addLabels", 9, ["agent:reviewing"]], // REQ-001-53
     ]);
   });
 
@@ -217,7 +217,7 @@ describe("Reviewer run", () => {
     expect(gh.of("addLabels")).toEqual([
       ["addLabels", 5, ["agent:in-progress"]],
       ["addLabels", 6, ["agent:in-progress"]],
-      ["addLabels", 9, ["agent:in-progress"]], // REQ-001-52
+      ["addLabels", 9, ["agent:in-progress"]], // REQ-001-53
     ]);
     const pending = store.issue("octo/app", 5).pendingFeedback ?? "";
     expect(pending).toContain("1. **high** `src/a.ts:3`: Crashes on empty input");
@@ -249,33 +249,31 @@ describe("Reviewer run", () => {
     expect(gh.of("setDraft")).toEqual([]);
   });
 
-  test("REQ-001-46 a Review without findings requests a review from the Owner", async () => {
+  test("REQ-001-52 a Review without findings assigns the Owner to the PR after it leaves draft", async () => {
     const id = await reviewer.start("octo/app", 9, [item(5)], "h1");
     finish(id, []);
     await reviewer.sync(id);
-    expect(gh.of("requestReviewers")).toEqual([["requestReviewers", 9, ["octo"]]]);
+    expect(gh.of("addAssignees")).toEqual([["addAssignees", 9, ["octo"]]]);
     expect(gh.calls.findIndex((c) => c[0] === "setDraft")).toBeLessThan(
-      gh.calls.findIndex((c) => c[0] === "requestReviewers"),
+      gh.calls.findIndex((c) => c[0] === "addAssignees"),
     );
   });
 
-  test("REQ-001-46 a Review with any finding requests no review", async () => {
+  test("REQ-001-52 a Review with any finding assigns nobody", async () => {
     const id = await reviewer.start("octo/app", 9, [item(5)], "h1");
     finish(id, [finding("medium")]);
     await reviewer.sync(id);
-    expect(gh.of("requestReviewers")).toEqual([]);
+    expect(gh.of("addAssignees")).toEqual([]);
   });
 
-  test("REQ-001-46 a refused review request is logged; the PR is still ready and nothing fails", async () => {
-    gh.rejectReviewers = true;
+  test("REQ-001-52 a refused assignment is logged; the PR is still ready and nothing fails", async () => {
+    gh.rejectAssignees = true;
     const id = await reviewer.start("octo/app", 9, [item(5)], "h1");
     finish(id, []);
     await reviewer.sync(id);
     expect(gh.of("setDraft")).toEqual([["setDraft", 9, false]]);
     expect(gh.calls.flatMap((c) => (c[0] === "addLabels" ? (c[2] as string[]) : []))).not.toContain("agent:failed");
-    expect(
-      logs.some((m) => m.includes("PR #9") && m.includes("Reviews may only be requested from collaborators")),
-    ).toBe(true);
+    expect(logs.some((m) => m.includes("PR #9") && m.includes("Resource not accessible by integration"))).toBe(true);
     expect(runner.closed).toEqual([id]);
   });
 
@@ -314,7 +312,7 @@ describe("Reviewer run", () => {
     await reviewer.sync(id);
     expect(gh.of("addLabels")).toEqual([
       ["addLabels", 5, ["agent:failed"]],
-      ["addLabels", 9, ["agent:failed"]], // REQ-001-52
+      ["addLabels", 9, ["agent:failed"]], // REQ-001-53
     ]);
     expect(runner.closed).toEqual([id]);
     expect(wt.removed).toEqual(["/reviews/9"]);
@@ -330,31 +328,31 @@ describe("Reviewer run", () => {
   });
 });
 
-describe("REQ-001-52 an agent PR shows its state", () => {
+describe("REQ-001-53 an agent PR shows its state", () => {
   beforeEach(() => {
     for (const n of [5, 6, 9]) gh.labels.set(n, new Set(["agent:pr-open"]));
   });
 
-  test("REQ-001-52 starting a Review labels the PR agent:reviewing, like its issues", async () => {
+  test("REQ-001-53 starting a Review labels the PR agent:reviewing, like its issues", async () => {
     await reviewer.start("octo/app", 9, [item(5), item(6)], "h1");
     for (const n of [5, 6, 9]) expect(gh.agentLabels(n)).toEqual(["agent:reviewing"]);
   });
 
-  test("REQ-001-52 a Review with findings labels the PR agent:in-progress, like its issues", async () => {
+  test("REQ-001-53 a Review with findings labels the PR agent:in-progress, like its issues", async () => {
     const id = await reviewer.start("octo/app", 9, [item(5), item(6)], "h1");
     finish(id, [finding()]);
     await reviewer.sync(id);
     for (const n of [5, 6, 9]) expect(gh.agentLabels(n)).toEqual(["agent:in-progress"]);
   });
 
-  test("REQ-001-52 a Review without findings labels the PR agent:reviewed alone", async () => {
+  test("REQ-001-53 a Review without findings labels the PR agent:reviewed alone", async () => {
     const id = await reviewer.start("octo/app", 9, [item(5), item(6)], "h1");
     finish(id, []);
     await reviewer.sync(id);
     for (const n of [5, 6, 9]) expect(gh.agentLabels(n)).toEqual(["agent:reviewed"]);
   });
 
-  test("REQ-001-52 a Reviewer that gave up on its Result labels the PR agent:failed", async () => {
+  test("REQ-001-53 a Reviewer that gave up on its Result labels the PR agent:failed", async () => {
     const id = await reviewer.start("octo/app", 9, [item(5), item(6)], "h1");
     store.patchSession(id, { state: "idle", needsSync: true, resultFailures: 3 });
     await reviewer.sync(id);

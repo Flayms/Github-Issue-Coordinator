@@ -72,6 +72,7 @@ export function schedule(input: {
   sessions: LiveSession[];
   limits: Limits;
   now: Date;
+  /** Set while every Account is paused by a usage limit: when the first is free again (REQ-001-17). */
   pausedUntil?: string;
 }): Plan {
   const { limits, now } = input;
@@ -91,7 +92,7 @@ export function schedule(input: {
     (a, b) => RANK[a.kind] - RANK[b.kind] || Date.parse(a.queuedAt) - Date.parse(b.queuedAt),
   );
 
-  // REQ-001-17: nothing starts until the reported reset time.
+  // REQ-001-17: while every Account is paused, nothing starts until the first one is free again.
   const { pausedUntil } = input;
   if (pausedUntil && Date.parse(pausedUntil) > now.getTime())
     return { close, start: [], queue: queue.map((work) => ({ work, wait: { kind: "paused", until: pausedUntil } })) };

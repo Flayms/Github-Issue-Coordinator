@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import { isIP } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
+import { accountDir, DEFAULT_ACCOUNT } from "./accounts.ts";
 
 export const ROLES = ["planner", "implementer", "reviewer"] as const;
 export type Role = (typeof ROLES)[number];
@@ -51,6 +52,17 @@ const limitsSchema = z
     message: "must not exceed maxLiveSessions (running sessions are live sessions)",
   });
 
+/** A Claude subscription, logged in once in its own config folder (spec 004). */
+const accountSchema = z.strictObject({
+  name: z.string().regex(/^[\w.-]+$/, "letters, digits, '.', '_' or '-' only"),
+  /** Claude's config folder for this login (`CLAUDE_CONFIG_DIR`); absent: Claude's default `~/.claude`. */
+  configDir: z
+    .string()
+    .min(1)
+    .transform((p) => resolve(p))
+    .optional(),
+});
+
 /** The read-only web dashboard (spec 003); on by default, `dashboard: false` turns it off. */
 const dashboardSchema = z.strictObject({
   host: z.string().min(1).default("127.0.0.1"),
@@ -83,6 +95,8 @@ const configSchema = z
     limits: limitsSchema.prefault({}),
     roles: z.strictObject({ planner: roleSchema, implementer: roleSchema, reviewer: roleSchema }),
     repos: z.array(repoSchema).min(1),
+    /** In priority order: sessions run on the first one that isn't paused by a usage limit (REQ-004-01). */
+    accounts: z.array(accountSchema).min(1).default([DEFAULT_ACCOUNT]),
     /** Parsed `false` becomes `undefined`, the one "off" value callers check. */
     dashboard: z
       .union([z.literal(false), dashboardSchema])
@@ -102,6 +116,22 @@ const configSchema = z
       if (seen.has(key))
         ctx.addIssue({ code: "custom", path: ["repos", i, "name"], message: `duplicate repository ${key}` });
       seen.add(key);
+    });
+    const names = new Set<string>();
+    const dirs = new Map<string, string>();
+    c.accounts.forEach((a, i) => {
+      if (names.has(a.name))
+        ctx.addIssue({ code: "custom", path: ["accounts", i, "name"], message: `duplicate Account ${a.name}` });
+      names.add(a.name);
+      const dir = a.configDir ?? "(default)";
+      const other = dirs.get(dir);
+      if (other)
+        ctx.addIssue({
+          code: "custom",
+          path: ["accounts", i, "configDir"],
+          message: `same folder as Account ${other}`,
+        });
+      else dirs.set(dir, a.name);
     });
   });
 
@@ -146,12 +176,16 @@ export function roleSettings(config: Config, repo: string, role: Role): RoleSett
   return { ...config.roles[role], ...r.roles?.[role] };
 }
 
-/** What every agent session is denied reading (REQ-001-26, REQ-003-10): the App key's and the dashboard token's folders, and Claude's login. */
+/**
+ * What every agent session is denied reading (REQ-001-26, REQ-003-10, REQ-004-02): the App key's and the dashboard
+ * token's folders, and every Account's Claude login.
+ */
 export function secretPaths(config: Config, home: string): string[] {
   const tokenPath = config.dashboard?.tokenPath;
+  const logins = [DEFAULT_ACCOUNT, ...config.accounts].map((a) => join(accountDir(a, home), ".credentials.json"));
   return [
     dirname(resolve(config.github.privateKeyPath)),
-    join(home, ".claude", ".credentials.json"),
+    ...new Set(logins),
     ...(tokenPath ? [dirname(resolve(tokenPath))] : []),
   ];
 }

@@ -233,7 +233,7 @@ describe("Implementer run", () => {
     expect(gh.of("addLabels")).toEqual([
       ["addLabels", 5, ["agent:pr-open"]],
       ["addLabels", 6, ["agent:pr-open"]],
-      ["addLabels", 77, ["agent:pr-open"]], // REQ-001-52
+      ["addLabels", 77, ["agent:pr-open"]], // REQ-001-53
     ]);
     expect(gh.of("removeLabel")).toEqual([
       ["removeLabel", 5, "agent:in-progress"],
@@ -320,7 +320,7 @@ describe("Implementer run", () => {
     expect(runner.resumed).toEqual([[id, expect.stringContaining("crash on empty input")]]);
     expect(gh.of("addLabels")).toEqual([
       ["addLabels", 5, ["agent:in-progress"]],
-      ["addLabels", 77, ["agent:in-progress"]], // REQ-001-52
+      ["addLabels", 77, ["agent:in-progress"]], // REQ-001-53
     ]);
     expect(gh.of("removeLabel").map((c) => [c[1], c[2]])).toEqual([
       [5, "agent:pr-open"],
@@ -359,7 +359,7 @@ describe("Implementer run", () => {
     expect(gh.of("updatePull")).toHaveLength(1);
     expect(gh.of("addLabels")).toEqual([
       ["addLabels", 5, ["agent:pr-open"]],
-      ["addLabels", 77, ["agent:pr-open"]], // REQ-001-52
+      ["addLabels", 77, ["agent:pr-open"]], // REQ-001-53
     ]);
     expect(gh.of("removeLabel")).toEqual([
       ["removeLabel", 5, "agent:in-progress"],
@@ -470,7 +470,7 @@ describe("Implementer run", () => {
     expect(gh.of("setDraft")).toEqual([]);
     expect(gh.of("addLabels")).toEqual([
       ["addLabels", 5, ["agent:pr-open"]],
-      ["addLabels", 77, ["agent:pr-open"]], // REQ-001-52
+      ["addLabels", 77, ["agent:pr-open"]], // REQ-001-53
     ]);
     const comments = gh.of("createComment");
     expect(comments).toHaveLength(1); // REQ-001-38: the stall is part of the answers comment, not a second one
@@ -494,7 +494,7 @@ describe("Implementer run", () => {
     expect(gh.of("setDraft")).toEqual([]);
     expect(gh.of("addLabels")).toEqual([
       ["addLabels", 5, ["agent:pr-open"]],
-      ["addLabels", 77, ["agent:pr-open"]], // REQ-001-52
+      ["addLabels", 77, ["agent:pr-open"]], // REQ-001-53
     ]);
     const comments = gh.of("createComment");
     expect(comments).toHaveLength(1);
@@ -581,7 +581,7 @@ describe("Implementer run", () => {
     expect(gh.of("addLabels")).toEqual([
       ["addLabels", 5, ["agent:pr-open"]],
       ["addLabels", 6, ["agent:pr-open"]],
-      ["addLabels", 34, ["agent:pr-open"]], // REQ-001-52
+      ["addLabels", 34, ["agent:pr-open"]], // REQ-001-53
     ]);
     expect(gh.of("removeLabel").filter((c) => c[1] === 34)).toEqual([
       ["removeLabel", 34, "agent:in-progress"],
@@ -602,7 +602,7 @@ describe("Implementer run", () => {
   });
 });
 
-describe("REQ-001-52 an agent PR shows its state", () => {
+describe("REQ-001-53 an agent PR shows its state", () => {
   const opened = async () => {
     const id = await impl.start("octo/app", [item(5), item(6)]);
     store.setClaudeSessionId(id, "claude-1");
@@ -612,14 +612,14 @@ describe("REQ-001-52 an agent PR shows its state", () => {
     return id;
   };
 
-  test("REQ-001-52 opening the PR labels it agent:pr-open, like its issues", async () => {
+  test("REQ-001-53 opening the PR labels it agent:pr-open, like its issues", async () => {
     await opened();
     expect(gh.agentLabels(77)).toEqual(["agent:pr-open"]);
     expect(gh.agentLabels(5)).toEqual(["agent:pr-open"]);
     expect(gh.agentLabels(6)).toEqual(["agent:pr-open"]);
   });
 
-  test("REQ-001-52 a Feedback round labels the PR agent:in-progress, and its end agent:pr-open again", async () => {
+  test("REQ-001-53 a Feedback round labels the PR agent:in-progress, and its end agent:pr-open again", async () => {
     const id = await opened();
     gh.labels.set(77, new Set(["agent:failed", "bug"]));
     await impl.feedbackRound("octo/app", 77, [5, 6], "/agent fix it");
@@ -632,7 +632,7 @@ describe("REQ-001-52 an agent PR shows its state", () => {
     expect(gh.agentLabels(6)).toEqual(["agent:pr-open"]);
   });
 
-  test("REQ-001-52 / REQ-001-31 a new head pushed outside a Feedback round takes agent:reviewed off the PR and its issues", async () => {
+  test("REQ-001-53 / REQ-001-31 a new head pushed outside a Feedback round takes agent:reviewed off the PR and its issues", async () => {
     const id = await opened();
     for (const n of [5, 6, 77]) gh.labels.set(n, new Set(["agent:reviewed"]));
     for (const n of [5, 6]) store.updateIssue("octo/app", n, { reviewedHeadSha: "h1" });
@@ -643,7 +643,7 @@ describe("REQ-001-52 an agent PR shows its state", () => {
     for (const n of [5, 6, 77]) expect(gh.agentLabels(n)).toEqual(["agent:pr-open"]);
   });
 
-  test("REQ-001-52 / REQ-001-31 a new head on a failed PR keeps agent:failed on the PR and its issues", async () => {
+  test("REQ-001-53 / REQ-001-31 a new head on a failed PR keeps agent:failed on the PR and its issues", async () => {
     const id = await opened();
     for (const n of [5, 6, 77]) gh.labels.set(n, new Set(["agent:failed"]));
     for (const n of [5, 6]) store.updateIssue("octo/app", n, { reviewedHeadSha: "h1" });
@@ -653,7 +653,7 @@ describe("REQ-001-52 an agent PR shows its state", () => {
     for (const n of [5, 6, 77]) expect(gh.agentLabels(n)).toEqual(["agent:failed"]);
   });
 
-  test("REQ-001-52 an Implementer that gives up on its Result in a Feedback round labels the PR agent:failed", async () => {
+  test("REQ-001-53 an Implementer that gives up on its Result in a Feedback round labels the PR agent:failed", async () => {
     const id = await opened();
     await impl.feedbackRound("octo/app", 77, [5, 6], "/agent fix it");
     rmSync(join(runner.sessionDir(id), "result.json")); // no valid Result this time
@@ -662,7 +662,7 @@ describe("REQ-001-52 an agent PR shows its state", () => {
     for (const n of [5, 6, 77]) expect(gh.agentLabels(n)).toEqual(["agent:failed"]);
   });
 
-  test("REQ-001-52 / REQ-001-43 re-attaching labels the PR agent:pr-open alone", async () => {
+  test("REQ-001-53 / REQ-001-43 re-attaching labels the PR agent:pr-open alone", async () => {
     gh.labels.set(34, new Set(["agent:failed", "agent:reviewed"]));
     await impl.reattach("octo/app", 34, "agent/5-x", [5, 6]);
     for (const n of [5, 6, 34]) expect(gh.agentLabels(n)).toEqual(["agent:pr-open"]);

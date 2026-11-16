@@ -293,9 +293,9 @@ export class GitHubClient {
       throw new GitHubError(200, "POST", "/graphql", `${mutation}: ${res.errors.map((e) => e.message).join("; ")}`);
   }
 
-  /** Requests a review from the given users (REQ-001-46). */
-  async requestReviewers(repo: string, pr: number, reviewers: string[]): Promise<void> {
-    await this.request(repo, "POST", `/repos/${repo}/pulls/${pr}/requested_reviewers`, { reviewers });
+  /** Adds the given users as assignees of an issue or PR (REQ-001-52). */
+  async addAssignees(repo: string, issue: number, assignees: string[]): Promise<void> {
+    await this.request(repo, "POST", `/repos/${repo}/issues/${issue}/assignees`, { assignees });
   }
 
   async updatePull(repo: string, pr: number, patch: { title?: string; body?: string }): Promise<void> {

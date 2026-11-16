@@ -22,6 +22,7 @@ const session = (s: Partial<SessionRecord> & Pick<SessionRecord, "role" | "issue
   repo: "octo/app",
   kind: "issue",
   startedAt: null,
+  account: null,
   claudeSessionId: "sess-1",
   state: "running",
   resumeAttempts: 0,

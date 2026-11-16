@@ -201,7 +201,7 @@ export class Implementer {
       const unchanged = first.reviewedHeadSha !== null && this.d.worktrees.head(wt) === first.reviewedHeadSha;
       if (first.reviewedHeadSha !== null && !unchanged) {
         await this.d.gh.setDraft(s.repo, first.prNumber, true);
-        // REQ-001-52: a round's end below relabels the issues; outside one, `agent:reviewed` must go here.
+        // REQ-001-53: a round's end below relabels the issues; outside one, `agent:reviewed` must go here.
         if (!first.inFeedbackRound) await this.unreview(s.repo, s.issues, first.prNumber);
       }
       // REQ-001-38: an automatic round that ends without a new commit tells the Owner why the PR waits.
@@ -317,7 +317,7 @@ export class Implementer {
   }
 
   /**
-   * REQ-001-52 / REQ-001-31: a new head outside a Feedback round takes a reviewed PR and its issues back to
+   * REQ-001-53 / REQ-001-31: a new head outside a Feedback round takes a reviewed PR and its issues back to
    * `agent:pr-open`. Issues without `agent:reviewed` (e.g. `agent:failed` ones) and their PR keep their label.
    */
   private async unreview(repo: string, issues: number[], pr: number) {
