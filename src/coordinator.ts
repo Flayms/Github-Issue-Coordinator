@@ -50,7 +50,7 @@ export interface CoordinatorDeps {
     | "createPull"
     | "updatePull"
     | "setDraft"
-    | "requestReviewers"
+    | "addAssignees"
     | "getPull"
     | "checks"
     | "createReview"
