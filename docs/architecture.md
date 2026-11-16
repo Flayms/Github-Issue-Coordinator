@@ -9,7 +9,11 @@ flowchart LR
   C -- tmux + claude --remote-control --> A[Agent sessions<br/>Planner / Implementer / Reviewer]
   A -- hooks --> S
   A -. Remote Control .-> P[Owner's Claude app]
+  C -- Tick snapshot --> D[Dashboard<br/>read-only, loopback]
+  D -. Tailscale / SSH tunnel .-> P
 ```
+
+At the end of every tick the Coordinator publishes a Tick snapshot (issues, agent PRs, sessions, the queue with wait reasons). The optional dashboard ([spec 003](specs/003-dashboard/spec.md)) serves only that snapshot: no GitHub calls, no store writes.
 
 ## Modules
 
@@ -35,6 +39,7 @@ flowchart LR
 | `src/prompts.ts`, `prompts/`   | Role prompts with repo overrides (contract: spec 002); permissions per Role (`dontAsk` read-only, or `auto` in the sandbox)                                                           | T7 done  |
 | `src/planner.ts`               | Planner pass, plan revision (from scratch on a body edit), Assessment comments, Replies and labels, sync after every Planner turn                                                     | T8 done  |
 | `src/results.ts`               | Result schemas per Role and the instructions shown to sessions                                                                                                                        | T6 done  |
+| `src/dashboard/`               | Read-only dashboard (spec 003): `server.ts` (`Bun.serve`, token, GET only), `view.ts` (pure view model), `html.ts` (escaped HTML, no script)                                          | done     |
 
 ## Tech Stack
 

@@ -37,6 +37,8 @@ const run = (queue: Work[], sessions: LiveSession[] = [], l: Partial<Limits> = {
   schedule({ queue, sessions, limits: limits(l), now: NOW, pausedUntil });
 
 const keys = (p: Plan) => p.start.map((w) => w.key);
+/** The scheduler's decisions, without the queue listing for the dashboard (REQ-003-04). */
+const decisions = (p: Plan) => ({ close: p.close, start: p.start });
 
 describe("scheduler", () => {
   test("REQ-001-08 starts work in priority order: interrupted, feedback and wake, review, implement, planning", () => {
@@ -105,7 +107,7 @@ describe("scheduler", () => {
 
   test("REQ-001-20 counts running and idle sessions toward maxLiveSessions and closes an idle one to make room", () => {
     const plan = run([work("r", { kind: "review" })], [idle(1), idle(2, { role: "planner" })]);
-    expect(plan).toEqual({ close: [1], start: [expect.objectContaining({ key: "r" })] });
+    expect(decisions(plan)).toEqual({ close: [1], start: [expect.objectContaining({ key: "r" })] });
   });
 
   test("REQ-001-20 closes idle sessions while more sessions are live than allowed, even with nothing to start", () => {
@@ -115,7 +117,7 @@ describe("scheduler", () => {
 
   test("REQ-001-20 never closes a running session; with no idle one to close, nothing new starts", () => {
     const l = { maxRunning: 2, maxPlanners: 2 };
-    expect(run([work("p", { kind: "plan" })], [running(1), running(2, { role: "reviewer" })], l)).toEqual({
+    expect(decisions(run([work("p", { kind: "plan" })], [running(1), running(2, { role: "reviewer" })], l))).toEqual({
       close: [],
       start: [],
     });
@@ -123,7 +125,7 @@ describe("scheduler", () => {
 
   test("REQ-001-20 resuming a live idle session needs no room", () => {
     const plan = run([work("f", { kind: "feedback", sessionId: 1 })], [idle(1), idle(2, { role: "planner" })]);
-    expect(plan).toEqual({ close: [], start: [expect.objectContaining({ key: "f" })] });
+    expect(decisions(plan)).toEqual({ close: [], start: [expect.objectContaining({ key: "f" })] });
   });
 
   test("REQ-001-20 does not close a session to make room when lower-priority work is about to resume it", () => {
@@ -132,7 +134,7 @@ describe("scheduler", () => {
       [idle(1, { role: "planner", lastActivityAt: minsAgo(20) }), idle(2, { lastActivityAt: minsAgo(1) })],
       { maxRunning: 2 },
     );
-    expect(plan).toEqual({
+    expect(decisions(plan)).toEqual({
       close: [2],
       start: [expect.objectContaining({ key: "r" }), expect.objectContaining({ key: "revise" })],
     });
@@ -164,5 +166,45 @@ describe("scheduler", () => {
       idle(2, { lastActivityAt: minsAgo(5) }),
     ];
     expect(run([work("r", { kind: "review" })], notKept).close).toEqual([1]);
+  });
+
+  test("REQ-003-04 lists the whole queue in its order, with the reason each item waits", () => {
+    const queue = [
+      work("plan", { kind: "plan" }),
+      work("revise", { kind: "revise" }),
+      work("impl", { kind: "implement" }),
+      work("review", { kind: "review" }),
+      work("wake", { kind: "wake", sessionId: 3 }),
+      work("f", { kind: "feedback" }),
+    ];
+    const sessions = [running(3, { role: "planner" })];
+    const l = { maxRunning: 4, maxLiveSessions: 4, maxPlanners: 2 };
+    expect(run(queue, sessions, l).queue).toEqual([
+      { work: expect.objectContaining({ key: "wake" }), wait: { kind: "session-busy" } },
+      { work: expect.objectContaining({ key: "f" }) },
+      { work: expect.objectContaining({ key: "review" }) },
+      { work: expect.objectContaining({ key: "impl" }), wait: { kind: "slot", role: "implementer" } },
+      { work: expect.objectContaining({ key: "plan" }) },
+      { work: expect.objectContaining({ key: "revise" }), wait: { kind: "max-running" } },
+    ]);
+    const full = run([work("r", { kind: "review" })], [running(1), idle(2, { role: "planner", keepLonger: true })], {
+      maxRunning: 2,
+    });
+    expect(full.queue).toEqual([{ work: expect.objectContaining({ key: "r" }) }]);
+    const noRoom = run([work("r", { kind: "review" })], [running(1), running(2, { role: "planner" })], {
+      maxRunning: 3,
+      maxLiveSessions: 2,
+      maxPlanners: 2,
+    });
+    expect(noRoom.queue).toEqual([
+      { work: expect.objectContaining({ key: "r" }), wait: { kind: "max-live-sessions" } },
+    ]);
+  });
+
+  test("REQ-003-04 during the usage-limit pause every item waits until the reset", () => {
+    const until = minsAgo(-5);
+    expect(run([work("i", { kind: "implement" })], [], {}, until).queue).toEqual([
+      { work: expect.objectContaining({ key: "i" }), wait: { kind: "paused", until } },
+    ]);
   });
 });

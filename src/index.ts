@@ -1,9 +1,10 @@
 /** Coordinator entry point: `bun start` (config from `config.ts` or `$COORDINATOR_CONFIG`). */
 import { mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { loadConfig } from "./config.ts";
+import { join, resolve } from "node:path";
+import { loadConfig, secretPaths } from "./config.ts";
 import { Coordinator } from "./coordinator.ts";
+import { loadDashboardToken, startDashboard } from "./dashboard/server.ts";
 import { Clones } from "./git.ts";
 import { AppAuth } from "./github/app-auth.ts";
 import { GitHubClient } from "./github/client.ts";
@@ -29,6 +30,8 @@ async function main() {
       `cannot read the GitHub App private key at ${config.github.privateKeyPath} (github.privateKeyPath)`,
     );
   }
+  // REQ-003-07: an unusable token stops the start, before anything runs.
+  const dashboardToken = loadDashboardToken(config);
   const auth = new AppAuth({ appId: config.github.appId, privateKey });
   const gh = new GitHubClient({ auth });
   const dbPath = join(stateDir, "state.db");
@@ -40,7 +43,7 @@ async function main() {
     dbPath,
     hookCommand: [process.execPath, resolve(import.meta.dir, "hook.ts")],
     // REQ-001-26: the App key's folder and Claude's login.
-    secretPaths: [dirname(resolve(config.github.privateKeyPath)), join(homedir(), ".claude", ".credentials.json")],
+    secretPaths: secretPaths(config, homedir()),
   });
   const clones = new Clones({ root: join(stateDir, "clones"), token: (repo) => auth.tokenFor(repo) });
   const worktrees = new Worktrees({
@@ -60,6 +63,8 @@ async function main() {
       log(`${name}: could not create agent labels: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
+  // REQ-003-08: it serves the last tick's snapshot and fails on its own.
+  const dashboard = startDashboard({ config, token: dashboardToken, snapshot: () => coordinator.snapshot(), log });
   log(`${NAME}: watching ${config.repos.map((r) => r.name).join(", ")} every ${config.pollIntervalSec}s`);
 
   let stopping = false;
@@ -76,6 +81,7 @@ async function main() {
     for (let waited = 0; waited < config.pollIntervalSec * 1000 && !stopping; waited += 500) await Bun.sleep(500);
   }
   clearInterval(dialogs);
+  dashboard?.stop();
   store.close();
 }
 

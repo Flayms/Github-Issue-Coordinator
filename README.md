@@ -13,6 +13,8 @@ A self-hosted Bun daemon that polls GitHub and runs Claude Code agents. They tri
 
 Agents never get GitHub credentials; the Coordinator does every GitHub write as its own GitHub App.
 
+**Dashboard (optional, read-only).** A mobile-friendly page shows the running agents (with their Remote Control names), every issue's phase and PR (checks, mergeability, Feedback rounds), what is ready to merge, the planned order with why each item waits, and the settings without secrets. It changes nothing; it is off by default, listens on loopback, and is meant to be reached over Tailscale or an SSH tunnel with a token ([setup](docs/setup.md#6-dashboard-optional), [spec 003](docs/specs/003-dashboard/spec.md)).
+
 ## Commands (comments by you)
 
 | Command            | Where             | Effect                                                                                                                                                 |
