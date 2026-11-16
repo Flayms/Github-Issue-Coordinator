@@ -3,6 +3,7 @@ import { createPublicKey, generateKeyPairSync, verify } from "node:crypto";
 import { AppAuth, createAppJwt } from "../src/github/app-auth.ts";
 import { GitHubClient } from "../src/github/client.ts";
 import { GitHubError } from "../src/github/http.ts";
+import { ReadTokens } from "../src/github/read-tokens.ts";
 import { AGENT_LABELS } from "../src/labels.ts";
 import { fakeFetch } from "./support/fake-fetch.ts";
 
@@ -54,6 +55,44 @@ describe("GitHub App auth", () => {
     now = new Date("2026-11-10T12:56:00Z"); // < 5 minutes left
     await gh.listOpenItems("octo/app");
     expect(apiRequests(requests).at(-1)?.headers.get("authorization")).toBe("token tok-2");
+  });
+
+  test("REQ-001-55 / REQ-001-15 mints a read-only token for agents, cached apart from the Coordinator's own token", async () => {
+    let now = NOW;
+    const fake = fakeFetch(installationRoutes(["write-1", "read-1", "read-2"]));
+    const auth = new AppAuth({ appId: 7, privateKey: pem, fetch: fake.fetch, now: () => now });
+    expect(await auth.tokenFor("octo/app")).toBe("write-1");
+    expect(await auth.readTokenFor("octo/app")).toBe("read-1");
+    expect(await auth.readTokenFor("octo/lib")).toBe("read-1"); // same installation
+    expect(await auth.tokenFor("octo/app")).toBe("write-1");
+    const mints = fake.requests.filter((r) => r.url.pathname.endsWith("/access_tokens"));
+    expect(mints.map((r) => r.body)).toEqual([
+      undefined,
+      { permissions: { contents: "read", issues: "read", pull_requests: "read", checks: "read", metadata: "read" } },
+    ]);
+    now = new Date("2026-11-10T12:56:00Z");
+    expect(await auth.readTokenFor("octo/app")).toBe("read-2");
+  });
+});
+
+describe("agents' read tokens", () => {
+  test("REQ-001-55 keeps the current read-only token per repository; a repository whose mint fails is left out", async () => {
+    const logs: string[] = [];
+    let n = 0;
+    const tokens = new ReadTokens(
+      async (repo) => {
+        if (repo === "octo/broken") throw new Error("not installed");
+        return `read-${++n}`;
+      },
+      (m) => logs.push(m),
+    );
+    expect(tokens.get("octo/app")).toBeUndefined();
+    await tokens.refresh(["Octo/App", "octo/broken"]);
+    expect(tokens.get("octo/app")).toBe("read-1");
+    expect(tokens.get("octo/broken")).toBeUndefined();
+    expect(logs).toEqual(["octo/broken: no read-only GitHub token for agents: not installed"]);
+    await tokens.refresh(["octo/app"]);
+    expect(tokens.get("OCTO/app")).toBe("read-2");
   });
 });
 

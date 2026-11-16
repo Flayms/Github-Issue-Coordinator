@@ -59,6 +59,9 @@ afterEach(() => {
   rmSync(dir, { recursive: true });
 });
 
+/** REQ-001-55: every Role's shell commands can reach GitHub, to read it with its read-only token. */
+const GITHUB = ["github.com", "api.github.com", "raw.githubusercontent.com", "objects.githubusercontent.com"];
+
 /** The prompt the session's last launch handed to `claude` (REQ-001-45). */
 const promptOf = (id: number) => readFileSync(join(dir, "sessions", String(id), "prompt.md"), "utf8");
 
@@ -195,7 +198,7 @@ describe("session runner", () => {
       failIfUnavailable: true,
       allowUnsandboxedCommands: false,
       filesystem: { denyRead: ["/home/agent/.config/coordinator", "/home/agent/.claude/.credentials.json"] },
-      network: { allowedDomains: ["registry.npmjs.org"] },
+      network: { allowedDomains: ["registry.npmjs.org", ...GITHUB] },
     });
 
     const rev = runner.start({
@@ -214,7 +217,7 @@ describe("session runner", () => {
     expect(revSettings.sandbox).toMatchObject({
       enabled: true,
       failIfUnavailable: true,
-      network: { allowedDomains: [] },
+      network: { allowedDomains: GITHUB },
     });
   });
 
@@ -284,6 +287,93 @@ describe("session runner", () => {
     store.patchSession(id, { state: "idle" });
     runner.resume(id, "more", { model: "opus" });
     expect(tmux.windows.get(`s${id}`)?.command).toContain("'--permission-mode' 'auto'");
+  });
+
+  test("REQ-001-55 every Role gets the read-only token for its repository through gh's config folder", () => {
+    const tokens: Record<string, string> = { "octo/app": "read-1" };
+    const r = new SessionRunner({
+      store,
+      tmux,
+      stateDir: dir,
+      dbPath: join(dir, "state.db"),
+      hookCommand: ["bun", "/app/src/hook.ts"],
+      readToken: (repo) => tokens[repo],
+    });
+    for (const role of ["planner", "implementer", "reviewer"] as const) {
+      const id = r.start({
+        repo: "octo/app",
+        role,
+        kind: "issue",
+        issues: [5],
+        cwd: "/w",
+        prompt: "p",
+        model: { model: "opus" },
+      });
+      const ghDir = join(dir, "sessions", String(id), "gh");
+      expect(readFileSync(join(ghDir, "hosts.yml"), "utf8")).toBe(
+        "github.com:\n    oauth_token: read-1\n    git_protocol: https\n",
+      );
+      const cmd = tmux.windows.get(`s${id}`)?.command ?? "";
+      expect(cmd).toContain(`GH_CONFIG_DIR=${shellQuote([ghDir])} `);
+      expect(cmd).toContain("GH_NO_UPDATE_NOTIFIER=1 GH_PROMPT_DISABLED=1 ");
+    }
+    // A repository without a token still starts; gh then reads only public data.
+    const other = r.start({
+      repo: "octo/lib",
+      role: "planner",
+      kind: "issue",
+      issues: [1],
+      cwd: "/w",
+      prompt: "p",
+      model: { model: "opus" },
+    });
+    expect(existsSync(join(dir, "sessions", String(other), "gh", "hosts.yml"))).toBe(false);
+    expect(tmux.windows.get(`s${other}`)?.command).toContain("GH_CONFIG_DIR=");
+  });
+
+  test("REQ-001-55 the token of every live session is renewed; closed sessions keep theirs", () => {
+    const tokens: Record<string, string> = { "octo/app": "read-1" };
+    const r = new SessionRunner({
+      store,
+      tmux,
+      stateDir: dir,
+      dbPath: join(dir, "state.db"),
+      hookCommand: ["bun", "/app/src/hook.ts"],
+      readToken: (repo) => tokens[repo],
+    });
+    const start = () =>
+      r.start({
+        repo: "octo/app",
+        role: "reviewer",
+        kind: "issue",
+        issues: [5],
+        cwd: "/w",
+        prompt: "p",
+        model: { model: "opus" },
+      });
+    const live = start();
+    const closed = start();
+    tmux.killWindow(`s${closed}`);
+    tokens["octo/app"] = "read-2";
+    r.refreshGitHubAccess();
+    const hosts = (id: number) => readFileSync(join(dir, "sessions", String(id), "gh", "hosts.yml"), "utf8");
+    expect(hosts(live)).toContain("oauth_token: read-2");
+    expect(hosts(closed)).toContain("oauth_token: read-1");
+  });
+
+  test("REQ-001-55 a resumed session runs with the current settings, keeping its repository's network domains", () => {
+    const id = startImplementer();
+    store.setClaudeSessionId(id, "sess-abc");
+    store.patchSession(id, { state: "idle" });
+    const path = join(dir, "sessions", String(id), "settings.json");
+    // A session folder written by an older Coordinator, before agents could reach GitHub.
+    writeFileSync(path, JSON.stringify({ sandbox: { network: { allowedDomains: ["registry.npmjs.org"] } } }));
+    writeFileSync(join(dir, "sessions", String(id), "meta.json"), JSON.stringify({ cwd: "/work/app-5" }));
+    runner.resume(id, "more", { model: "opus" });
+    const settings = JSON.parse(readFileSync(path, "utf8"));
+    expect(settings.sandbox.network.allowedDomains).toEqual(["registry.npmjs.org", ...GITHUB]);
+    expect(settings.hooks.Stop).toHaveLength(1);
+    expect(tmux.windows.get(`s${id}`)?.cwd).toBe("/work/app-5");
   });
 
   test("the prompt tells the session where to write its Result", () => {
@@ -461,7 +551,12 @@ describe("Accounts", () => {
       prompt: "p",
       model: { model: "opus" },
     });
-  const commandOf = (id: number) => tmux.windows.get(`s${id}`)?.command ?? "";
+  /** The command after gh's environment (REQ-001-55, tested in "session runner"). */
+  const commandOf = (id: number) =>
+    (tmux.windows.get(`s${id}`)?.command ?? "").replace(
+      /^GH_CONFIG_DIR='[^']*' GH_NO_UPDATE_NOTIFIER=1 GH_PROMPT_DISABLED=1 /,
+      "",
+    );
 
   test("REQ-004-01 a session starts on the first Account, in Claude's default folder, and records it", () => {
     const id = start();
