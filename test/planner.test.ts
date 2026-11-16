@@ -261,6 +261,24 @@ describe("Planner pass", () => {
     expect(gh.of("createComment")[0]?.[3]).toContain("could not produce a valid Assessment");
     expect(runner.closed).toEqual([id]);
   });
+
+  test("REQ-003-15 an Assessment records one Event with its verdict; a session that gave up records a failure", async () => {
+    const id = await planner.startPass("octo/app", "/c", [item(5)], { issues: [], pulls: [] });
+    finishTurn(id, [entry(5)]);
+    await planner.sync(id);
+    expect(store.events().map((e) => [e.kind, e.issues, e.text])).toEqual([
+      ["assessed", [5], "Assessment of #5: proposed"],
+    ]);
+
+    const again = await planner.startPass("octo/app", "/c", [item(6)], { issues: [], pulls: [] });
+    store.patchSession(again, { state: "idle", needsSync: true, resultFailures: 3 });
+    await planner.sync(again);
+    expect(store.events()[0]).toMatchObject({
+      kind: "failed",
+      issues: [6],
+      text: "#6 failed: the Planner could not produce a valid Assessment",
+    });
+  });
 });
 
 describe("plan revision", () => {

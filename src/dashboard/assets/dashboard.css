@@ -605,6 +605,40 @@ a.row:hover .r-ext {
   border-color: var(--ok);
 }
 
+/* ---- Working now next to Recent ---- */
+.duo {
+  display: grid;
+  gap: 36px;
+}
+@media (min-width: 1000px) {
+  .duo {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    gap: 40px;
+  }
+}
+
+/* ---- Recent ---- */
+.event {
+  align-items: flex-start;
+}
+.event > .i {
+  margin-top: 2px;
+}
+.e-main {
+  flex: 1;
+  min-width: 0;
+}
+.e-text {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.e-meta {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
 /* ---- The frosted band: Up next and the Pipeline ---- */
 .band {
   position: relative;

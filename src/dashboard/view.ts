@@ -9,6 +9,7 @@ import { ROLE_NAMES } from "../note.ts";
 import { remoteControlName } from "../runner.ts";
 import type { WaitReason } from "../scheduler.ts";
 import { type IssueState, issueState } from "../state.ts";
+import type { EventKind } from "../store.ts";
 
 /** Pipeline columns in the order of the workflow (README "Labels"), each grouping phases (REQ-003-02). */
 export const COLUMNS: { title: string; phases: IssueState[] }[] = [
@@ -20,6 +21,22 @@ export const COLUMNS: { title: string; phases: IssueState[] }[] = [
   { title: "Reviewed", phases: ["reviewed"] },
   { title: "Failed", phases: ["failed"] },
 ];
+
+/** How many Events Recent shows (REQ-003-16). */
+export const RECENT_SHOWN = 15;
+
+/** REQ-003-16: success `ok`, neutral `muted`, attention `warn` (the Owner's move or a hold-up), failure `bad`. */
+const EVENT_TONES: Record<EventKind, Tone> = {
+  assessed: "warn",
+  approved: "muted",
+  blocked: "warn",
+  unblocked: "muted",
+  "pr-opened": "ok",
+  "review-passed": "ok",
+  "review-findings": "muted",
+  "feedback-round": "muted",
+  failed: "bad",
+};
 
 /** Phases where the Owner's move is next (REQ-003-11). */
 const NEED_YOU: IssueState[] = ["proposed", "needs-refinement", "wontfix-proposed", "reviewed"];
@@ -130,6 +147,20 @@ export interface SettingsView {
   }[];
 }
 
+/** One Event in Recent (REQ-003-16). */
+export interface EventView {
+  repo: string;
+  kind: EventKind;
+  tone: Tone;
+  text: string;
+  /** ISO time, for `<time datetime>`. */
+  datetime: string;
+  at: string;
+  ago: string;
+  /** The PR first, then the issues. */
+  links: { label: string; url: string }[];
+}
+
 export interface DashboardView {
   lastTick: { at: string; ago: string } | null;
   refreshSec: number;
@@ -142,6 +173,8 @@ export interface DashboardView {
   queue: QueueView[];
   blocked: BlockedView[];
   columns: ColumnView[];
+  /** The newest Events, newest first; narrowed by the repository filter (REQ-003-16). */
+  recent: EventView[];
   /** All configured repositories, for the filter (REQ-003-13). */
   repos: string[];
   /** The picked repository; null shows all. */
@@ -245,6 +278,23 @@ export function dashboardView(
       ),
   }));
 
+  const recent: EventView[] = (snap?.events ?? [])
+    .filter((e) => repoFilter === null || e.repo === repoFilter)
+    .slice(0, RECENT_SHOWN)
+    .map((e) => ({
+      repo: e.repo,
+      kind: e.kind,
+      tone: EVENT_TONES[e.kind] ?? "muted",
+      text: e.text,
+      datetime: e.at,
+      at: formatTime(e.at),
+      ago: `${formatDuration(since(e.at))} ago`,
+      links: [
+        ...(e.pr === null ? [] : [{ label: `PR #${e.pr}`, url: pullUrl(e.repo, e.pr) }]),
+        ...e.issues.map((n) => ({ label: `#${n}`, url: issueUrl(e.repo, n) })),
+      ],
+    }));
+
   const queue = (snap?.queue ?? []).map((q) => ({
     key: q.work.key,
     status: q.wait ? `waits: ${waitText(q.wait, config.limits)}` : "starts now",
@@ -299,6 +349,7 @@ export function dashboardView(
     queue,
     blocked,
     columns,
+    recent,
     repos: configured,
     repoFilter,
     settings: settingsView(config, repos),

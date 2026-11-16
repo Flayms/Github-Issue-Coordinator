@@ -104,6 +104,32 @@ export interface IssueRecord {
   screenshots: string | null;
 }
 
+/** What the Coordinator did, by kind; the dashboard picks an icon and tone by it (REQ-003-15, REQ-003-16). */
+export type EventKind =
+  | "assessed"
+  | "approved"
+  | "blocked"
+  | "unblocked"
+  | "pr-opened"
+  | "review-passed"
+  | "review-findings"
+  | "feedback-round"
+  | "failed";
+
+/** One thing the Coordinator did on GitHub, for the dashboard's Recent column (REQ-003-15). */
+export interface CoordinatorEvent {
+  at: string;
+  repo: string;
+  kind: EventKind;
+  issues: number[];
+  pr: number | null;
+  /** A short sentence, e.g. "PR #70 opened for #5"; for a failure, with the reason. */
+  text: string;
+}
+
+/** How many Events the store keeps (REQ-003-15). */
+export const EVENTS_KEPT = 200;
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS sessions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -157,6 +183,15 @@ CREATE TABLE IF NOT EXISTS split_offs (
   number INTEGER NOT NULL,
   title TEXT NOT NULL,
   PRIMARY KEY (repo, number)
+);
+CREATE TABLE IF NOT EXISTS events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL,
+  repo TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  issues TEXT NOT NULL,
+  pr INTEGER,
+  text TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
@@ -484,6 +519,28 @@ export class Store {
   setPausedUntil(iso: string | undefined): void {
     if (iso === undefined) this.db.query("DELETE FROM meta WHERE key = ?").run("pausedUntil");
     else this.db.query("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run("pausedUntil", iso);
+  }
+
+  /** Records an Event at the store's time and drops all but the newest EVENTS_KEPT (REQ-003-15). */
+  recordEvent(e: Omit<CoordinatorEvent, "at">): void {
+    this.db.transaction(() => {
+      this.db
+        .query("INSERT INTO events (at, repo, kind, issues, pr, text) VALUES (?, ?, ?, ?, ?, ?)")
+        .run(this.stamp(), e.repo, e.kind, JSON.stringify(e.issues), e.pr, e.text);
+      this.db
+        .query("DELETE FROM events WHERE id <= (SELECT id FROM events ORDER BY id DESC LIMIT 1 OFFSET ?)")
+        .run(EVENTS_KEPT);
+    })();
+  }
+
+  /** The kept Events, newest first (REQ-003-16). */
+  events(): CoordinatorEvent[] {
+    return this.db
+      .query<Omit<CoordinatorEvent, "issues"> & { issues: string }, []>(
+        "SELECT at, repo, kind, issues, pr, text FROM events ORDER BY id DESC",
+      )
+      .all()
+      .map((r) => ({ ...r, issues: JSON.parse(r.issues) }));
   }
 
   private stamp(): string {

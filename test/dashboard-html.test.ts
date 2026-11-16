@@ -83,6 +83,24 @@ const snap: TickSnapshot = {
       wait: { kind: "max-running" },
     },
   ],
+  events: [
+    {
+      at: "2026-11-15T10:25:00.000Z",
+      repo: "octo/app",
+      kind: "review-passed",
+      issues: [5],
+      pr: 70,
+      text: "Review of PR #70: no findings, ready for the Owner",
+    },
+    {
+      at: "2026-11-15T09:00:00.000Z",
+      repo: "octo/lib",
+      kind: "failed",
+      issues: [2],
+      pr: null,
+      text: "#2 failed: boom",
+    },
+  ],
 };
 
 const overview = (opts?: { repo?: string }) => renderDashboard(dashboardView(snap, config, NOW, opts));
@@ -94,7 +112,7 @@ const order = (html: string, marks: string[]) => marks.map((m) => html.indexOf(m
 describe("dashboard html", () => {
   test("REQ-003-11 / REQ-003-12 / REQ-003-01 / REQ-003-04 / REQ-003-02 the Overview shows its sections in order", () => {
     const html = overview();
-    const at = order(html, ["1 PR ready to merge", "Capacity", "Working now", "Up next", "Pipeline"]);
+    const at = order(html, ["1 PR ready to merge", "Capacity", "Working now", "Recent", "Up next", "Pipeline"]);
     expect(at.every((i) => i >= 0)).toBe(true);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
   });
@@ -123,6 +141,25 @@ describe("dashboard html", () => {
     expect(html).toContain("claude-sonnet-5-5");
     expect(html).toContain("#6 Add search · Implementer · app");
     expect(html).toMatch(/<button[^>]*data-copy="#6 Add search · Implementer · app"[^>]*hidden/);
+  });
+
+  test("REQ-003-16 Recent sits next to Working now: each Event with icon, tone, time and links", () => {
+    const html = overview();
+    expect(html).toMatch(/<div class="wrap duo">\s*<section id="working"[\s\S]*<section id="recent"/);
+    const recent = html.slice(html.indexOf('id="recent"'), html.indexOf('id="up-next"'));
+    expect(recent).toMatch(
+      /<li class="row event ok">\s*<svg class="i"[\s\S]*Review of PR #70: no findings, ready for the Owner/,
+    );
+    expect(recent).toMatch(/<li class="row event bad">\s*<svg class="i"[\s\S]*#2 failed: boom/);
+    expect(recent).toContain('<time datetime="2026-11-15T10:25:00.000Z" title="2026-11-15 10:25 UTC">5 min ago</time>');
+    expect(recent).toContain('href="https://github.com/octo/app/pull/70"');
+    expect(recent).toContain('href="https://github.com/octo/app/issues/5"');
+    expect(recent.indexOf("Review of PR #70")).toBeLessThan(recent.indexOf("#2 failed"));
+    // REQ-003-13: the filter narrows it.
+    const lib = overview({ repo: "octo/lib" });
+    const narrowed = lib.slice(lib.indexOf('id="recent"'), lib.indexOf('id="up-next"'));
+    expect(narrowed).toContain("#2 failed: boom");
+    expect(narrowed).not.toContain("Review of PR #70");
   });
 
   test("REQ-003-04 the first step is marked next, waiting steps say why, blocked issues are marked", () => {

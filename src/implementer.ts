@@ -7,6 +7,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Config, roleSettings } from "./config.ts";
+import { defaultLog, type Log, recordEvent, refs } from "./events.ts";
 import type { GitHubClient, Item } from "./github/client.ts";
 import { labelPr, setPrPhase } from "./labels.ts";
 import { agentNote, sessionNote } from "./note.ts";
@@ -49,6 +50,7 @@ export interface ImplementerDeps {
   store: Store;
   gh: Pick<GitHubClient, "addLabels" | "removeLabel" | "createComment" | "createPull" | "updatePull" | "setDraft">;
   runner: Pick<SessionRunner, "start" | "resume" | "close" | "sessionDir">;
+  log?: Log;
   worktrees: Pick<
     Worktrees,
     | "create"
@@ -143,6 +145,7 @@ export class Implementer {
           s.issues,
           `${note}\n\nThe Implementer could not produce a valid Result: ${check.problem}`,
           sessionId,
+          "the Implementer could not produce a valid Result",
           first.prNumber,
         );
       return;
@@ -157,6 +160,7 @@ export class Implementer {
         s.issues,
         `${note}\n\nThe Implementer finished without committing anything:\n\n${result.summary}`,
         sessionId,
+        "the Implementer finished without committing anything",
         null,
       );
       return;
@@ -176,6 +180,13 @@ export class Implementer {
       });
       for (const n of s.issues) this.d.store.updateIssue(s.repo, n, { prNumber: pr });
       await setPrPhase(this.d.gh, s.repo, { issues: s.issues, pr }, "agent:pr-open", ["agent:in-progress"]);
+      recordEvent(this.d.store, this.d.log ?? defaultLog, {
+        repo: s.repo,
+        kind: "pr-opened",
+        issues: s.issues,
+        pr,
+        text: `PR #${pr} opened for ${refs(s.issues)}: ${result.prTitle}`,
+      });
       // REQ-001-49: Screenshots are published per PR, so only once it exists.
       if (listed) {
         const section = await this.publishScreenshots(s.repo, s.issues, wt, pr, listed);
@@ -320,9 +331,23 @@ export class Implementer {
     else await this.d.gh.removeLabel(repo, pr, "agent:reviewed");
   }
 
-  private async failAll(repo: string, issues: number[], comment: string, sessionId: number, pr: number | null) {
+  private async failAll(
+    repo: string,
+    issues: number[],
+    comment: string,
+    sessionId: number,
+    reason: string,
+    pr: number | null,
+  ) {
     await setPrPhase(this.d.gh, repo, { issues, pr }, "agent:failed", ["agent:in-progress"]);
     await this.d.gh.createComment(repo, issues[0] ?? 0, comment);
+    recordEvent(this.d.store, this.d.log ?? defaultLog, {
+      repo,
+      kind: "failed",
+      issues,
+      pr: null,
+      text: `${refs(issues)} failed: ${reason}`,
+    });
     try {
       this.d.runner.close(sessionId);
     } catch {}

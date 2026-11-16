@@ -319,6 +319,15 @@ describe("Reviewer run", () => {
     expect(runner.closed).toEqual([id]);
     expect(wt.removed).toEqual(["/reviews/9"]);
   });
+
+  test("REQ-003-15 a Reviewer that gave up on its Result records a failure Event", async () => {
+    const id = await reviewer.start("octo/app", 9, [item(5)], "h1");
+    store.patchSession(id, { state: "idle", needsSync: true, resultFailures: 3 });
+    await reviewer.sync(id);
+    expect(store.events().map((e) => [e.kind, e.issues, e.pr, e.text])).toEqual([
+      ["failed", [5], 9, "#5 failed: the Reviewer could not produce a valid Result"],
+    ]);
+  });
 });
 
 describe("REQ-001-52 an agent PR shows its state", () => {

@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Config, roleSettings } from "./config.ts";
+import { defaultLog, type Log, recordEvent } from "./events.ts";
 import type { Comment, GitHubClient, Item, ItemHistory } from "./github/client.ts";
 import { GitHubError } from "./github/http.ts";
 import { sessionNote } from "./note.ts";
@@ -174,6 +175,7 @@ export interface PlannerDeps {
     "addLabels" | "removeLabel" | "createComment" | "updateComment" | "createIssue" | "itemHistory"
   >;
   runner: Pick<SessionRunner, "start" | "resume" | "close" | "sessionDir">;
+  log?: Log;
 }
 
 export class Planner {
@@ -336,6 +338,13 @@ export class Planner {
             `${note}\n\nThe Planner could not produce a valid Assessment: ${check.problem}`,
           );
         }
+        recordEvent(this.d.store, this.d.log ?? defaultLog, {
+          repo: s.repo,
+          kind: "failed",
+          issues: s.issues,
+          pr: null,
+          text: `${refs(s.issues)} failed: the Planner could not produce a valid Assessment`,
+        });
         this.d.runner.close(sessionId);
       }
       this.d.store.patchSession(sessionId, { needsSync: false });
@@ -357,6 +366,13 @@ export class Planner {
         for (const l of ["agent:planning", ...VERDICT_LABELS])
           if (l !== target) await this.d.gh.removeLabel(s.repo, a.issue, l);
         await this.d.gh.addLabels(s.repo, a.issue, [target]);
+        recordEvent(this.d.store, this.d.log ?? defaultLog, {
+          repo: s.repo,
+          kind: "assessed",
+          issues: [a.issue],
+          pr: null,
+          text: `Assessment of #${a.issue}: ${VERDICT_TITLES[a.verdict]}`,
+        });
       }
       // REQ-001-40: only a turn the Owner's comments started owes a Reply; cleared right after posting it.
       if (rec.replyTo.length) {

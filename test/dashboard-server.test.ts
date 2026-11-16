@@ -28,6 +28,7 @@ const snap: TickSnapshot = {
   ],
   sessions: [],
   queue: [],
+  events: [],
 };
 
 let servers: DashboardServer[] = [];
