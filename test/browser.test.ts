@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkBrowserStarts, findBrowser, screenshotArgs } from "../src/browser.ts";
+import { checkBrowserStarts, findBrowser, screenshotArgs, screenshotEnv } from "../src/browser.ts";
 
 let dir: string;
 beforeEach(() => {
@@ -57,6 +57,21 @@ describe("headless browser check (doctor)", () => {
     const r = checkBrowserStarts(fakeBrowser("echo started\nexit 0"), dir);
     expect(r.ok).toBe(false);
     expect(r.detail).toContain("no PNG");
+  });
+
+  test("REQ-001-53 keeps the browser's config and cache folders in a temporary folder", () => {
+    expect(screenshotEnv("/t")).toEqual({ XDG_CONFIG_HOME: "/t/config", XDG_CACHE_HOME: "/t/cache" });
+  });
+
+  test("REQ-001-53 starts the browser with an unwritable home, as in the Implementer's sandbox", () => {
+    // Chrome's crash handler core-dumps when it can't write ~/.config; the sandbox's home folder is read-only.
+    const needsWritableXdg = [
+      'case "$HOME" in /nonexistent*) ;; *) echo "home is writable: $HOME" >&2; exit 2;; esac',
+      'mkdir -p "$XDG_CONFIG_HOME/c" "$XDG_CACHE_HOME/c" || { echo "Trace/breakpoint trap" >&2; exit 133; }',
+      WRITES_PNG,
+      "exit 0",
+    ].join("\n");
+    expect(checkBrowserStarts(fakeBrowser(needsWritableXdg), dir)).toEqual({ ok: true, detail: expect.any(String) });
   });
 
   test("REQ-001-53 the check leaves nothing behind", () => {
