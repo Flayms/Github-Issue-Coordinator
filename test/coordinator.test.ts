@@ -1262,4 +1262,146 @@ describe("reconcile loop", () => {
       { repo: "octo/app", error: "GitHub down", issues: [], pulls: [], worktrees: 0 },
     ]);
   });
+
+  describe("REQ-003-15 records one Event per action that succeeded on GitHub", () => {
+    const events = () => store.events().map((e) => [e.kind, e.issues, e.pr, e.text]);
+
+    test("an Assessment and its verdict, once per new Assessment", async () => {
+      gh.items = [item(5)];
+      await coordinator.tick();
+      expect(events()).toEqual([]);
+      finishPlanner(1, [5], "needs-refinement");
+      await coordinator.tick();
+      expect(events()).toEqual([["assessed", [5], null, "Assessment of #5: needs refinement"]]);
+      expect(store.events()[0]?.at).toBe(now.toISOString());
+    });
+
+    test("an approval, and an approval of a still blocked issue, then the unblock", async () => {
+      await proposed();
+      gh.comments.set(5, [{ id: 950, body: "/approve", author: OWNER, createdAt: "t", updatedAt: "" }]);
+      gh.changed = true;
+      await coordinator.tick();
+      expect(events()[0]).toEqual(["approved", [5], null, "#5 approved"]);
+
+      gh.items = [item(6), item(8, ["agent:proposed"])];
+      store.updateIssue("octo/app", 8, { assessment: "{}" });
+      gh.changed = true;
+      await coordinator.tick();
+      const planner = runner.started.length;
+      writeFileSync(
+        join(runner.sessionDir(planner), "result.json"),
+        JSON.stringify([
+          { issue: 6, verdict: "proposed", approach: "A", bundleWith: [], blockedBy: [8], questions: [] },
+        ]),
+      );
+      store.patchSession(planner, { state: "idle", needsSync: true });
+      await coordinator.tick();
+      gh.comments.set(6, [{ id: 960, body: "/approve", author: OWNER, createdAt: "t", updatedAt: "" }]);
+      gh.changed = true;
+      await coordinator.tick();
+      expect(events()[0]).toEqual(["approved", [6], null, "#6 approved, blocked by #8"]);
+
+      gh.items = gh.items.filter((i) => i.number !== 8);
+      gh.changed = true;
+      await coordinator.tick();
+      expect(events()[0]).toEqual(["unblocked", [6], null, "#6 unblocked"]);
+    });
+
+    test("an approved issue that gets blocked", async () => {
+      gh.items = [item(5, ["agent:approved"]), item(8, ["agent:proposed"])];
+      store.updateIssue("octo/app", 5, { approvedAt: "t", assessment: JSON.stringify({ blockedBy: [8] }) });
+      store.updateIssue("octo/app", 8, { assessment: "{}" });
+      await coordinator.tick();
+      expect(events()).toEqual([["blocked", [5], null, "#5 blocked by #8"]]);
+    });
+
+    test("an agent PR opened, and none while opening it fails", async () => {
+      implementerDone();
+      gh.createPullFailures = 1;
+      await coordinator.tick();
+      expect(events()).toEqual([]);
+      await coordinator.tick();
+      expect(events()).toEqual([["pr-opened", [5], 70, "PR #70 opened for #5: T"]]);
+    });
+
+    const reviewed = async (findings: unknown[]) => {
+      gh.items = [item(5, ["agent:pr-open"]), item(70, [], { isPullRequest: true, author: { login: "bot", id: 1 } })];
+      store.updateIssue("octo/app", 5, { worktreePath: "/wt/5", prNumber: 70 });
+      await coordinator.tick();
+      writeFileSync(join(runner.sessionDir(1), "result.json"), JSON.stringify({ summary: "S", findings }));
+      store.patchSession(1, { state: "idle", needsSync: true });
+      await coordinator.tick();
+    };
+
+    test("a Review without findings", async () => {
+      await reviewed([]);
+      expect(events()).toEqual([["review-passed", [5], 70, "Review of PR #70: no findings, ready for the Owner"]]);
+    });
+
+    test("a Review with findings", async () => {
+      await reviewed([
+        { path: "a.ts", line: 1, severity: "medium", body: "crash" },
+        { path: "b.ts", line: 2, severity: "high", body: "data loss" },
+      ]);
+      // The findings start a Feedback round in the same tick (REQ-001-11), recorded after the Review.
+      expect(events()).toEqual([
+        ["feedback-round", [5], 70, "Feedback round 1/2 on PR #70"],
+        ["review-findings", [5], 70, "Review of PR #70: 2 findings"],
+      ]);
+    });
+
+    test("a Feedback round, counted or not", async () => {
+      const id = prOpen({ pendingFeedback: "Blocking: crash" });
+      await coordinator.tick();
+      expect(events()).toEqual([["feedback-round", [5], 70, "Feedback round 1/2 on PR #70"]]);
+
+      store.patchSession(id, { state: "idle" });
+      gh.comments.set(70, [{ id: 990, body: "/agent rename it", author: OWNER, createdAt: "", updatedAt: "" }]);
+      gh.changed = true;
+      await coordinator.tick();
+      expect(events()[0]).toEqual(["feedback-round", [5], 70, "Feedback round on PR #70 (not counted)"]);
+    });
+
+    test("a failed issue, once, with the reason", async () => {
+      prOpen({ pendingFeedback: "Blocking: crash", reviewFindings: "[]", feedbackRounds: 2 });
+      await coordinator.tick();
+      expect(events()).toEqual([
+        ["failed", [5], 70, expect.stringMatching(/^#5 failed: .*2 automatic Feedback rounds/)],
+      ]);
+    });
+
+    test("a failing GitHub call records nothing", async () => {
+      await proposed();
+      gh.addLabels = async () => {
+        throw new Error("GitHub POST labels failed with 502");
+      };
+      gh.comments.set(5, [{ id: 950, body: "/approve", author: OWNER, createdAt: "t", updatedAt: "" }]);
+      gh.changed = true;
+      await coordinator.tick();
+      expect(events()).toEqual([["assessed", [5], null, "Assessment of #5: proposed"]]);
+    });
+
+    test("a store error while recording is only logged; the tick and the GitHub action go on", async () => {
+      await proposed();
+      store.recordEvent = () => {
+        throw new Error("disk I/O error");
+      };
+      gh.comments.set(5, [{ id: 950, body: "/approve", author: OWNER, createdAt: "t", updatedAt: "" }]);
+      gh.changed = true;
+      await coordinator.tick();
+      expect(gh.items[0]?.labels).toEqual(["agent:approved"]);
+      expect(logs.join("\n")).toContain("could not record an Event");
+      expect(logs.join("\n")).toContain("disk I/O error");
+      expect(logs.join("\n")).not.toContain("tick failed");
+      expect(coordinator.snapshot()?.finishedAt).toBe(now.toISOString());
+    });
+
+    test("REQ-003-16 the snapshot carries the recorded Events, newest first", async () => {
+      await proposed();
+      gh.comments.set(5, [{ id: 950, body: "/approve", author: OWNER, createdAt: "t", updatedAt: "" }]);
+      gh.changed = true;
+      await coordinator.tick();
+      expect(coordinator.snapshot()?.events.map((e) => e.kind)).toEqual(["approved", "assessed"]);
+    });
+  });
 });

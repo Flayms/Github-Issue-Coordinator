@@ -7,6 +7,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Config, roleSettings } from "./config.ts";
+import { defaultLog, type Log, recordEvent, refs } from "./events.ts";
 import type { GitHubClient, Item } from "./github/client.ts";
 import { agentNote, sessionNote } from "./note.ts";
 import { loadPrompt, renderPrompt } from "./prompts.ts";
@@ -48,6 +49,7 @@ export interface ImplementerDeps {
   store: Store;
   gh: Pick<GitHubClient, "addLabels" | "removeLabel" | "createComment" | "createPull" | "updatePull" | "setDraft">;
   runner: Pick<SessionRunner, "start" | "resume" | "close" | "sessionDir">;
+  log?: Log;
   worktrees: Pick<
     Worktrees,
     | "create"
@@ -144,6 +146,7 @@ export class Implementer {
           s.issues,
           `${note}\n\nThe Implementer could not produce a valid Result: ${check.problem}`,
           sessionId,
+          "the Implementer could not produce a valid Result",
         );
       return;
     }
@@ -157,6 +160,7 @@ export class Implementer {
         s.issues,
         `${note}\n\nThe Implementer finished without committing anything:\n\n${result.summary}`,
         sessionId,
+        "the Implementer finished without committing anything",
       );
       return;
     }
@@ -178,6 +182,13 @@ export class Implementer {
         await this.d.gh.removeLabel(s.repo, n, "agent:in-progress");
         await this.d.gh.addLabels(s.repo, n, ["agent:pr-open"]);
       }
+      recordEvent(this.d.store, this.d.log ?? defaultLog, {
+        repo: s.repo,
+        kind: "pr-opened",
+        issues: s.issues,
+        pr,
+        text: `PR #${pr} opened for ${refs(s.issues)}: ${result.prTitle}`,
+      });
       // REQ-001-49: Screenshots are published per PR, so only once it exists.
       if (listed) {
         const section = await this.publishScreenshots(s.repo, s.issues, wt, pr, listed);
@@ -307,12 +318,19 @@ export class Implementer {
     return this.d.config.repos.find((r) => r.name.toLowerCase() === repo.toLowerCase())?.sandboxDomains ?? [];
   }
 
-  private async failAll(repo: string, issues: number[], comment: string, sessionId: number) {
+  private async failAll(repo: string, issues: number[], comment: string, sessionId: number, reason: string) {
     for (const n of issues) {
       await this.d.gh.removeLabel(repo, n, "agent:in-progress");
       await this.d.gh.addLabels(repo, n, ["agent:failed"]);
     }
     await this.d.gh.createComment(repo, issues[0] ?? 0, comment);
+    recordEvent(this.d.store, this.d.log ?? defaultLog, {
+      repo,
+      kind: "failed",
+      issues,
+      pr: null,
+      text: `${refs(issues)} failed: ${reason}`,
+    });
     try {
       this.d.runner.close(sessionId);
     } catch {}

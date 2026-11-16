@@ -4,8 +4,19 @@
  * background. Every value goes through `esc`, since titles and names come from GitHub and agents
  * (REQ-003-09). No inline styles or scripts: the CSP allows only same-origin files.
  */
+
+import type { EventKind } from "../store.ts";
 import { assetUrl } from "./assets.ts";
-import type { ColumnView, DashboardView, IssueView, MeterView, PullView, SessionView, Tone } from "./view.ts";
+import type {
+  ColumnView,
+  DashboardView,
+  EventView,
+  IssueView,
+  MeterView,
+  PullView,
+  SessionView,
+  Tone,
+} from "./view.ts";
 import { formatTime } from "./view.ts";
 
 export const esc = (s: string | number): string =>
@@ -40,6 +51,9 @@ const ICONS = {
   shield: "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3z",
   server: "M4 4h16v6H4zM4 14h16v6H4zM8 7h.01M8 17h.01",
   repo: "M5 4h11l3 3v13H5zM9 4v6l2-1.5L13 10V4",
+  doc: "M7 3h7l4 4v14H7zM14 3v4h4M10 12h5M10 16h5",
+  pr: "M6 3v12M6 21a3 3 0 100-6 3 3 0 000 6zM18 21a3 3 0 100-6 3 3 0 000 6zM18 15V8a3 3 0 00-3-3h-4M13 3l-2 2 2 2",
+  loop: "M4 12a8 8 0 0114-5.3M20 4v4h-4M20 12a8 8 0 01-14 5.3M4 20v-4h4",
 } as const;
 export type Icon = keyof typeof ICONS;
 
@@ -179,10 +193,37 @@ function session(s: SessionView): string {
 }
 
 const working = (v: DashboardView) =>
-  `<section id="working" class="wrap"><h2>Working now <span class="count">${v.sessions.length}</span></h2>${
+  `<section id="working"><h2>Working now <span class="count">${v.sessions.length}</span></h2>${
     v.sessions.length
       ? `<ul class="rows">${v.sessions.map(session).join("")}</ul>`
       : empty("No agent sessions are open.")
+  }</section>`;
+
+/** REQ-003-16: an icon per kind of Event; the tone comes from the view. */
+const EVENT_ICONS: Record<EventKind, Icon> = {
+  assessed: "doc",
+  approved: "check",
+  blocked: "pause",
+  unblocked: "bolt",
+  "pr-opened": "pr",
+  "review-passed": "merge",
+  "review-findings": "alert",
+  "feedback-round": "loop",
+  failed: "cross",
+};
+
+function event(e: EventView): string {
+  const links = e.links.map((l) => link(l.url, l.label)).join(" ");
+  return `<li class="row event ${e.tone}">
+${icon(EVENT_ICONS[e.kind] ?? "dot")}<div class="e-main"><div class="e-text">${esc(e.text)}</div><div class="e-meta"><time datetime="${esc(e.datetime)}" title="${esc(e.at)}">${esc(e.ago)}</time> · ${esc(e.repo)}${links ? ` · ${links}` : ""}</div></div>
+</li>`;
+}
+
+const recent = (v: DashboardView) =>
+  `<section id="recent"><h2>Recent</h2>${
+    v.recent.length
+      ? `<ul class="rows">${v.recent.map(event).join("")}</ul>`
+      : empty("Nothing has happened yet. Events show up here once the Coordinator acts on an issue.")
   }</section>`;
 
 function upNext(v: DashboardView): string {
@@ -231,7 +272,7 @@ function pipeline(v: DashboardView): string {
     .join("")}</div></section>`;
 }
 
-/** The Overview: Summary, Capacity, Working now, then Up next and the Pipeline in the band. */
+/** The Overview: Summary, Capacity, Working now next to Recent, then Up next and the Pipeline in the band. */
 export function renderDashboard(v: DashboardView): string {
   return layout(
     v,
@@ -239,7 +280,10 @@ export function renderDashboard(v: DashboardView): string {
     `<main>
 <div class="wrap">${summary(v)}</div>
 ${capacity(v)}
+<div class="wrap duo">
 ${working(v)}
+${recent(v)}
+</div>
 <div class="band"><div class="wrap band-grid">${upNext(v)}${pipeline(v)}</div></div>
 </main>`,
   );
