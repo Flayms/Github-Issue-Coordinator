@@ -1036,6 +1036,25 @@ describe("reconcile loop", () => {
     test("a revision in a new Planner session", () => revisionFails("batch"));
     test("a revision that resumes the issue's Planner session", () => revisionFails("issue"));
 
+    test("a revision from scratch after the Owner edited the issue", async () => {
+      await proposed();
+      const before = store.issue("octo/app", 5).bodyHash;
+      gh.items[0] = { ...item(5, ["agent:proposed"]), body: "Body 5, edited" };
+      gh.changed = true;
+      runner.launchError = TOO_LONG;
+      await coordinator.tick();
+      expect(gh.items[0]?.labels).toContain("agent:failed");
+      await expectFailedOnce(5);
+      // The edit is still unhandled: once the issue is retried, it is planned from scratch.
+      expect(store.issue("octo/app", 5).bodyHash).toBe(before);
+      runner.launchError = null;
+      gh.items[0] = { ...item(5, ["agent:proposed"]), body: "Body 5, edited" };
+      gh.changed = true;
+      await coordinator.tick();
+      expect(runner.started.at(-1)?.prompt).toContain("Body 5, edited");
+      expect(store.issue("octo/app", 5).bodyHash).not.toBe(before);
+    });
+
     test("an Implementer run", async () => {
       gh.items = [item(5, ["agent:approved"])];
       store.updateIssue("octo/app", 5, { approvedAt: "2026-11-11T09:00:00Z" });
