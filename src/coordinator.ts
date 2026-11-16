@@ -40,6 +40,7 @@ export interface CoordinatorDeps {
     | "listOpenPulls"
     | "listComments"
     | "labelActor"
+    | "itemHistory"
     | "addLabels"
     | "removeLabel"
     | "createComment"

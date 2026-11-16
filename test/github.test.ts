@@ -270,6 +270,108 @@ describe("GitHub client", () => {
     }
   });
 
+  test("REQ-001-46 reads a linked PR's history: state, draft, labels, key timeline events, Reviews and comments", async () => {
+    const octo = { login: "octo", id: 42 };
+    const bot = { login: "coordinator[bot]", id: 900 };
+    const { gh, requests } = client({
+      "GET /repos/octo/app/issues/47": {
+        body: rawIssue(47, {
+          title: "Dashboard",
+          state: "closed",
+          pull_request: { merged_at: "2026-11-12T00:00:00Z" },
+        }),
+      },
+      "GET /repos/octo/app/pulls/47": {
+        body: {
+          number: 47,
+          node_id: "PR_47",
+          state: "closed",
+          merged: true,
+          draft: false,
+          head: { sha: "abc", ref: "b" },
+          base: { ref: "main" },
+        },
+      },
+      "GET /repos/octo/app/issues/47/timeline": (req) =>
+        req.url.searchParams.get("page") === "2"
+          ? {
+              body: [
+                {
+                  event: "commented",
+                  actor: octo,
+                  user: octo,
+                  body: "/agent fix it",
+                  created_at: "2026-11-11T03:00:00Z",
+                },
+                { event: "merged", actor: octo, created_at: "2026-11-12T00:00:00Z" },
+                { event: "closed", actor: octo, created_at: "2026-11-12T00:00:01Z" },
+              ],
+            }
+          : {
+              body: [
+                { event: "labeled", label: { name: "agent:pr-open" }, actor: bot, created_at: "2026-11-10T00:00:00Z" },
+                {
+                  event: "committed",
+                  sha: "0123456789abcdef",
+                  message: "feat: dashboard\n\nlong text",
+                  author: { name: "Claude", date: "2026-11-10T01:00:00Z" },
+                },
+                {
+                  event: "reviewed",
+                  user: bot,
+                  state: "commented",
+                  body: "1 finding",
+                  submitted_at: "2026-11-10T02:00:00Z",
+                },
+                { event: "convert_to_draft", actor: bot, created_at: "2026-11-10T02:00:05Z" },
+                { event: "head_ref_force_pushed", actor: octo, created_at: "2026-11-11T00:00:00Z" },
+                { event: "ready_for_review", actor: octo, created_at: "2026-11-11T01:00:00Z" },
+                { event: "subscribed", actor: octo, created_at: "2026-11-11T02:00:00Z" },
+                {
+                  event: "unlabeled",
+                  label: { name: "agent:pr-open" },
+                  actor: bot,
+                  created_at: "2026-11-11T02:30:00Z",
+                },
+              ],
+              headers: {
+                link: '<https://api.github.com/repos/octo/app/issues/47/timeline?per_page=100&page=2>; rel="next"',
+              },
+            },
+    });
+    expect(await gh.itemHistory("octo/app", 47)).toEqual({
+      number: 47,
+      title: "Dashboard",
+      isPullRequest: true,
+      state: "merged",
+      draft: false,
+      labels: ["agent:proposed", "bug"],
+      events: [
+        { event: "labeled", actor: "coordinator[bot]", at: "2026-11-10T00:00:00Z", detail: "agent:pr-open" },
+        { event: "committed", actor: "Claude", at: "2026-11-10T01:00:00Z", detail: "0123456 feat: dashboard" },
+        { event: "convert_to_draft", actor: "coordinator[bot]", at: "2026-11-10T02:00:05Z" },
+        { event: "head_ref_force_pushed", actor: "octo", at: "2026-11-11T00:00:00Z" },
+        { event: "ready_for_review", actor: "octo", at: "2026-11-11T01:00:00Z" },
+        { event: "unlabeled", actor: "coordinator[bot]", at: "2026-11-11T02:30:00Z", detail: "agent:pr-open" },
+        { event: "merged", actor: "octo", at: "2026-11-12T00:00:00Z" },
+        { event: "closed", actor: "octo", at: "2026-11-12T00:00:01Z" },
+      ],
+      reviews: [{ state: "commented", author: "coordinator[bot]", body: "1 finding", at: "2026-11-10T02:00:00Z" }],
+      comments: [{ author: "octo", body: "/agent fix it", at: "2026-11-11T03:00:00Z" }],
+    });
+    expect(apiRequests(requests).every((r) => r.method === "GET")).toBe(true);
+  });
+
+  test("REQ-001-46 reads a linked issue's history without fetching a PR", async () => {
+    const { gh, requests } = client({
+      "GET /repos/octo/app/issues/8": { body: rawIssue(8, { state: "open", labels: [] }) },
+      "GET /repos/octo/app/issues/8/timeline": { body: [] },
+    });
+    const h = await gh.itemHistory("octo/app", 8);
+    expect(h).toMatchObject({ isPullRequest: false, state: "open", draft: false, labels: [], events: [] });
+    expect(apiRequests(requests).some((r) => r.url.pathname.includes("/pulls/"))).toBe(false);
+  });
+
   test("REQ-001-14 reads whether a PR is open, closed or merged", async () => {
     for (const [state, merged, expected] of [
       ["open", false, "open"],

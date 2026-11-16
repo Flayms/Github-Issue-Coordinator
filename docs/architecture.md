@@ -1,6 +1,6 @@
 # Architecture
 
-One Bun process, the Coordinator, runs a reconcile loop. Every `pollIntervalSec` it lists each configured repository's open issues and PRs, and the head branches of its open PRs (both with an ETag), works out the desired action for each item from its `agent:*` labels and the local store, and hands actions to a scheduler with per-Role Slots. Agents are interactive `claude` sessions in detached tmux windows, registered with Remote Control so the Owner can follow them from the Claude app. Agents have no GitHub credentials: the Coordinator does every GitHub write, including creating the Split-off issues a Planner proposes in its Result (REQ-001-34). Details and rationale: `docs/specs/001-issue-coordinator/plan.md`.
+One Bun process, the Coordinator, runs a reconcile loop. Every `pollIntervalSec` it lists each configured repository's open issues and PRs, and the head branches of its open PRs (both with an ETag), works out the desired action for each item from its `agent:*` labels and the local store, and hands actions to a scheduler with per-Role Slots. Agents are interactive `claude` sessions in detached tmux windows, registered with Remote Control so the Owner can follow them from the Claude app. Agents have no GitHub credentials: the Coordinator does every GitHub write, including creating the Split-off issues a Planner proposes in its Result (REQ-001-34), and reads for them what they need from GitHub, such as the Linked history of issues and PRs an issue to plan links to (REQ-001-46). Details and rationale: `docs/specs/001-issue-coordinator/plan.md`.
 
 ```mermaid
 flowchart LR
@@ -37,7 +37,7 @@ At the end of every tick the Coordinator publishes a Tick snapshot (issues, agen
 | `src/runner.ts`, `src/tmux.ts` | Start/resume/close `claude --remote-control` sessions in tmux windows `s<id>` (prompt via a file); answer the trust dialog                                                            | T6 done  |
 | `src/hook.ts`                  | Claude Code hook: session id, Owner vs. Coordinator prompts, Result validation on `Stop`, payload log                                                                                 | T6 done  |
 | `src/prompts.ts`, `prompts/`   | Role prompts with repo overrides (contract: spec 002); permissions per Role (`dontAsk` read-only, or `auto` in the sandbox)                                                           | T7 done  |
-| `src/planner.ts`               | Planner pass, plan revision (from scratch on a body edit), Assessment comments, Replies and labels, sync after every Planner turn                                                     | T8 done  |
+| `src/planner.ts`               | Planner pass, plan revision (from scratch on a body edit), Linked history of linked issues and PRs in the prompt (REQ-001-46), Assessment comments, Replies and labels, sync after every Planner turn | T8 done  |
 | `src/results.ts`               | Result schemas per Role and the instructions shown to sessions                                                                                                                        | T6 done  |
 | `src/dashboard/`               | Read-only dashboard (spec 003): `server.ts` (`Bun.serve`, token, GET only), `view.ts` (pure view model), `html.ts` (escaped HTML, no script)                                          | done     |
 
