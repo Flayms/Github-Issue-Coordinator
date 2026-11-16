@@ -490,7 +490,7 @@ describe("Implementer run", () => {
     expect([5, 6].map((n) => store.issue("octo/app", n).prNumber)).toEqual([null, null]);
   });
 
-  test("REQ-001-41 re-attaching records the PR and Worktree, replaces every other agent label with agent:pr-open and says so on the PR", async () => {
+  test("REQ-001-43 re-attaching records the PR and Worktree, replaces every other agent label with agent:pr-open and says so on the PR", async () => {
     store.updateIssue("octo/app", 5, { inFeedbackRound: 1, pendingFeedback: "old", reviewFindings: "[]" });
     expect(await impl.reattach("octo/app", 34, "agent/5-x", [5, 6])).toBe("/wt/5");
     for (const n of [5, 6]) {

@@ -1,12 +1,12 @@
 /**
- * Planner pass (REQ-001-02), plan revision (REQ-001-03) and the sync of Planner turns to GitHub
- * (REQ-001-19): Assessment comments, verdict labels, and the Assessment kept in the store.
+ * Planner pass (REQ-001-02), plan revision (REQ-001-03, REQ-001-41) and the sync of Planner turns to GitHub
+ * (REQ-001-19): Assessment comments, Replies (REQ-001-40), verdict labels, and the Assessment kept in the store.
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Config, roleSettings } from "./config.ts";
-import type { GitHubClient, Item } from "./github/client.ts";
+import type { Comment, GitHubClient, Item } from "./github/client.ts";
 import { GitHubError } from "./github/http.ts";
 import { sessionNote } from "./note.ts";
 import { loadPrompt, renderPrompt } from "./prompts.ts";
@@ -95,39 +95,66 @@ export class Planner {
   }
 
   /**
-   * REQ-001-03: hand the Owner's feedback to the issue's own Planner session, or to a fresh one
-   * with the current Assessment if the issue so far was only part of a batch.
+   * REQ-001-03: hand the Owner's comments to the issue's own Planner session, or to a fresh one with the
+   * current Assessment if the issue so far was only part of a batch.
+   * REQ-001-41: an edited description is planned from scratch, in a fresh session without the old Assessment.
+   * REQ-001-40: the comments are kept as owing a Reply until the turn is synced.
    */
-  async revise(repo: string, repoDir: string, issue: Item, feedback: IssueFeedback): Promise<number> {
+  async revise(
+    repo: string,
+    repoDir: string,
+    issue: Item,
+    feedback: IssueFeedback,
+    all: { issues: Item[]; pulls: Item[] },
+  ): Promise<number> {
     const rec = this.d.store.issue(repo, issue.number);
-    const lastComment = Math.max(rec.lastHandledCommentId, ...feedback.comments.map((c) => c.id));
-    this.d.store.updateIssue(repo, issue.number, { lastHandledCommentId: lastComment, bodyHash: bodyHash(issue.body) });
+    const commentIds = feedback.comments.map((c) => c.id);
+    const lastHandledCommentId = Math.max(rec.lastHandledCommentId, ...commentIds);
     const model = roleSettings(this.d.config, repo, "planner");
-    const feedbackText = renderFeedback(issue, feedback);
-
     const own = this.d.store.latestSession(repo, issue.number, "planner");
+    const start = (context: string) =>
+      this.d.runner.start({
+        repo,
+        role: "planner",
+        kind: "issue",
+        issues: [issue.number],
+        title: issue.title,
+        cwd: repoDir,
+        prompt: renderPrompt(loadPrompt("planner", repoDir), { repo, context }),
+        model,
+      });
+
+    if (feedback.bodyChanged) {
+      if (own?.kind === "issue" && own.state !== "closed") this.d.runner.close(own.id);
+      this.d.store.updateIssue(repo, issue.number, {
+        lastHandledCommentId,
+        bodyHash: bodyHash(issue.body),
+        replyTo: commentIds,
+      });
+      const context = renderContext({ assess: [issue], ...all });
+      return start(feedback.comments.length ? `${context}\n\n${renderFeedback(feedback.comments, true)}` : context);
+    }
+
+    this.d.store.updateIssue(repo, issue.number, {
+      lastHandledCommentId,
+      bodyHash: bodyHash(issue.body),
+      replyTo: [...rec.replyTo, ...commentIds],
+    });
+    const feedbackText = renderFeedback(feedback.comments, false);
     if (own?.kind === "issue" && own.claudeSessionId) {
       this.d.runner.resume(own.id, feedbackText, model);
       return own.id;
     }
-    const context = [
-      renderContext({ assess: [issue], issues: [], pulls: [] })
-        .split("## All open issues")[0]
-        ?.trim(),
-      "## Current Assessment",
-      rec.assessment ?? "(none)",
-      feedbackText,
-    ].join("\n\n");
-    return this.d.runner.start({
-      repo,
-      role: "planner",
-      kind: "issue",
-      issues: [issue.number],
-      title: issue.title,
-      cwd: repoDir,
-      prompt: renderPrompt(loadPrompt("planner", repoDir), { repo, context }),
-      model,
-    });
+    return start(
+      [
+        renderContext({ assess: [issue], issues: [], pulls: [] })
+          .split("## All open issues")[0]
+          ?.trim(),
+        "## Current Assessment",
+        rec.assessment ?? "(none)",
+        feedbackText,
+      ].join("\n\n"),
+    );
   }
 
   /** REQ-001-02/03/19/21: after any turn, bring GitHub in line with the session's Result. */
@@ -157,17 +184,29 @@ export class Planner {
 
     for (const a of check.value as PlannerResult) {
       const rec = this.d.store.issue(s.repo, a.issue);
-      const json = JSON.stringify(a);
-      if (rec.assessment === json && rec.assessmentCommentId !== null) continue; // nothing changed
-      const splitOffs = await this.createSplitOffs(s.repo, a, note);
-      const body = renderAssessment(a, note, splitOffs);
-      const commentId = await this.postAssessment(s.repo, a.issue, rec.assessmentCommentId, body);
-      this.d.store.updateIssue(s.repo, a.issue, { assessment: json, assessmentCommentId: commentId });
+      const { reply, ...assessment } = a;
+      const json = JSON.stringify(assessment);
+      let commentId = rec.assessmentCommentId;
+      if (rec.assessment !== json || commentId === null) {
+        const splitOffs = await this.createSplitOffs(s.repo, a, note);
+        const body = renderAssessment(a, note, splitOffs);
+        commentId = await this.postAssessment(s.repo, a.issue, commentId, body);
+        this.d.store.updateIssue(s.repo, a.issue, { assessment: json, assessmentCommentId: commentId });
 
-      const target = `agent:${a.verdict}`;
-      for (const l of ["agent:planning", ...VERDICT_LABELS])
-        if (l !== target) await this.d.gh.removeLabel(s.repo, a.issue, l);
-      await this.d.gh.addLabels(s.repo, a.issue, [target]);
+        const target = `agent:${a.verdict}`;
+        for (const l of ["agent:planning", ...VERDICT_LABELS])
+          if (l !== target) await this.d.gh.removeLabel(s.repo, a.issue, l);
+        await this.d.gh.addLabels(s.repo, a.issue, [target]);
+      }
+      // REQ-001-40: only a turn the Owner's comments started owes a Reply; cleared right after posting it.
+      if (rec.replyTo.length) {
+        await this.d.gh.createComment(
+          s.repo,
+          a.issue,
+          renderReply(s.repo, a.issue, rec.replyTo, commentId, reply, note),
+        );
+        this.d.store.updateIssue(s.repo, a.issue, { replyTo: [] });
+      }
     }
     this.d.store.patchSession(sessionId, { needsSync: false });
     if (s.kind === "batch") this.d.runner.close(sessionId);
@@ -204,10 +243,39 @@ export class Planner {
   }
 }
 
-function renderFeedback(issue: Item, f: IssueFeedback): string {
-  const parts = ["## The Owner's feedback", "Revise your Assessment of this issue accordingly."];
-  if (f.bodyChanged)
-    parts.push(`The Owner edited the issue description. It now reads:\n\n${truncate(issue.body, BODY_LIMIT)}`);
-  for (const c of f.comments) parts.push(`Comment:\n\n${c.body}`);
+function renderFeedback(comments: Comment[], fresh: boolean): string {
+  const parts = [
+    "## The Owner's feedback",
+    fresh
+      ? "The Owner also commented on this issue. Take it into account."
+      : "Revise your Assessment of this issue accordingly.",
+    ...comments.map((c) => `Comment:\n\n${c.body}`),
+    "In your Result, also write `reply` for this issue: a few lines for the Owner on what changed in the Assessment and why, or why nothing changed.",
+  ];
   return parts.join("\n\n");
+}
+
+const commentUrl = (repo: string, issue: number, id: number) =>
+  `https://github.com/${repo}/issues/${issue}#issuecomment-${id}`;
+
+/** REQ-001-40: the Reply to the Owner's comments, linking them and the Assessment. */
+export function renderReply(
+  repo: string,
+  issue: number,
+  commentIds: number[],
+  assessmentCommentId: number,
+  reply: string | undefined,
+  note: string,
+): string {
+  const url = (id: number) => commentUrl(repo, issue, id);
+  const re =
+    commentIds.length === 1
+      ? `[your comment](${url(commentIds[0] as number)})`
+      : `your comments ${commentIds.map((id, i) => `[${i + 1}](${url(id)})`).join(", ")}`;
+  return [
+    note,
+    `Re: ${re}`,
+    reply?.trim() || "Took your feedback into account in the Assessment.",
+    `<sub>See the [Assessment](${url(assessmentCommentId)}).</sub>`,
+  ].join("\n\n");
 }

@@ -133,7 +133,7 @@ describe("worktrees", () => {
     expect(w.hasRoom()).toBe(true);
   });
 
-  test("REQ-001-41 re-attaching builds a Worktree from the PR's remote branch, which still pushes as a fast-forward", async () => {
+  test("REQ-001-43 re-attaching builds a Worktree from the PR's remote branch, which still pushes as a fast-forward", async () => {
     git(origin, "checkout", "-q", "-b", "agent/5-fix-it");
     writeFileSync(join(origin, "fix.txt"), "fix");
     git(origin, "add", "-A");
@@ -159,7 +159,7 @@ describe("worktrees", () => {
     expect(git(origin, "rev-parse", "agent/5-fix-it~1")).toBe(remoteHead);
   });
 
-  test("REQ-001-41 re-attaching never reuses a folder that exists, and respects maxWorktrees", async () => {
+  test("REQ-001-43 re-attaching never reuses a folder that exists, and respects maxWorktrees", async () => {
     git(origin, "branch", "agent/5-fix-it");
     const w = make(undefined, 1);
     await w.create("octo/app", [5], "fix it");

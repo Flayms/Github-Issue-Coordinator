@@ -807,14 +807,14 @@ describe("agent PRs without a Worktree on record", () => {
     headSeenAt: null,
   };
 
-  test("REQ-001-40 a new issue with an open agent PR named after it is not planned", () => {
+  test("REQ-001-42 a new issue with an open agent PR named after it is not planned", () => {
     const actions = deriveActions(
       snap({ items: [issue(5), issue(6)], openPulls: [openPull(34, "agent/5-fix-it")], worktrees: [record] }),
     );
     expect(actions).toEqual([{ type: "plan", repo: "octo/app", issues: [6] }]);
   });
 
-  test("REQ-001-40 an issue an agent PR closes is not planned, whatever the branch number", () => {
+  test("REQ-001-42 an issue an agent PR closes is not planned, whatever the branch number", () => {
     const actions = deriveActions(
       snap({
         items: [issue(5), issue(6), issue(7)],
@@ -825,7 +825,7 @@ describe("agent PRs without a Worktree on record", () => {
     expect(actions).toEqual([{ type: "plan", repo: "octo/app", issues: [7] }]);
   });
 
-  test("REQ-001-40 an approved issue with an open agent PR starts no Implementer, nor joins a Bundle", () => {
+  test("REQ-001-42 an approved issue with an open agent PR starts no Implementer, nor joins a Bundle", () => {
     const actions = deriveActions(
       snap({
         items: [issue(5, ["agent:approved"]), issue(6, ["agent:approved"])],
@@ -846,7 +846,7 @@ describe("agent PRs without a Worktree on record", () => {
     expect(actions).toEqual([{ type: "implement", repo: "octo/app", issues: [6], approvedAt: "2026-11-11T10:00:00Z" }]);
   });
 
-  test("REQ-001-40 a PR from a fork, or from a branch not named agent/<n>-…, is not an agent PR", () => {
+  test("REQ-001-42 a PR from a fork, or from a branch not named agent/<n>-…, is not an agent PR", () => {
     const actions = deriveActions(
       snap({
         items: [issue(5), issue(6)],
@@ -861,7 +861,7 @@ describe("agent PRs without a Worktree on record", () => {
     expect(actions).toEqual([{ type: "plan", repo: "octo/app", issues: [5, 6] }]);
   });
 
-  test("REQ-001-41 an open agent PR with no Worktree on record is re-attached, for its open issues in scope", () => {
+  test("REQ-001-43 an open agent PR with no Worktree on record is re-attached, for its open issues in scope", () => {
     const actions = deriveActions(
       snap({
         items: [issue(5, ["agent:proposed"]), issue(7, [], { author: { login: "mallory", id: 666 } })],
@@ -871,14 +871,14 @@ describe("agent PRs without a Worktree on record", () => {
     expect(actions).toEqual([{ type: "reattach", repo: "octo/app", pr: 34, branch: "agent/5-fix-it", issues: [5] }]);
   });
 
-  test("REQ-001-41 an issue being re-attached with a stale in-flight label and no session is not failed", () => {
+  test("REQ-001-43 an issue being re-attached with a stale in-flight label and no session is not failed", () => {
     for (const label of ["agent:planning", "agent:in-progress", "agent:reviewing"]) {
       const actions = deriveActions(snap({ items: [issue(5, [label])], openPulls: [openPull(34, "agent/5-fix-it")] }));
       expect(actions).toEqual([{ type: "reattach", repo: "octo/app", pr: 34, branch: "agent/5-fix-it", issues: [5] }]);
     }
   });
 
-  test("REQ-001-41 a PR whose issues have a Worktree on record is not re-attached", () => {
+  test("REQ-001-43 a PR whose issues have a Worktree on record is not re-attached", () => {
     for (const w of [record, { ...record, prNumber: null }, { ...record, issues: [6], prNumber: 34 }]) {
       const actions = deriveActions(
         snap({
@@ -891,7 +891,7 @@ describe("agent PRs without a Worktree on record", () => {
     }
   });
 
-  test("REQ-001-41 a PR whose issue has an open session, or one still to be synced, is not re-attached", () => {
+  test("REQ-001-43 a PR whose issue has an open session, or one still to be synced, is not re-attached", () => {
     for (const s of [
       {
         sessions: [session({ role: "planner", kind: "batch", issues: [4, 5], state: "idle" })],
@@ -906,7 +906,7 @@ describe("agent PRs without a Worktree on record", () => {
     }
   });
 
-  test("REQ-001-41 an orphaned agent PR whose issues are all closed or out of scope is only reported", () => {
+  test("REQ-001-43 an orphaned agent PR whose issues are all closed or out of scope is only reported", () => {
     const actions = deriveActions(
       snap({
         items: [issue(7, [], { author: { login: "mallory", id: 666 } })],

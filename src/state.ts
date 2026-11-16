@@ -66,7 +66,7 @@ export interface Snapshot {
    * the fetch failed, so nothing is decided about that PR on this tick.
    */
   pulls?: ReadonlyMap<number, PullState>;
-  /** Open PRs of the repository with their head branch, to find agent PRs without a Worktree on record (REQ-001-40/41). */
+  /** Open PRs of the repository with their head branch, to find agent PRs without a Worktree on record (REQ-001-42/43). */
   openPulls?: OpenPull[];
   /** Per agent PR: the Owner's comments since the last handled one, and changes-requested reviews by the Owner. */
   prFeedback?: ReadonlyMap<number, { comments: Comment[]; changesRequested: { id: number; body: string }[] }>;
@@ -129,9 +129,9 @@ export type Action =
   | { type: "review"; repo: string; pr: number; issues: number[]; headSha: string }
   | { type: "implement"; repo: string; issues: number[]; approvedAt: string }
   | { type: "cleanup"; repo: string; issues: number[]; prNumber: number; worktreePath: string }
-  /** REQ-001-41: rebuild the Worktree of an orphaned agent PR from its branch and record the PR again. */
+  /** REQ-001-43: rebuild the Worktree of an orphaned agent PR from its branch and record the PR again. */
   | { type: "reattach"; repo: string; pr: number; branch: string; issues: number[] }
-  /** REQ-001-41: an orphaned agent PR whose issues are all closed or out of scope; only logged. */
+  /** REQ-001-43: an orphaned agent PR whose issues are all closed or out of scope; only logged. */
   | { type: "orphan-closed"; repo: string; pr: number; issues: number[] }
   | { type: "resume-interrupted"; session: SessionRecord }
   | { type: "mark-closed"; session: SessionRecord }
@@ -188,11 +188,11 @@ export function deriveActions(s: Snapshot): Action[] {
   const owners = [...s.sessions, ...(s.pendingSync ?? [])];
   const awaitingRound = (n: number) => (s.worktrees ?? []).some((w) => w.pendingFeedback && w.issues.includes(n));
 
-  // REQ-001-40: issues with an open agent PR are never planned or implemented again.
+  // REQ-001-42: issues with an open agent PR are never planned or implemented again.
   const agent = agentPulls(s.repo, s.openPulls ?? []);
   const withPull = new Set(agent.flatMap((p) => p.issues));
 
-  // REQ-001-41: an open agent PR without a Worktree on record for any of its issues, and no session
+  // REQ-001-43: an open agent PR without a Worktree on record for any of its issues, and no session
   // on them, is re-attached; one whose issues are all closed or out of scope is only reported.
   // Queued after the other actions, but known here: a stale in-flight label on an issue being
   // re-attached is replaced, so it must not fail the issue.
@@ -214,7 +214,7 @@ export function deriveActions(s: Snapshot): Action[] {
   for (const i of issues) {
     const role = IN_FLIGHT[issueState(i.labels)];
     if (role === "implementer" && awaitingRound(i.number)) continue;
-    if (reattaching.has(i.number)) continue; // REQ-001-41
+    if (reattaching.has(i.number)) continue; // REQ-001-43
     if (role && !owners.some((x) => x.role === role && x.issues.includes(i.number)))
       actions.push({ type: "fail", repo: s.repo, issues: [i.number], reason: `no ${role} session to resume` });
   }
@@ -278,7 +278,7 @@ export function deriveActions(s: Snapshot): Action[] {
   for (const i of [...issues].sort((a, b) => a.number - b.number)) {
     const rec = s.records?.get(i.number);
     if (issueState(i.labels) !== "approved" || !rec?.approvedAt || bundled.has(i.number)) continue;
-    if (withPull.has(i.number)) continue; // REQ-001-40
+    if (withPull.has(i.number)) continue; // REQ-001-42
     if (coordination(rec.assessment, "blockedBy").some((n) => open.has(n))) continue;
     const joinable = (n: number) => {
       const other = issues.find((x) => x.number === n);
@@ -414,7 +414,7 @@ export function deriveActions(s: Snapshot): Action[] {
 
   actions.push(...orphans);
 
-  // REQ-001-02: one Planner pass over all new issues; REQ-001-40: not those with an open agent PR.
+  // REQ-001-02: one Planner pass over all new issues; REQ-001-42: not those with an open agent PR.
   const fresh = issues.filter((i) => issueState(i.labels) === "new" && !withPull.has(i.number)).map((i) => i.number);
   if (fresh.length > 0) actions.push({ type: "plan", repo: s.repo, issues: fresh });
 
@@ -425,7 +425,7 @@ export function deriveActions(s: Snapshot): Action[] {
 const CLOSES = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+#(\d+)\b/gi;
 
 /**
- * REQ-001-40: open PRs from an `agent/<n>-…` branch of this repository (never a fork), with the
+ * REQ-001-42: open PRs from an `agent/<n>-…` branch of this repository (never a fork), with the
  * issues each is named after or closes, sorted.
  */
 export function agentPulls(repo: string, pulls: OpenPull[]): { number: number; headRef: string; issues: number[] }[] {

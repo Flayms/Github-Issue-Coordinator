@@ -113,7 +113,7 @@ describe("GitHub client", () => {
     expect(apiRequests(requests)[1]?.headers.get("if-none-match")).toBe('"v1"');
   });
 
-  test("REQ-001-40 lists open PRs with head branch, head repository and body, polling with the ETag", async () => {
+  test("REQ-001-42 lists open PRs with head branch, head repository and body, polling with the ETag", async () => {
     const raw = (number: number, repo: string | null, body: string | null) => ({
       number,
       body,

@@ -70,7 +70,7 @@ export class Worktrees {
   }
 
   /**
-   * REQ-001-41: the Worktree of an orphaned agent PR, rebuilt from its remote branch and tracking it,
+   * REQ-001-43: the Worktree of an orphaned agent PR, rebuilt from its remote branch and tracking it,
    * so later pushes stay fast-forwards. Never reuses a folder that exists.
    */
   async attach(repo: string, issues: number[], branch: string): Promise<Worktree> {

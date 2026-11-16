@@ -66,7 +66,7 @@ export class Coordinator {
   private readonly views = new Map<string, RepoView>();
   /** Failed sync attempts in a row per session; kept in memory, so a restart allows a few more (REQ-001-27). */
   private readonly syncFailures = new Map<number, number>();
-  /** Orphaned agent PRs already reported as having no open issue to re-attach to (REQ-001-41). */
+  /** Orphaned agent PRs already reported as having no open issue to re-attach to (REQ-001-43). */
   private readonly reportedOrphans = new Set<string>();
   private readonly now: () => Date;
   private readonly log: (m: string) => void;
@@ -414,10 +414,16 @@ export class Coordinator {
           { key: `${a.repo}#${a.issue} revise`, kind: "revise", role: "planner", queuedAt: now, sessionId },
           async () => {
             const dir = await this.d.clones.mainClone(a.repo);
-            const id = await this.planner.revise(a.repo, dir, issue, {
-              comments: a.comments,
-              bodyChanged: a.bodyChanged,
-            });
+            const splitOffs = this.d.store.splitOffNumbers(a.repo);
+            const issues = view.items.filter((i) => inScope(i, this.d.config.owner.id, splitOffs));
+            const pulls = view.items.filter((i) => i.isPullRequest);
+            const id = await this.planner.revise(
+              a.repo,
+              dir,
+              issue,
+              { comments: a.comments, bodyChanged: a.bodyChanged },
+              { issues, pulls },
+            );
             view.feedback.delete(a.issue);
             this.log(`${a.repo}#${a.issue}: revising the plan (session ${id})`);
           },
@@ -428,7 +434,7 @@ export class Coordinator {
   }
 
   /**
-   * REQ-001-41: re-attach an orphaned agent PR, once GitHub reports the PR itself open on the same
+   * REQ-001-43: re-attach an orphaned agent PR, once GitHub reports the PR itself open on the same
    * branch: the open list may lag behind a PR just closed (REQ-001-14). Failures (maxWorktrees
    * reached, a folder in the way) are logged and retried on a later tick.
    */

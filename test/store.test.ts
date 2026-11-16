@@ -233,6 +233,28 @@ describe("store", () => {
     }
   });
 
+  test("REQ-001-40 keeps the comments a reply is pending for, also in a database created before they existed", () => {
+    const dir = mkdtempSync(join(tmpdir(), "store-"));
+    try {
+      const path = join(dir, "state.db");
+      const old = new Database(path, { create: true });
+      old.exec(`CREATE TABLE issues (repo TEXT NOT NULL, number INTEGER NOT NULL, PRIMARY KEY (repo, number))`);
+      old.exec(`INSERT INTO issues (repo, number) VALUES ('octo/app', 5)`);
+      old.close();
+      const s = new Store(path);
+      expect(s.issue("octo/app", 5).replyTo).toEqual([]);
+      s.updateIssue("octo/app", 5, { replyTo: [300, 301] });
+      s.close();
+      const again = new Store(path);
+      expect(again.issue("octo/app", 5).replyTo).toEqual([300, 301]);
+      again.updateIssue("octo/app", 5, { replyTo: [] });
+      expect(again.issue("octo/app", 5).replyTo).toEqual([]);
+      again.close();
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
   test("keeps per-issue bookkeeping, merging partial updates", () => {
     const s = new Store(":memory:");
     expect(s.issue("octo/app", 5)).toEqual({
@@ -258,6 +280,7 @@ describe("store", () => {
       autoRound: null,
       reviewFindings: null,
       reviewHistory: null,
+      replyTo: [],
     });
     s.updateIssue("octo/app", 5, { assessmentCommentId: 77, lastHandledCommentId: 12 });
     s.updateIssue("octo/app", 5, { feedbackRounds: 1 });

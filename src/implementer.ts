@@ -26,7 +26,7 @@ export interface AutoRound {
 }
 /**
  * Labels a re-attached issue loses: every agent label but `agent:pr-open`. A stale one would win over
- * it (REQ-001-16): `agent:failed` would stop automatic rounds, an in-flight one would fail the issue (REQ-001-41).
+ * it (REQ-001-16): `agent:failed` would stop automatic rounds, an in-flight one would fail the issue (REQ-001-43).
  */
 const CLEARED_ON_REATTACH = [
   "agent:proposed",
@@ -91,7 +91,7 @@ export class Implementer {
   }
 
   /**
-   * REQ-001-41: re-attach an orphaned agent PR. Rebuilds its Worktree from the PR's branch, records the
+   * REQ-001-43: re-attach an orphaned agent PR. Rebuilds its Worktree from the PR's branch, records the
    * PR again and labels the issues `agent:pr-open`, so Reviews and Feedback rounds resume. State of an
    * earlier round in progress is cleared; the issues' Review history and round count are kept.
    */

@@ -61,7 +61,7 @@ export interface Pull {
   state: PullStatus;
 }
 
-/** An open PR as listed by the pulls endpoint, with its head branch (REQ-001-40). */
+/** An open PR as listed by the pulls endpoint, with its head branch (REQ-001-42). */
 export interface OpenPull {
   number: number;
   headRef: string;
@@ -113,7 +113,7 @@ export class GitHubClient {
   }
 
   /**
-   * All open PRs with their head branch and repository, which the issues list lacks (REQ-001-40).
+   * All open PRs with their head branch and repository, which the issues list lacks (REQ-001-42).
    * Polled with the ETag like `listOpenItems`; on 304 the cached list is returned.
    */
   async listOpenPulls(repo: string): Promise<OpenPull[]> {
