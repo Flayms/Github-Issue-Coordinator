@@ -48,7 +48,7 @@ Create a private GitHub App: GitHub → Settings → Developer settings → GitH
 
 - Name: anything, e.g. `my-issue-coordinator`. Homepage URL: this repository.
 - Webhook: untick **Active** (the Coordinator polls).
-- Repository permissions: **Issues** read & write, **Pull requests** read & write, **Contents** read & write, **Checks** read-only, **Metadata** read-only. Nothing else.
+- Repository permissions: **Issues** read & write, **Pull requests** read & write, **Contents** read & write, **Workflows** read & write, **Checks** read-only, **Metadata** read-only. Nothing else. Workflows lets the Implementer push changes to `.github/workflows/`; without it GitHub rejects any push that touches a workflow file.
 - Where can it be installed: **Only on this account**.
 
 After creating it:
