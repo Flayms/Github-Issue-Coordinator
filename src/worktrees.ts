@@ -138,8 +138,13 @@ export class Worktrees {
     rmSync(path, { recursive: true, force: true });
   }
 
-  async push(repo: string, path: string, branch: string): Promise<void> {
-    git(path, [...gitAuthArgs(await this.o.token(repo)), "push", "-q", "origin", `${branch}:refs/heads/${branch}`]);
+  /**
+   * Pushes the branch as a fast-forward; `replace` overwrites the remote branch instead, for a
+   * leftover branch of a closed PR (REQ-001-58).
+   */
+  async push(repo: string, path: string, branch: string, o: { replace?: boolean } = {}): Promise<void> {
+    const ref = `${o.replace ? "+" : ""}${branch}:refs/heads/${branch}`;
+    git(path, [...gitAuthArgs(await this.o.token(repo)), "push", "-q", "origin", ref]);
   }
 
   /**

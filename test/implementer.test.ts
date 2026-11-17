@@ -64,6 +64,7 @@ class FakeWorktrees {
   async fetchBase() {}
   created: [string, number[], string][] = [];
   pushed: string[] = [];
+  replaced: boolean[] = [];
   removed: string[] = [];
   ahead = 0;
   room = true;
@@ -81,8 +82,9 @@ class FakeWorktrees {
     this.created.push([repo, issues, title]);
     return { path: `/wt/${issues[0]}`, branch: `agent/${issues[0]}-x` };
   }
-  async push(_repo: string, _path: string, branch: string) {
+  async push(_repo: string, _path: string, branch: string, o?: { replace?: boolean }) {
     this.pushed.push(branch);
+    this.replaced.push(o?.replace ?? false);
   }
   commitsAhead() {
     return this.ahead;
@@ -258,6 +260,16 @@ describe("Implementer run", () => {
     expect(gh.of("updatePull")).toEqual([
       ["updatePull", 77, { title: "Dark mode", body: expect.stringContaining("and a test") }],
     ]);
+  });
+
+  test("REQ-001-58 the first push without a PR on record replaces a leftover branch, later pushes do not", async () => {
+    const id = await impl.start("octo/app", [item(5)]);
+    wt.ahead = 1;
+    finish(id);
+    await impl.sync(id);
+    finish(id, { prTitle: "Dark mode", prBody: "Adds a toggle and a test.", summary: "Owner asked for a test" });
+    await impl.sync(id);
+    expect(wt.replaced).toEqual([true, false]);
   });
 
   test("a turn that ends without any commit and without a PR reports the summary and labels agent:failed", async () => {
