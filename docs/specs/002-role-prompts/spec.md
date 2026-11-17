@@ -118,11 +118,18 @@ The Owner gets plans they can approve on a phone, code that matches those plans,
 - **Then** it reads it on GitHub with `gh` (REQ-005-02) before saying it is missing
 - **And** it leaves posting, labelling, pushing and merging to the Coordinator (REQ-005-04)
 
+### REQ-002-15 The Planner shows options before they are built, and says what it can't do
+
+- **Given** an issue, or the Owner's feedback, that asks to see options, mockups or a visual or UX choice before it is built
+- **When** the Planner assesses or revises it
+- **Then** its prompt tells it to render Mockups outside the repository, e.g. from fixture data in a headless browser, and list them in its Result (REQ-001-60), so the Owner chooses on the issue rather than in the PR
+- **And** it is told never to move what the Owner asked for to a later phase without saying so: if it can't do it, it says so plainly in `reply` (on a revision) or in the Assessment, and asks in `questions` how to go on
+
 ## Out of scope
 
 - Updating prompts that a repository has overridden in `.github/coordinator/<role>.md` (REQ-001-22).
 - Structured Result fields that the Coordinator renders into a fixed template; REQ-002-11 is prompt guidance only.
-- Changing the Result schemas, apart from the Reviewer's findings (REQ-002-09); the Planner's `splitOff` field belongs to REQ-001-34, `reply` to REQ-001-40, the Implementer's `screenshots` to REQ-001-48.
+- Changing the Result schemas, apart from the Reviewer's findings (REQ-002-09); the Planner's `splitOff` field belongs to REQ-001-34, `reply` to REQ-001-40, the Implementer's `screenshots` to REQ-001-48, the Planner's `mockups` to REQ-001-60.
 
 ## Assumptions
 
@@ -149,4 +156,5 @@ The Owner gets plans they can approve on a phone, code that matches those plans,
 | REQ-002-13 | `prompts > REQ-002-13 the Implementer prompt captures Screenshots of UI changes when the conventions ask, or says why not`                                                                      | pass (wording only; quality via a real run)              |
 | REQ-002-13 | `prompts > REQ-002-13 the Implementer prompt may install a browser and needs no sandbox workarounds`                                                                                            | pass (wording only; quality via a real run)              |
 | REQ-002-14 | `prompts > REQ-002-14 every default prompt reads missing GitHub context with gh before calling it missing`; `prompts > REQ-005-04 every default prompt leaves GitHub writes to the Coordinator` | pass (wording only; quality via a real run)              |
+| REQ-002-15 | `prompts > REQ-002-15 the Planner may render Mockups and never quietly defers what the Owner asked for`                                                                                         | pass (wording only; quality via a real run)              |
 | all        | manual: one real run per Role                                                                                                                                                                   | open (to be done by the Owner on this PR via dogfooding) |

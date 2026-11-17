@@ -247,6 +247,47 @@ describe("deriveActions", () => {
     ]);
   });
 
+  describe("REQ-001-59 a Bundle waits while the Owner is still discussing one of its issues", () => {
+    const records = new Map([[5, { approvedAt: "2026-11-11T09:00:00Z", assessment: bundleAssessment(5, [7]) }]]);
+    const implement = expect.objectContaining({ type: "implement" });
+    const note = (id: number, body: string, author = OWNER) => ({ id, body, author, createdAt: "", updatedAt: "" });
+
+    test("waits while a bundled proposal has an unanswered Owner comment or an edited description, and revises it", () => {
+      const items = [issue(5, ["agent:approved"]), issue(7, ["agent:proposed"])];
+      const comment = deriveActions(
+        snap({ items, records, feedback: new Map([[7, { comments: [note(70, "add images")], bodyChanged: false }]]) }),
+      );
+      expect(comment).not.toContainEqual(implement);
+      expect(comment).toContainEqual(expect.objectContaining({ type: "revise", issue: 7 }));
+      const edited = deriveActions(
+        snap({ items, records, feedback: new Map([[7, { comments: [], bodyChanged: true }]]) }),
+      );
+      expect(edited).not.toContainEqual(implement);
+    });
+
+    test("waits while a bundled issue is being planned", () => {
+      const items = [issue(5, ["agent:approved"]), issue(7, ["agent:planning"])];
+      const sessions = [session({ role: "planner", issues: [7] })];
+      expect(deriveActions(snap({ items, records, sessions, liveSessionIds: new Set([1]) }))).not.toContainEqual(
+        implement,
+      );
+    });
+
+    test("a proposal with only someone else's comment or a command still joins; other states start without it", () => {
+      const items = [issue(5, ["agent:approved"]), issue(7, ["agent:proposed"])];
+      const feedback = new Map([
+        [7, { comments: [note(71, "me too", { login: "x", id: 1 }), note(72, "/wake")], bodyChanged: false }],
+      ]);
+      expect(deriveActions(snap({ items, records, feedback }))).toContainEqual(
+        expect.objectContaining({ type: "implement", issues: [5, 7] }),
+      );
+      const refining = [issue(5, ["agent:approved"]), issue(7, ["agent:needs-refinement"])];
+      expect(deriveActions(snap({ items: refining, records }))).toContainEqual(
+        expect.objectContaining({ type: "implement", issues: [5] }),
+      );
+    });
+  });
+
   const pr = (n: number) => issue(n, [], { isPullRequest: true, author: { login: "bot", id: 1 } });
   const wt = (reviewedHeadSha: string | null = null, extra: Partial<WorktreeRecord> = {}): WorktreeRecord[] => [
     {

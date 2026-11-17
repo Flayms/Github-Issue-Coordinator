@@ -11,7 +11,7 @@ import type { Actor, Comment, GitHubClient, Item } from "./github/client.ts";
 import { Implementer, type ImplementerDeps } from "./implementer.ts";
 import { labelPr } from "./labels.ts";
 import { agentNote, isAgentNote, ROLE_NAMES } from "./note.ts";
-import { bodyHash, Planner } from "./planner.ts";
+import { bodyHash, Planner, type PlannerDeps } from "./planner.ts";
 import { Reviewer, type ReviewerDeps } from "./reviewer.ts";
 import { type SessionRunner, SessionStartError } from "./runner.ts";
 import { type LiveSession, type Queued, schedule, type WaitReason, type Work } from "./scheduler.ts";
@@ -74,7 +74,7 @@ export interface CoordinatorDeps {
     "start" | "resume" | "close" | "sessionDir" | "liveSessionIds" | "answerDialogs" | "screen" | "abandon"
   >;
   clones: Pick<Clones, "mainClone">;
-  worktrees: ImplementerDeps["worktrees"] & ReviewerDeps["worktrees"];
+  worktrees: ImplementerDeps["worktrees"] & ReviewerDeps["worktrees"] & PlannerDeps["worktrees"];
   now?: () => Date;
   log?: (message: string) => void;
 }

@@ -115,6 +115,20 @@ describe("Result validation", () => {
     );
   });
 
+  test("REQ-001-60 a Planner entry may list Mockups with a path and a caption, and stays valid without them", () => {
+    const plan = (extra: object) =>
+      JSON.stringify([
+        { issue: 5, verdict: "proposed", approach: "A", bundleWith: [], blockedBy: [], questions: [], ...extra },
+      ]);
+    const mockup = { path: "mockups/a.png", caption: "Option A" };
+    const ok = validateResult("planner", plan({ mockups: [mockup] }), [5]);
+    expect(ok.ok && ok.value).toMatchObject([{ mockups: [mockup] }]);
+    expect(validateResult("planner", plan({}), [5]).ok).toBe(true);
+    expect(validateResult("planner", plan({ mockups: [{ path: "", caption: "x" }] }), [5]).ok).toBe(false);
+    expect(validateResult("planner", plan({ mockups: [{ path: "a.png" }] }), [5]).ok).toBe(false);
+    expect(resultInstructions("planner", "/s/7/result.json")).toContain("mockups");
+  });
+
   test("REQ-001-48 an Implementer Result may list Screenshots with a path and a caption", () => {
     const impl = (extra: object) => JSON.stringify({ prTitle: "T", prBody: "B", summary: "S", ...extra });
     const shot = { path: ".coordinator/screenshots/board.png", caption: "The board" };
