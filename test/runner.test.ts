@@ -191,6 +191,11 @@ describe("session runner", () => {
     }
   });
 
+  test("REQ-005-01 every session is started with IS_SANDBOX=1, so skipped permissions also work as root", () => {
+    for (const role of ["planner", "implementer", "reviewer"] as const)
+      expect(tmux.windows.get(`s${startRole(role)}`)?.command).toStartWith("IS_SANDBOX=1 'claude' ");
+  });
+
   test("REQ-005-01 session settings hold only the hooks, for every Role", () => {
     for (const role of ["planner", "implementer", "reviewer"] as const) {
       const id = startRole(role);
@@ -436,7 +441,7 @@ describe("Accounts", () => {
 
   test("REQ-004-01 a session starts on the first Account, in Claude's default folder, and records it", () => {
     const id = start();
-    expect(commandOf(id)).toStartWith("'claude' ");
+    expect(commandOf(id)).toStartWith("IS_SANDBOX=1 'claude' ");
     expect(commandOf(id)).not.toContain("CLAUDE_CONFIG_DIR");
     expect(store.session(id)?.account).toBe("main");
   });
@@ -444,7 +449,7 @@ describe("Accounts", () => {
   test("REQ-004-01 / REQ-001-17 while the first Account is paused, sessions start on the next one with its folder", () => {
     store.setPausedUntil("main", new Date(Date.now() + 60_000).toISOString());
     const id = start();
-    expect(commandOf(id)).toStartWith(`CLAUDE_CONFIG_DIR=${shellQuote([spareDir()])} 'claude' `);
+    expect(commandOf(id)).toStartWith(`IS_SANDBOX=1 CLAUDE_CONFIG_DIR=${shellQuote([spareDir()])} 'claude' `);
     expect(store.session(id)?.account).toBe("spare");
   });
 
@@ -458,7 +463,9 @@ describe("Accounts", () => {
     store.setPausedUntil("main", new Date(Date.now() + 60_000).toISOString());
 
     accountsRunner.resume(id, "go on", { model: "opus" });
-    expect(commandOf(id)).toStartWith(`CLAUDE_CONFIG_DIR=${shellQuote([spareDir()])} 'claude' '--resume' 'c1'`);
+    expect(commandOf(id)).toStartWith(
+      `IS_SANDBOX=1 CLAUDE_CONFIG_DIR=${shellQuote([spareDir()])} 'claude' '--resume' 'c1'`,
+    );
     expect(store.session(id)?.account).toBe("spare");
     expect(readFileSync(join(spareDir(), "projects", "-work-app", "c1.jsonl"), "utf8")).toBe("turns\n");
 
