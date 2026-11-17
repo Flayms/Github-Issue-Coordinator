@@ -107,6 +107,7 @@ describe("dashboard view", () => {
         idleFor: null,
         idleTimeout: "30 min",
         idleShare: null,
+        closesIn: null,
         name: "#5 Fix login · Implementer · app",
         model: "sonnet",
       },
@@ -122,9 +123,33 @@ describe("dashboard view", () => {
         idleFor: "30 min",
         idleTimeout: "30 min",
         idleShare: 100,
+        closesIn: "at the next tick",
         name: "Planner · #6, #7 · app",
         model: "opus",
       },
+    ]);
+  });
+
+  test("REQ-003-01 running sessions come first, then idle ones, then those whose window is gone", () => {
+    const v = dashboardView(
+      snapshot({
+        sessions: [
+          session({ id: 1, role: "reviewer", issues: [1], live: false }),
+          session({ id: 2, role: "planner", issues: [2], state: "idle" }),
+          session({ id: 3, role: "implementer", issues: [3] }),
+          session({ id: 4, role: "planner", issues: [4], state: "idle" }),
+          session({ id: 5, role: "reviewer", issues: [5] }),
+        ],
+      }),
+      config,
+      NOW,
+    );
+    expect(v.sessions.map((s) => [s.issues[0]?.number, s.state])).toEqual([
+      [3, "running"],
+      [5, "running"],
+      [2, "idle"],
+      [4, "idle"],
+      [1, "gone"],
     ]);
   });
 
@@ -142,14 +167,16 @@ describe("dashboard view", () => {
       parseConfig({ ...config, limits: { ...config.limits, idleTimeoutMin: 30 } }),
       NOW,
     );
-    expect(v.sessions.map((s) => [s.idleFor, s.idleTimeout, s.idleShare])).toEqual([
-      ["6 min", "30 min", 20],
-      ["4 min", "30 min", 10],
-      ["45 min", "30 min", 100],
-      [null, "30 min", null],
+    expect(v.sessions.map((s) => [s.idleFor, s.idleTimeout, s.idleShare, s.closesIn])).toEqual([
+      ["6 min", "30 min", 20, "in 24 min"],
+      ["4 min", "30 min", 10, "in 26 min"],
+      ["45 min", "30 min", 100, "at the next tick"],
+      [null, "30 min", null, null],
     ]);
     const html = renderDashboard(v);
-    expect(html).toContain("idle 6 min of 30 min");
+    // #74: an idle session says it waits and when it closes, never that it is working.
+    expect(html).toContain("idle · closes in 24 min");
+    expect(html).toMatch(/title="idle 6 min of 30 min"/);
     expect(html).toContain('<span class="block h-full rounded-xs bg-white/35 w-2/10">');
     expect(html).toContain('<span class="block h-full rounded-xs bg-white/35 w-full">');
   });

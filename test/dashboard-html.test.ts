@@ -142,14 +142,26 @@ const inside = (html: string, outer: string, targets: string[]) => {
 };
 
 describe("dashboard html", () => {
-  test("REQ-003-11 / REQ-003-12 / REQ-003-01 / REQ-003-04 / REQ-003-02 the Overview shows its sections in order", () => {
+  test("REQ-003-11 / REQ-003-12 / REQ-003-20 / REQ-003-02 the Overview shows its sections in order", () => {
     const html = overview();
-    const at = order(html, ["PR ready to merge", "Capacity", "Working now", "Recent", "Up next", "Pipeline"]);
+    const at = order(html, [
+      "PR ready to merge",
+      "Capacity",
+      'id="activity"',
+      'id="recent"',
+      'id="now"',
+      'id="next"',
+      'id="pipeline"',
+    ]);
     expect(at.every((i) => i >= 0)).toBe(true);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
-    // #100: the frosted band holds Up next, the Pipeline and the footer, so it runs to the bottom of the page.
-    expect(inside(html, "div.band", ["#up-next", "#pipeline", "footer"])).toEqual(
-      new Set(["#up-next", "#pipeline", "footer"]),
+    // REQ-003-20: Recent, Now and Next are parts of Activity.
+    expect(inside(html, "section#activity", ["#recent", "#now", "#next", "#pipeline"])).toEqual(
+      new Set(["#recent", "#now", "#next"]),
+    );
+    // #100 / REQ-003-20: the frosted band holds only the Pipeline and the footer, so it runs to the bottom of the page.
+    expect(inside(html, "div.band", ["#activity", "#next", "#pipeline", "footer"])).toEqual(
+      new Set(["#pipeline", "footer"]),
     );
     expect(html.indexOf("<footer")).toBeGreaterThan(html.indexOf('id="pipeline"'));
   });
@@ -175,7 +187,7 @@ describe("dashboard html", () => {
     );
     expect(reds).toHaveLength(1);
     expect(reds[0]).toContain("#2 failed: boom");
-    const upNext = html.slice(html.indexOf('id="up-next"'), html.indexOf('id="pipeline"'));
+    const upNext = html.slice(html.indexOf('id="next"'), html.indexOf('id="pipeline"'));
     expect(upNext).toMatch(/data-step="blocked"[\s\S]*text-muted[^"]*">blocked</);
     // In the Pipeline the tone is a dot; the status text itself is neutral.
     const pipeline = html.slice(html.indexOf('id="pipeline"'));
@@ -202,7 +214,7 @@ describe("dashboard html", () => {
 
   test("REQ-003-12 shows each meter as used out of the limit", () => {
     const html = overview();
-    const capacity = html.slice(html.indexOf('id="capacity"'), html.indexOf('id="working"'));
+    const capacity = html.slice(html.indexOf('id="capacity"'), html.indexOf('id="activity"'));
     expect(capacity).toContain("Worktrees");
     expect(capacity).toMatch(/1<span[^>]*>\s*\/\s*3<\/span>/);
     expect(capacity).toContain('aria-label="Worktrees: 1 of 3"');
@@ -215,12 +227,9 @@ describe("dashboard html", () => {
     expect(html).toMatch(/<button[^>]*data-copy="#6 Add search · Implementer · app"[^>]*hidden/);
   });
 
-  test("REQ-003-16 Recent sits next to Working now: each Event with icon, tone, time and links", () => {
+  test("REQ-003-16 Recent comes before Now in Activity: each Event with icon, tone, time and links", () => {
     const html = overview();
-    expect(html).toMatch(
-      /<div class="wrap [^"]*grid[^"]*"><section id="working"(?:(?!<section)[\s\S])*<\/section><section id="recent"/,
-    );
-    const recent = html.slice(html.indexOf('id="recent"'), html.indexOf('id="up-next"'));
+    const recent = html.slice(html.indexOf('id="recent"'), html.indexOf('id="now"'));
     expect(recent).toMatch(
       /<li class="[^"]*text-ok" data-tone="ok"><svg [^>]*>[\s\S]*Review of PR #70: no findings, ready for the Owner/,
     );
@@ -232,14 +241,67 @@ describe("dashboard html", () => {
     expect(recent.indexOf("Review of PR #70")).toBeLessThan(recent.indexOf("#2 failed"));
     // REQ-003-13: the filter narrows it.
     const lib = overview({ repo: "octo/lib" });
-    const narrowed = lib.slice(lib.indexOf('id="recent"'), lib.indexOf('id="up-next"'));
+    const narrowed = lib.slice(lib.indexOf('id="recent"'), lib.indexOf('id="now"'));
     expect(narrowed).toContain("#2 failed: boom");
     expect(narrowed).not.toContain("Review of PR #70");
   });
 
+  test("REQ-003-20 Activity: one header with the counts, Recent, Now and Next as one timeline, stacked Now, Next, Recent on a phone", () => {
+    const html = overview();
+    const activity = html.slice(html.indexOf('id="activity"'), html.indexOf('id="pipeline"'));
+    // The fixture has one running session, no idle one, and one queued step that waits.
+    expect(activity).toMatch(/<h2 [^>]*>Activity <span[^>]*>1 running · 0 idle · 1 queued<\/span><\/h2>/);
+    const head = (id: string) =>
+      activity.match(new RegExp(`<section id="${id}" class="([^"]*)"><h3 [^>]*>([\\s\\S]*?)</h3>`));
+    expect(head("recent")?.[2]).toContain("Recent");
+    expect(head("recent")?.[2]).toContain("done");
+    expect(head("now")?.[2]).toContain("Now");
+    expect(head("now")?.[2]).toContain("now");
+    expect(head("next")?.[2]).toContain("Next");
+    expect(head("next")?.[2]).toContain("next");
+    // Time order from lg on (the DOM order), Now, Next, Recent on a phone.
+    expect(head("now")?.[1]).toMatch(/\border-1\b.*\blg:order-none\b/);
+    expect(head("next")?.[1]).toMatch(/\border-2\b.*\blg:order-none\b/);
+    expect(head("recent")?.[1]).toMatch(/\border-3\b.*\blg:order-none\b/);
+    expect(activity).toMatch(/class="timeline grid [^"]*lg:grid-cols-\[/);
+    // #74: no heading says an idle session is working.
+    expect(html).not.toContain("Working now");
+    // Next is a plain list in the row style of Recent, without the sideways pipe.
+    const next = html.slice(html.indexOf('id="next"'), html.indexOf('id="pipeline"'));
+    expect(next).not.toContain("overflow-x-auto");
+    expect(next).not.toContain('class="step');
+    const rowClass = (part: string) =>
+      part.match(/<li class="(flex items-start gap-3 border-line border-t py-3 first:border-t-0) /)?.[1];
+    expect(rowClass(next)).toBeDefined();
+    expect(rowClass(next)).toBe(rowClass(html.slice(html.indexOf('id="recent"'), html.indexOf('id="now"'))));
+  });
+
+  test("REQ-003-16 Recent shows 5 Events on a phone and the other 10 behind an expander that needs no JavaScript", () => {
+    const events = Array.from({ length: 15 }, (_, i) => ({
+      at: new Date(Date.parse("2026-11-15T10:20:00.000Z") - i * 60_000).toISOString(),
+      repo: "octo/app",
+      kind: "approved" as const,
+      issues: [i + 1],
+      pr: null,
+      text: `Event ${i + 1} happened`,
+    }));
+    const html = renderDashboard(dashboardView({ ...snap, events }, config, NOW));
+    const recent = html.slice(html.indexOf('id="recent"'), html.indexOf('id="now"'));
+    const [shown, more] = recent.split("<details");
+    for (let n = 1; n <= 5; n++) expect(shown).toContain(`Event ${n} happened`);
+    expect(shown).not.toContain("Event 6 happened");
+    expect(more).toMatch(/<summary [^>]*>Show 10 more<\/summary>/);
+    for (let n = 6; n <= 15; n++) expect(more).toContain(`Event ${n} happened`);
+    // From lg on there is room, so all 15 show and the expander's summary hides.
+    expect(more).toMatch(/^ class="[^"]*lg:details-content:\[content-visibility:visible\]/);
+    expect(more).toMatch(/<summary class="[^"]*lg:hidden/);
+    // With 5 or fewer Events there is nothing to expand.
+    expect(overview()).not.toContain("<details");
+  });
+
   test("REQ-003-04 the first step is marked next, waiting steps say why, blocked issues are marked", () => {
     const html = overview();
-    const upNext = html.slice(html.indexOf('id="up-next"'), html.indexOf('id="pipeline"'));
+    const upNext = html.slice(html.indexOf('id="next"'), html.indexOf('id="pipeline"'));
     expect(upNext).toMatch(/octo\/app#6 implement[\s\S]*next/);
     expect(upNext).toContain("maxRunning (1) reached");
     expect(upNext).toMatch(/data-step="blocked"[\s\S]*Waits for six[\s\S]*blocked by/);

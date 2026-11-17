@@ -66,6 +66,8 @@ export interface SessionView {
   idleTimeout: string;
   /** Idle time out of the idle timeout in percent, rounded to 10 for the bar; null unless idle. */
   idleShare: number | null;
+  /** When the scheduler closes an idle session, e.g. `in 12 min` or `at the next tick` (#74); null unless idle. */
+  closesIn: string | null;
   /** The Remote Control name, as shown in the Claude app (REQ-001-33). */
   name: string;
   /** The model the session reported (REQ-001-29), else the configured one. */
@@ -218,6 +220,12 @@ export function dashboardView(
 
   const idleTimeoutMs = config.limits.idleTimeoutMin * 60_000;
   const idle = (s: { live: boolean; state: string }) => s.live && s.state !== "running";
+  const closesIn = (lastActivityAt: string) => {
+    const left = idleTimeoutMs - since(lastActivityAt);
+    return left >= 60_000 ? `in ${formatDuration(left)}` : "at the next tick";
+  };
+  // REQ-003-01 (#74): running sessions first, then idle ones, then those whose window is gone.
+  const STATE_ORDER = { running: 0, idle: 1, gone: 2 };
   const sessions: SessionView[] = (snap?.sessions ?? []).map((s) => ({
     role: ROLE_NAMES[s.role],
     repo: s.repo,
@@ -231,9 +239,11 @@ export function dashboardView(
     idleFor: idle(s) ? formatDuration(since(s.lastActivityAt)) : null,
     idleTimeout: formatDuration(idleTimeoutMs),
     idleShare: idle(s) ? Math.min(100, Math.round((since(s.lastActivityAt) / idleTimeoutMs) * 10) * 10) : null,
+    closesIn: idle(s) ? closesIn(s.lastActivityAt) : null,
     name: remoteControlName(s),
     model: s.modelId ?? configuredModel(config, s.repo, s.role),
   }));
+  sessions.sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state]);
 
   const pullsOf = (r: RepoSnapshot): PullView[] =>
     r.pulls.map((p) => ({
