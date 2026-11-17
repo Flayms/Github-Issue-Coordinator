@@ -196,10 +196,10 @@ describe("session runner", () => {
       expect(tmux.windows.get(`s${startRole(role)}`)?.command).toStartWith("IS_SANDBOX=1 'claude' ");
   });
 
-  test("REQ-005-01 session settings hold only the hooks, for every Role", () => {
+  test("REQ-005-01 session settings hold only the hooks and the CLAUDE.md excludes, for every Role", () => {
     for (const role of ["planner", "implementer", "reviewer"] as const) {
       const id = startRole(role);
-      expect(Object.keys(settingsOf(id))).toEqual(["hooks"]);
+      expect(Object.keys(settingsOf(id))).toEqual(["hooks", "claudeMdExcludes"]);
       expect(existsSync(join(dir, "sessions", String(id), "gh"))).toBe(false);
     }
   });
@@ -217,10 +217,69 @@ describe("session runner", () => {
     );
     runner.resume(id, "more", { model: "opus" });
     const settings = JSON.parse(readFileSync(path, "utf8"));
-    expect(Object.keys(settings)).toEqual(["hooks"]);
+    expect(Object.keys(settings)).toEqual(["hooks", "claudeMdExcludes"]);
     expect(settings.hooks.Stop).toHaveLength(1);
     expect(tmux.windows.get(`s${id}`)?.cwd).toBe("/work/app-5");
     expect(tmux.windows.get(`s${id}`)?.command).toContain("'--dangerously-skip-permissions'");
+  });
+
+  test("REQ-005-07 a session loads no CLAUDE.md from the folders above its own", () => {
+    const id = runner.start({
+      repo: "octo/app",
+      role: "implementer",
+      kind: "issue",
+      issues: [87],
+      cwd: "/root/coordinator/.coordinator/worktrees/octo/app/87",
+      prompt: "p",
+      model: { model: "opus" },
+    });
+    const excludes: string[] = settingsOf(id).claudeMdExcludes;
+    // The Coordinator's own checkout, whose CLAUDE.md imports AGENTS.md (#87), and every folder up to the root.
+    for (const parent of ["/root/coordinator", "/root/coordinator/.coordinator/worktrees/octo/app", "/root", "/"]) {
+      const at = parent === "/" ? "" : parent;
+      expect(excludes).toContain(`${at}/CLAUDE.md`);
+      expect(excludes).toContain(`${at}/CLAUDE.local.md`);
+    }
+    expect(excludes).toContain("/root/coordinator/.claude/CLAUDE.md");
+    expect(excludes).toContain("/root/coordinator/.claude/rules/**");
+    // The repository's own instructions still load.
+    const own = "/root/coordinator/.coordinator/worktrees/octo/app/87";
+    expect(excludes.filter((e) => e.startsWith(`${own}/`))).toEqual([]);
+  });
+
+  test("REQ-005-07 the Owner's own instructions in ~/.claude still load when home is above the session", () => {
+    const home = mkdtempSync(join(tmpdir(), "home-"));
+    const r = new SessionRunner({
+      store,
+      tmux,
+      stateDir: dir,
+      dbPath: join(dir, "state.db"),
+      hookCommand: ["bun", "/app/src/hook.ts"],
+      home,
+    });
+    const id = r.start({
+      repo: "octo/app",
+      role: "planner",
+      kind: "issue",
+      issues: [5],
+      cwd: join(home, "coordinator", ".coordinator", "worktrees", "octo", "app", "5"),
+      prompt: "p",
+      model: { model: "opus" },
+    });
+    const excludes: string[] = settingsOf(id).claudeMdExcludes;
+    expect(excludes).toContain(join(home, "CLAUDE.md"));
+    expect(excludes.filter((e) => e.startsWith(join(home, ".claude")))).toEqual([]);
+    rmSync(home, { recursive: true });
+  });
+
+  test("REQ-005-07 a resume writes the excludes for the session's folder", () => {
+    const id = startImplementer();
+    store.setClaudeSessionId(id, "sess-abc");
+    store.patchSession(id, { state: "idle" });
+    const path = join(dir, "sessions", String(id), "settings.json");
+    writeFileSync(path, JSON.stringify({ hooks: {} }));
+    runner.resume(id, "more", { model: "opus" });
+    expect(JSON.parse(readFileSync(path, "utf8")).claudeMdExcludes).toContain("/work/CLAUDE.md");
   });
 
   test("the prompt tells the session where to write its Result", () => {

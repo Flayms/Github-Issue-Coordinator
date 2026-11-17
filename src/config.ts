@@ -89,7 +89,7 @@ const configSchema = z
     /** How long after a push a PR without check runs waits before its Review, so CI can register (REQ-001-10). */
     checksGraceSeconds: z.number().int().nonnegative().default(120),
     /** Store, session files and clones; relative paths are resolved against the working directory. */
-    stateDir: z.string().min(1).default("state"),
+    stateDir: z.string().min(1).default(".coordinator"),
     limits: limitsSchema.prefault({}),
     roles: z.strictObject({ planner: roleSchema, implementer: roleSchema, reviewer: roleSchema }),
     repos: z.array(repoSchema).min(1),

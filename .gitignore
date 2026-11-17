@@ -1,4 +1,5 @@
 node_modules/
 # Local Coordinator config (copy from config.example.ts)
 /config.ts
+/.coordinator/
 /state/

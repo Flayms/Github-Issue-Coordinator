@@ -71,6 +71,7 @@ describe("config", () => {
   test("applies the defaults the Owner accepted", () => {
     const c = parseConfig(valid());
     expect(c.pollIntervalSec).toBe(60);
+    expect(c.stateDir).toBe(".coordinator");
     expect(c.limits).toEqual({
       maxRunning: 1,
       maxPlanners: 1,
