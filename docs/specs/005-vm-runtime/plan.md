@@ -8,10 +8,10 @@ Remove, don't wrap. Every piece that existed only to contain agents goes; what s
 - **GitHub** (`src/github/gh-token.ts`): one `GhToken` with the `tokenFor(repo)` shape the client, clones and Worktrees already use, backed by `gh auth token` and cached for 5 minutes. `app-auth.ts` and `read-tokens.ts` are deleted; the config loses `github.appId` and `github.privateKeyPath` (`github.commitAuthor` stays). A config that still has them fails validation with a clear message, as any unknown key does.
 - **Owner input** (`src/coordinator.ts`): comments and reviews are the Owner's only if their author is the Owner _and_ their body does not start with the agent note (`isAgentNote` in `src/note.ts`). This is what makes the Owner's own PAT usable.
 - **Config** (`src/config.ts`): `sandboxDomains` and `secretPaths` go; the dashboard's Config page loses the "Sandbox domains" row.
-- **Browser** (`src/browser.ts`): only lookup and a plain headless start check for the doctor; the sandbox flags and the `XDG_*`/unwritable-home workarounds go. The smoke runner's `--screenshot` sandbox probe goes.
+- **Browser**: `src/browser.ts`, its doctor check and the smoke runner's `--screenshot` probe go; an Implementer installs a browser when it needs one.
 - **Prompts**: the Implementer may install what it needs (with `sudo`); Planner and Reviewer are told not to change the repository; every Role is told to leave GitHub writes to the Coordinator.
-- **Doctor**: no bwrap/socat/AppArmor/App checks; reports the user (root works), and checks the `gh` login and identity, push access per repository, and passwordless `sudo` for a normal user.
-- **Deploy**: `deploy/setup-vm.sh` (run as the VM user) replaces `deploy/create-agent-user.sh`, and writes the systemd unit for that user.
+- **Doctor**: no bwrap/socat/AppArmor/App checks; checks the `gh` login and identity, push access and check runs per repository.
+- **Deploy**: `deploy/create-agent-user.sh` goes; the tools are README prerequisites, and the systemd unit runs as root.
 - **Docs**: README, setup, architecture, glossary, pitfalls (sandbox rows removed), specs 001–004 (deprecations).
 
 ## Tasks
@@ -22,6 +22,6 @@ Remove, don't wrap. Every piece that existed only to contain agents goes; what s
 - [x] Agent note is not Owner input (REQ-005-03)
 - [x] Default prompts (REQ-005-04, REQ-002-13, REQ-002-14)
 - [x] Doctor (REQ-005-05)
-- [x] `deploy/setup-vm.sh`, systemd unit (REQ-005-06)
+- [x] Systemd unit for root; tools as README prerequisites (REQ-005-06 deprecated)
 - [x] Remove `sandboxDomains`, `secretPaths`, browser workarounds, smoke `--screenshot`, dashboard row
 - [x] Docs
