@@ -20,7 +20,6 @@ import { Store } from "../src/store.ts";
 
 const config = parseConfig({
   owner: { login: "octo", id: 42 },
-  github: { appId: 7, privateKeyPath: "/k.pem" },
   roles: { planner: { model: "opus" }, implementer: { model: "sonnet" }, reviewer: { model: "opus" } },
   repos: [{ name: "octo/app" }],
 });

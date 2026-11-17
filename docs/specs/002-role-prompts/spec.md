@@ -56,6 +56,8 @@ The Owner gets plans they can approve on a phone, code that matches those plans,
 
 ### REQ-002-07 Planner and Reviewer can list tracked files
 
+> **Deprecated** by REQ-005-01 (spec 005): Planner and Reviewer have no tool allowlist any more; REQ-005-04 tells them not to change the repository.
+
 - **Given** a Planner or Reviewer session
 - **When** it runs `git ls-files`
 - **Then** the command is allowed without asking, inside the sandbox like its other shell commands (REQ-001-26)
@@ -105,20 +107,19 @@ The Owner gets plans they can approve on a phone, code that matches those plans,
 
 - **Given** the default Implementer prompt and a repository whose conventions ask for screenshots of UI changes
 - **When** the Implementer changes a page
-- **Then** it captures the pages its change affects with the host's headless browser, saves them in `.coordinator/screenshots/` and lists them in `screenshots` with a caption each (REQ-001-48)
-- **And** it uses only the host's browser, started with `--no-sandbox` and its config and cache in a temporary folder (REQ-001-53), and never downloads or installs one (a Chromium from npm, `playwright install`)
-- **And** if it can't capture them (no browser, the browser won't start, or auto mode refuses the command), it says so in `prBody`, quotes the error, and doesn't try other ways or fail the task
+- **Then** it captures the pages its change affects with a headless browser, saves them in `.coordinator/screenshots/` and lists them in `screenshots` with a caption each (REQ-001-48)
+- **And** if there is no browser, it installs one (REQ-005-01 lets it), without sandbox flags or workarounds
+- **And** if it still can't capture them, it says so in `prBody`, quotes the error, and doesn't fail the task
 
 ### REQ-002-14 Agents look up missing context on GitHub
 
 - **Given** the default prompt of any Role
 - **When** something its context refers to is missing (an earlier comment, a linked issue or PR, a mockup or file attached to a comment)
-- **Then** it reads it on GitHub with `gh` (REQ-001-55) before saying it is missing
-- **And** it knows its token is read-only and leaves posting, labelling and pushing to the Coordinator
+- **Then** it reads it on GitHub with `gh` (REQ-005-02) before saying it is missing
+- **And** it leaves posting, labelling, pushing and merging to the Coordinator (REQ-005-04)
 
 ## Out of scope
 
-- Letting the Reviewer run the test suite or linters (it would execute the PR's code; REQ-001-25 stays as it is).
 - Updating prompts that a repository has overridden in `.github/coordinator/<role>.md` (REQ-001-22).
 - Structured Result fields that the Coordinator renders into a fixed template; REQ-002-11 is prompt guidance only.
 - Changing the Result schemas, apart from the Reviewer's findings (REQ-002-09); the Planner's `splitOff` field belongs to REQ-001-34, `reply` to REQ-001-40, the Implementer's `screenshots` to REQ-001-48.
@@ -130,23 +131,22 @@ The Owner gets plans they can approve on a phone, code that matches those plans,
 
 ## Verification
 
-| REQ        | Test                                                                                                                                                | Result                                                   |
-| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| REQ-002-01 | `prompts > REQ-002-01 the Planner prompt asks for Tier, requirements, files, tests, risks and decisions, but no code`                               | pass (wording only; quality via a real run)              |
-| REQ-002-02 | `prompts > REQ-002-02 the Planner prompt checks for duplicates and limits needs-refinement to plan-changing questions`                              | pass (wording only; quality via a real run)              |
-| REQ-002-03 | `prompts > REQ-002-03 the Implementer prompt owns the how and stops when the approved scope is wrong`                                               | pass (wording only; quality via a real run)              |
-| REQ-002-04 | `prompts > REQ-002-04 the Implementer prompt asks for red-green tests, no test weakening, the full suite and unverified`                            | pass (wording only; quality via a real run)              |
-| REQ-002-05 | `prompts > REQ-002-05 the Reviewer prompt checks against the Assessment with a checklist and well-founded findings`                                 | pass (wording only; quality via a real run)              |
-| REQ-002-06 | `prompts > REQ-002-06 every default prompt has the shared rules`                                                                                    | pass                                                     |
-| REQ-002-07 | `permissions > REQ-001-25 / REQ-002-07 Planner and Reviewer may only read, run read-only git …` (incl. no `git grep`)                               | pass                                                     |
-| REQ-002-08 | `prompts > REQ-002-08 the Planner prompt says when to split off an issue and to check open issues first`                                            | pass (wording only; quality via a real run)              |
-| REQ-002-09 | `prompts > REQ-002-09 the Reviewer prompt reports only findings worth fixing, without blocking or low severity`; `Result validation > REQ-002-09 …` | pass (wording and schema; quality via a real run)        |
-| REQ-002-10 | `prompts > REQ-002-10 the Planner prompt asks for a brief reply on a revision the Owner's comments started`                                         | pass (wording only; quality via a real run)              |
-| REQ-002-11 | `prompts > REQ-002-11 every default prompt asks for a summary first and scannable GitHub Markdown in the posted text`                               | pass (wording only; quality and phone via a real run)    |
-| REQ-002-11 | `prompts > REQ-002-11 the Planner writes Given/When/Then as bullets and the Reviewer opens with a verdict line`                                     | pass (wording only; quality and phone via a real run)    |
-| REQ-002-12 | `prompts > REQ-002-12 every default prompt allows a Mermaid diagram only where a flow or state change is clearer drawn`                             | pass (wording only; quality and phone via a real run)    |
-| REQ-002-13 | `prompts > REQ-002-13 the Implementer prompt captures Screenshots of UI changes when the conventions ask, or says why not`                          | pass (wording only; quality via a real run)              |
-| REQ-002-13 | `prompts > REQ-002-13 the Implementer prompt uses only the host browser with --no-sandbox and never downloads one`                                  | pass (wording only; quality via a real run)              |
-| REQ-002-13 | `prompts > REQ-002-13 the Implementer prompt keeps the browser's config and cache out of the read-only home folder`                                 | pass (wording only; quality via a real run)              |
-| REQ-002-14 | `prompts > REQ-002-14 every default prompt reads missing GitHub context with gh before calling it missing, and never writes`                        | pass (wording only; quality via a real run)              |
-| all        | manual: one real run per Role                                                                                                                       | open (to be done by the Owner on this PR via dogfooding) |
+| REQ        | Test                                                                                                                                                                                            | Result                                                   |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| REQ-002-01 | `prompts > REQ-002-01 the Planner prompt asks for Tier, requirements, files, tests, risks and decisions, but no code`                                                                           | pass (wording only; quality via a real run)              |
+| REQ-002-02 | `prompts > REQ-002-02 the Planner prompt checks for duplicates and limits needs-refinement to plan-changing questions`                                                                          | pass (wording only; quality via a real run)              |
+| REQ-002-03 | `prompts > REQ-002-03 the Implementer prompt owns the how and stops when the approved scope is wrong`                                                                                           | pass (wording only; quality via a real run)              |
+| REQ-002-04 | `prompts > REQ-002-04 the Implementer prompt asks for red-green tests, no test weakening, the full suite and unverified`                                                                        | pass (wording only; quality via a real run)              |
+| REQ-002-05 | `prompts > REQ-002-05 the Reviewer prompt checks against the Assessment with a checklist and well-founded findings`                                                                             | pass (wording only; quality via a real run)              |
+| REQ-002-06 | `prompts > REQ-002-06 every default prompt has the shared rules`                                                                                                                                | pass                                                     |
+| REQ-002-07 | Deprecated by spec 005; its tests were removed with the behaviour                                                                                                                               | —                                                        |
+| REQ-002-08 | `prompts > REQ-002-08 the Planner prompt says when to split off an issue and to check open issues first`                                                                                        | pass (wording only; quality via a real run)              |
+| REQ-002-09 | `prompts > REQ-002-09 the Reviewer prompt reports only findings worth fixing, without blocking or low severity`; `Result validation > REQ-002-09 …`                                             | pass (wording and schema; quality via a real run)        |
+| REQ-002-10 | `prompts > REQ-002-10 the Planner prompt asks for a brief reply on a revision the Owner's comments started`                                                                                     | pass (wording only; quality via a real run)              |
+| REQ-002-11 | `prompts > REQ-002-11 every default prompt asks for a summary first and scannable GitHub Markdown in the posted text`                                                                           | pass (wording only; quality and phone via a real run)    |
+| REQ-002-11 | `prompts > REQ-002-11 the Planner writes Given/When/Then as bullets and the Reviewer opens with a verdict line`                                                                                 | pass (wording only; quality and phone via a real run)    |
+| REQ-002-12 | `prompts > REQ-002-12 every default prompt allows a Mermaid diagram only where a flow or state change is clearer drawn`                                                                         | pass (wording only; quality and phone via a real run)    |
+| REQ-002-13 | `prompts > REQ-002-13 the Implementer prompt captures Screenshots of UI changes when the conventions ask, or says why not`                                                                      | pass (wording only; quality via a real run)              |
+| REQ-002-13 | `prompts > REQ-002-13 the Implementer prompt may install a browser and needs no sandbox workarounds`                                                                                            | pass (wording only; quality via a real run)              |
+| REQ-002-14 | `prompts > REQ-002-14 every default prompt reads missing GitHub context with gh before calling it missing`; `prompts > REQ-005-04 every default prompt leaves GitHub writes to the Coordinator` | pass (wording only; quality via a real run)              |
+| all        | manual: one real run per Role                                                                                                                                                                   | open (to be done by the Owner on this PR via dogfooding) |

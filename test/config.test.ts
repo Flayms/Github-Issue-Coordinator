@@ -1,9 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { ConfigError, loadConfig, parseConfig, roleSettings, secretPaths } from "../src/config.ts";
+import { ConfigError, loadConfig, parseConfig, roleSettings } from "../src/config.ts";
 
 const valid = () => ({
   owner: { login: "octo", id: 42 },
-  github: { appId: 7, privateKeyPath: "/etc/coordinator/app.pem" },
   repos: [{ name: "octo/app" }],
   roles: {
     planner: { model: "opus", effort: "high" },
@@ -40,15 +39,6 @@ describe("config", () => {
     expect(issuesOf({ ...valid(), dashboard: { host: "0.0.0.0", tokenPath: "/etc/c/token" } })).toEqual([]);
   });
 
-  test("REQ-003-10 / REQ-001-26 agents are denied the App key's folder, Claude's login and the dashboard token's folder", () => {
-    expect(secretPaths(parseConfig(valid()), "/home/a")).toEqual([
-      "/etc/coordinator",
-      "/home/a/.claude/.credentials.json",
-    ]);
-    const c = parseConfig({ ...valid(), dashboard: { tokenPath: "/srv/dash/token" } });
-    expect(secretPaths(c, "/home/a")).toEqual(["/etc/coordinator", "/home/a/.claude/.credentials.json", "/srv/dash"]);
-  });
-
   test("REQ-004-01 without accounts there is one implicit Account, Claude's default folder", () => {
     expect(parseConfig(valid()).accounts).toEqual([{ name: "default" }]);
     const c = parseConfig({
@@ -76,23 +66,6 @@ describe("config", () => {
       }),
     ).toEqual(["accounts.1.configDir: same folder as Account a"]);
     expect(issuesOf({ ...valid(), accounts: [{ name: "a b" }] })).not.toEqual([]);
-  });
-
-  test("REQ-004-02 agents are denied every Account's login", () => {
-    const c = parseConfig({
-      ...valid(),
-      accounts: [
-        { name: "main" },
-        { name: "spare", configDir: "/home/a/.claude-spare" },
-        { name: "third", configDir: "/srv/claude-3" },
-      ],
-    });
-    expect(secretPaths(c, "/home/a")).toEqual([
-      "/etc/coordinator",
-      "/home/a/.claude/.credentials.json",
-      "/home/a/.claude-spare/.credentials.json",
-      "/srv/claude-3/.credentials.json",
-    ]);
   });
 
   test("applies the defaults the Owner accepted", () => {
@@ -124,9 +97,17 @@ describe("config", () => {
     ]);
   });
 
-  test("REQ-001-15 requires the GitHub App's id and private key path", () => {
-    expect(issuesOf({ ...valid(), github: { appId: 7 } })).toEqual([expect.stringContaining("github.privateKeyPath")]);
-    expect(issuesOf({ ...valid(), github: undefined })).toEqual([expect.stringContaining("github")]);
+  test("REQ-005-02 needs no GitHub App: the token comes from gh, and App settings are refused", () => {
+    expect(parseConfig(valid()).github.commitAuthor).toEqual({ name: "Claude", email: "noreply@anthropic.com" });
+    const author = { name: "Bot", email: "bot@example.com" };
+    expect(parseConfig({ ...valid(), github: { commitAuthor: author } }).github.commitAuthor).toEqual(author);
+    expect(issuesOf({ ...valid(), github: { appId: 7, privateKeyPath: "/k.pem" } }).join("\n")).toContain("appId");
+  });
+
+  test("REQ-005-01 repositories have no sandbox domains any more", () => {
+    expect(issuesOf({ ...valid(), repos: [{ name: "octo/app", sandboxDomains: ["pypi.org"] }] }).join("\n")).toContain(
+      "sandboxDomains",
+    );
   });
 
   test("REQ-001-08 rejects limits that are not positive integers", () => {
@@ -161,15 +142,6 @@ describe("config", () => {
 
   test("reports every problem at once", () => {
     expect(issuesOf({ owner: {}, repos: [], roles: {} }).length).toBeGreaterThanOrEqual(6);
-  });
-
-  test("REQ-001-25 sandbox network domains default to the common package registries, per repository", () => {
-    const c = parseConfig({
-      ...valid(),
-      repos: [{ name: "octo/app" }, { name: "octo/py", sandboxDomains: ["pypi.org"] }],
-    });
-    expect(c.repos[0]?.sandboxDomains).toEqual(["registry.npmjs.org", "pypi.org", "files.pythonhosted.org"]);
-    expect(c.repos[1]?.sandboxDomains).toEqual(["pypi.org"]);
   });
 
   test("REQ-001-22 resolves a Role's model and effort, with the repository override winning", () => {

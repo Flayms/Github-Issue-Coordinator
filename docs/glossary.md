@@ -4,15 +4,18 @@ Domain terms used in code, specs and tests. Use these names consistently.
 
 ## Agents
 
-| Term        | Definition                                                                                              | Not to be confused with                                 |
-| ----------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| Owner       | The single human user. Only their issues, comments, labels and reviews count; only they can approve.    | The Coordinator's bot identity                          |
-| Coordinator | The Bun daemon in this repo. Polls GitHub, owns the state machine, starts agents, enforces concurrency. | An agent: the coordinator itself never calls the model. |
-| Planner     | Claude Code agent that triages open issues against all open issues/PRs and produces an Assessment.      | Implementer                                             |
-| Implementer | Claude Code agent that works on one approved issue (or Bundle) in its own Worktree and opens a PR.      | Planner                                                 |
-| Reviewer    | Claude Code agent that reviews an agent PR's head commit in a fresh context and reports findings.       | The old GitHub Actions review workflow                  |
-| Role        | One of Planner, Implementer, Reviewer. Each has its own prompt, model and Slot limit.                   |                                                         |
-| Result      | JSON file a session must write before its turn may end; validated against the Role's schema.            | The session transcript                                  |
+| Term        | Definition                                                                                              | Not to be confused with                                              |
+| ----------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Owner       | The single human user. Only their issues, comments, labels and reviews count; only they can approve.    | The Coordinator's posts, which may carry the Owner's id (REQ-005-03) |
+| Coordinator | The Bun daemon in this repo. Polls GitHub, owns the state machine, starts agents, enforces concurrency. | An agent: the coordinator itself never calls the model.              |
+| Planner     | Claude Code agent that triages open issues against all open issues/PRs and produces an Assessment.      | Implementer                                                          |
+| Implementer | Claude Code agent that works on one approved issue (or Bundle) in its own Worktree and opens a PR.      | Planner                                                              |
+| Reviewer    | Claude Code agent that reviews an agent PR's head commit in a fresh context and reports findings.       | The old GitHub Actions review workflow                               |
+| Role        | One of Planner, Implementer, Reviewer. Each has its own prompt, model and Slot limit.                   |                                                                      |
+| Result      | JSON file a session must write before its turn may end; validated against the Role's schema.            | The session transcript                                               |
+| VM          | The machine dedicated to the Coordinator and its agents; agents may do anything on it (spec 005).       | A sandbox: there is none                                             |
+| PAT         | The fine-grained personal access token `gh` is logged in with; the only GitHub credential (REQ-005-02). | A GitHub App: there is none                                          |
+| Agent note  | The `> [!Note]` line every Coordinator post starts with (REQ-001-29); marks a post as not the Owner's.  | The Owner's own comments                                             |
 
 ## Workflow
 
@@ -22,7 +25,7 @@ Domain terms used in code, specs and tests. Use these names consistently.
 | Reply                | Short comment the Coordinator posts below the Owner's feedback comments after a revision: what changed in the Assessment and why, or why nothing changed (REQ-001-40).                                                                             | The Assessment itself                                                                                             |
 | Linked history       | History of issues and PRs an issue to plan links to (state, labels, timeline events, Reviews, last comments); the Coordinator adds it to the Planner prompt (REQ-001-47).                                                                          | The list of open issues and PRs                                                                                   |
 | Coordination note    | Cross-issue relation recorded by the Planner: "do together with #N" (Bundle) or "blocked by #N".                                                                                                                                                   | GitHub sub-issues                                                                                                 |
-| Split-off issue      | Issue the Coordinator created from a Planner's proposal while assessing another issue (REQ-001-34). In scope like the Owner's issues; listed under Coordination of its parent.                                                                     | A GitHub sub-issue; an issue the App created otherwise                                                            |
+| Split-off issue      | Issue the Coordinator created from a Planner's proposal while assessing another issue (REQ-001-34). In scope like the Owner's issues; listed under Coordination of its parent.                                                                     | A GitHub sub-issue; any other issue the Coordinator created                                                       |
 | Bundle               | Set of issues implemented together in one Worktree and one PR.                                                                                                                                                                                     | Duplicate issues                                                                                                  |
 | Sync                 | After any session turn, bringing GitHub in line with its Result (Assessment comment and label, pushed commits and PR body).                                                                                                                        | The poll                                                                                                          |
 | Approval             | Owner's explicit go-ahead on an Assessment; the only trigger for an Implementer run.                                                                                                                                                               | A PR review approval                                                                                              |

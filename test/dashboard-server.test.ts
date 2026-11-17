@@ -8,7 +8,6 @@ import { type DashboardServer, loadDashboardToken, startDashboard } from "../src
 
 const base: ConfigInput = {
   owner: { login: "octo", id: 42 },
-  github: { appId: 7, privateKeyPath: "/k.pem" },
   roles: { planner: { model: "opus" }, implementer: { model: "sonnet" }, reviewer: { model: "opus" } },
   repos: [{ name: "octo/app" }],
 };

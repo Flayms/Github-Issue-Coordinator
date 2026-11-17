@@ -3,13 +3,11 @@
  * Setup check: `bun run doctor`. Verifies everything the Coordinator needs before its first start
  * (docs/setup.md) and prints what is missing. Read-only: it changes nothing.
  */
-import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
-import { dirname } from "node:path";
 import { DEFAULT_ACCOUNT } from "./accounts.ts";
 import { checkBrowserStarts, findBrowser } from "./browser.ts";
 import { loadConfig } from "./config.ts";
-import { AppAuth, createAppJwt } from "./github/app-auth.ts";
+import { GhToken } from "./github/gh-token.ts";
 import { API, baseHeaders } from "./github/http.ts";
 
 type Status = "ok" | "fail" | "warn";
@@ -27,70 +25,41 @@ const run = (cmd: string[], env?: Record<string, string | undefined>) => {
   }
 };
 
+// REQ-005-05: Claude Code refuses skipped permissions as root; the Coordinator runs as a normal user with sudo.
+const uid = process.getuid?.();
+report(
+  uid === 0 ? "fail" : "ok",
+  "not running as root",
+  uid === 0 ? "run the Coordinator as a normal user with sudo (docs/setup.md step 1)" : userInfo().username,
+);
+
 for (const [bin, arg] of [
   ["claude", "--version"],
   ["tmux", "-V"],
   ["git", "--version"],
-  // Claude Code's sandbox needs both; without them the Implementer runs no commands (failIfUnavailable).
-  ["bwrap", "--version"],
-  ["socat", "-V"],
+  ["gh", "--version"],
 ] as const) {
   const r = run([bin, arg]);
   const line = r.out.split("\n").find((l) => /version/i.test(l)) ?? r.out.split("\n")[0];
   report(r.ok ? "ok" : "fail", `${bin} installed`, r.ok ? line : "not found");
 }
-// The Implementer's sandbox runs a helper inside bubblewrap that needs its own user namespace;
-// Ubuntu's bwrap-userns-restrict AppArmor profile forbids that (docs/setup.md, step 1).
-const nested = run([
-  "bwrap",
-  "--ro-bind",
-  "/",
-  "/",
-  "--unshare-user",
-  "--dev",
-  "/dev",
-  "--proc",
-  "/proc",
-  "unshare",
-  "--user",
-  "--map-root-user",
-  "true",
-]);
+
+// Agents may install what they need; a sudo that asks for a password stalls them.
+const sudo = run(["sudo", "-n", "true"]);
 report(
-  nested.ok ? "ok" : "fail",
-  "sandbox can nest user namespaces",
-  nested.ok ? "" : `${nested.out} (Ubuntu AppArmor; see docs/setup.md step 1)`,
+  sudo.ok ? "ok" : "warn",
+  "sudo without a password",
+  sudo.ok ? "" : "agents can't use sudo (see docs/setup.md step 1)",
 );
 
-// Both files define the profile `bwrap`; without the disable link, Ubuntu's wins again at boot.
-if (existsSync("/etc/apparmor.d/bwrap-userns-restrict") && existsSync("/etc/apparmor.d/bwrap")) {
-  const disabled = existsSync("/etc/apparmor.d/disable/bwrap-userns-restrict");
-  report(
-    disabled ? "ok" : "fail",
-    "bwrap AppArmor change survives a reboot",
-    disabled ? "" : "Ubuntu's bwrap-userns-restrict is not disabled (see docs/setup.md step 1)",
-  );
-}
-
-// REQ-001-55: agents read GitHub (issue comments, linked issues and PRs) with the GitHub CLI.
-const ghCli = run(["gh", "--version"]);
-report(
-  ghCli.ok ? "ok" : "warn",
-  "gh installed",
-  ghCli.ok
-    ? ghCli.out.split("\n")[0]
-    : "not found; agents can't read GitHub beyond their prompt (see docs/setup.md step 1)",
-);
-
-// REQ-001-48 / REQ-001-53: the Implementer captures Screenshots of UI changes with the host's headless browser.
-// This starts it outside the sandbox; whether it also starts inside one is the smoke runner's --screenshot run.
+// REQ-001-48: an Implementer may shoot Screenshots with a headless browser, or install one itself.
 const browser = findBrowser();
 const browserStart = browser ? checkBrowserStarts(browser, tmpdir()) : undefined;
 report(
   browserStart?.ok ? "ok" : "warn",
   "headless browser for Screenshots",
   !browser
-    ? "no Chrome or Chromium found; Implementers can't capture Screenshots of UI changes (see docs/setup.md step 1)"
+    ? "no Chrome or Chromium found; Implementers will have to install one (see docs/setup.md step 1)"
     : `${browser} ${browserStart?.ok ? "" : "does not start headless: "}${browserStart?.detail}`,
 );
 
@@ -121,74 +90,55 @@ for (const a of accounts) {
   }
 }
 
-if (config) {
-  const ownerRes = await fetch(`${API}/users/${config.owner.login}`, { headers: baseHeaders });
+// REQ-005-02: the one GitHub credential, the GitHub CLI's fine-grained PAT.
+let token: string | undefined;
+try {
+  token = await new GhToken().tokenFor("");
+  report("ok", "gh logged in");
+} catch (e) {
+  report("fail", "gh logged in", e instanceof Error ? e.message : String(e));
+}
+
+if (config && token) {
+  const auth = { ...baseHeaders, authorization: `token ${token}` };
+  const me = await fetch(`${API}/user`, { headers: auth });
+  const user = me.ok ? ((await me.json()) as { login: string; id: number }) : undefined;
+  report(
+    user ? "ok" : "fail",
+    "GitHub token's account",
+    user
+      ? `${user.login}${user.id === config.owner.id ? " (the Owner; the Coordinator's posts are told apart by their agent note)" : ""}`
+      : `GitHub says ${me.status}`,
+  );
+  const ownerRes = await fetch(`${API}/users/${config.owner.login}`, { headers: auth });
   const owner = ownerRes.ok ? ((await ownerRes.json()) as { id: number }) : undefined;
   if (owner)
     report(owner.id === config.owner.id ? "ok" : "fail", "Owner id matches the login", `GitHub says ${owner.id}`);
 
-  const keyPath = config.github.privateKeyPath;
-  let readable = true;
-  try {
-    accessSync(keyPath, constants.R_OK);
-  } catch (e) {
-    readable = false;
-    const denied = (e as NodeJS.ErrnoException).code === "EACCES";
+  for (const { name } of config.repos) {
+    const repo = await fetch(`${API}/repos/${name}`, { headers: auth });
+    const r = (await repo.json()) as { default_branch?: string; permissions?: { push?: boolean }; message?: string };
+    if (!repo.ok) {
+      report("fail", `${name} reachable`, `${r.message ?? repo.status} (is it among the PAT's repositories?)`);
+      continue;
+    }
     report(
-      "fail",
-      "GitHub App private key",
-      denied || !existsSync(dirname(keyPath))
-        ? `${keyPath} is not readable by ${userInfo().username}; run doctor as the Coordinator's user (sudo -iu agent …)`
-        : `${keyPath} not found`,
+      r.permissions?.push ? "ok" : "fail",
+      `${name} reachable`,
+      r.permissions?.push
+        ? `default branch ${r.default_branch}`
+        : "the token can't push (the PAT needs Contents read & write)",
     );
-  }
-  if (readable) {
-    const key = readFileSync(keyPath, "utf8");
-    const app = await fetch(`${API}/app`, {
-      headers: { ...baseHeaders, authorization: `Bearer ${createAppJwt(config.github.appId, key, new Date())}` },
+    const checks = await fetch(`${API}/repos/${name}/commits/${r.default_branch}/check-runs?per_page=1`, {
+      headers: auth,
     });
-    const body = (await app.json()) as { slug?: string; permissions?: Record<string, string>; message?: string };
     report(
-      app.ok ? "ok" : "fail",
-      "GitHub App",
-      app.ok ? `${body.slug}, permissions ${JSON.stringify(body.permissions)}` : (body.message ?? ""),
+      checks.ok ? "ok" : "fail",
+      `${name} check runs readable`,
+      checks.ok ? "" : `GitHub says ${checks.status} (the Reviewer waits for checks; see docs/setup.md step 2)`,
     );
-    const wanted = {
-      issues: "write",
-      pull_requests: "write",
-      contents: "write",
-      workflows: "write",
-      checks: "read",
-      metadata: "read",
-    };
-    for (const [perm, level] of Object.entries(wanted)) {
-      const have = body.permissions?.[perm];
-      if (app.ok && have !== level && !(level === "read" && have === "write"))
-        report("fail", `App permission ${perm}`, `needs ${level}, has ${have ?? "none"}`);
-    }
-    const appAuth = new AppAuth({ appId: config.github.appId, privateKey: key });
-    for (const { name } of config.repos) {
-      try {
-        const token = await appAuth.tokenFor(name);
-        const repo = await fetch(`${API}/repos/${name}`, {
-          headers: { ...baseHeaders, authorization: `token ${token}` },
-        });
-        const r = (await repo.json()) as { default_branch?: string; message?: string };
-        report(
-          repo.ok ? "ok" : "fail",
-          `${name} reachable`,
-          repo.ok ? `default branch ${r.default_branch}` : (r.message ?? ""),
-        );
-      } catch (e) {
-        report(
-          "fail",
-          `${name} reachable`,
-          `${e instanceof Error ? e.message : String(e)} (is the App installed on it?)`,
-        );
-      }
-    }
   }
-  report("warn", "default-branch rulesets", "not checkable with the App's permissions; see docs/setup.md step 3");
+  report("warn", "default-branch rulesets", "not checked; see docs/setup.md step 3");
 }
 
 const failed = results.filter((r) => r.status === "fail").length;

@@ -7,11 +7,11 @@ A self-hosted Bun daemon that polls GitHub and runs Claude Code agents. They tri
 1. **You open an issue.** Only issues you authored are considered, plus Split-off issues the Planner proposed (below); comments, labels and reviews by anyone else are ignored.
 2. **The Planner assesses it** and posts an Assessment comment: proposed approach, questions, and Coordination notes ("do together with #N", "blocked by #N"). Label: `agent:proposed`, `agent:needs-refinement` or `agent:wontfix-proposed`. Comment with feedback to revise the plan: the Assessment is edited in place, and the Planner answers below your comment with a short Reply saying what changed and why. Editing the issue description instead plans it from scratch, without the old plan. If the issue or your comment links to another issue or PR of the same repository (`#N` or its URL), the Planner also gets its recent history: state, labels, timeline events, Reviews and last comments (up to 5 linked items per issue). If an issue mixes independent changes, or the Planner finds a separate bug, it can split off new issues: the Coordinator creates them (at most 5 per Assessment, never twice), links them back, lists them under Coordination, and plans them like your own issues. They still need your approval.
 3. **You approve** with `/approve [notes]` or the `agent:approved` label. Nothing said inside a session counts as approval.
-4. **The Implementer works on it** in its own Worktree and branch (`agent/<issue>-<slug>`); bundled issues share one. The Coordinator pushes and opens a **draft** PR that closes the issues, so it can't be merged before its Review. Screenshots of UI changes the Implementer captured show in the PR body; they are kept on the branch `agent-screenshots`, never in the PR's commits ([setup](docs/setup.md#1-linux-user-tools-and-claude-login)).
+4. **The Implementer works on it** in its own Worktree and branch (`agent/<issue>-<slug>`); bundled issues share one. The Coordinator pushes and opens a **draft** PR that closes the issues, so it can't be merged before its Review. Screenshots of UI changes the Implementer captured show in the PR body; they are kept on the branch `agent-screenshots`, never in the PR's commits ([setup](docs/setup.md#1-vm-tools-and-claude-login)).
 5. **The Reviewer reviews the PR** once its checks pass and it has no merge conflicts, as one review with inline comments (never an approval). The Reviewer reports only findings worth fixing (no nits or matters of taste), and a Review without findings marks the PR ready for review (`agent:reviewed`) and assigns it to you, so it shows under your assigned PRs on GitHub. Every finding and failing checks go back to the Implementer, up to `maxFeedbackRounds` times, then the PR is labelled `agent:failed`. Merge conflicts go back too, but don't count toward that limit: the Coordinator fetches the default branch and the Implementer merges it, also after a PR was already reviewed. The Implementer answers each finding on the PR (`fixed` or `declined` with a reason), and the next Review sees those answers. If an automatic round ends without a new commit (findings declined, checks still failing, conflicts still there), the Coordinator says why in a PR comment and the PR waits for you: `/agent <text>` to have it fixed anyway, mark it ready yourself, or merge it yourself. `/agent <text>` on a conflicting PR, also a failed one, fetches the default branch first and asks for the merge. Any new commit pushed after a Review turns the PR back into a draft until that commit is reviewed, and an `agent:reviewed` PR goes back to `agent:pr-open`; a failed PR stays a draft. [Labels](#labels) shows the whole lifecycle.
 6. **You merge** once the PR has left draft (or click "Ready for review" yourself to override). The Worktree and sessions are cleaned up.
 
-Agents never get a GitHub write credential; the Coordinator does every GitHub write as its own GitHub App. Agents can read GitHub (issue comments, linked issues and PRs, files, checks) with `gh` and a read-only token, so they can look up context their prompt leaves out.
+**Runs on a VM of its own.** Agents run with Claude Code's permission prompts skipped and no sandbox: on that VM they may do whatever they want, including `sudo`. The only boundary is GitHub: the Coordinator and the agents share one fine-grained PAT, logged in with `gh`, limited to the repositories you choose ([spec 005](docs/specs/005-vm-runtime/spec.md)). Agents read GitHub with `gh` to look up context their prompt leaves out; posting, labelling, pushing and opening PRs is left to the Coordinator.
 
 **Several Claude subscriptions (optional).** List them as `accounts` in the config; sessions run on the first one. When it hits its usage limit, it is paused and work, including the cut-off session, goes on with the next one. New work waits only while every Account is paused.
 
@@ -28,7 +28,7 @@ Agents never get a GitHub write credential; the Coordinator does every GitHub wr
 
 ## Labels
 
-Each issue's state is an `agent:*` label on the issue (shown in its GitHub colour, grouped by phase). Once the agent PR is open, the PR carries the same label as its issues, so you can see its phase in the PR list too: `agent:pr-open`, `agent:reviewing`, `agent:reviewed`, `agent:in-progress` during a Feedback round, or `agent:failed`, always exactly one of them. The PR's label is only for show: the Coordinator decides from the issue's label. You steer with comments, the `agent:approved` label, reviews and merging; the **Coordinator** applies every label, after an agent's Result or on its own checks. Agents never set labels: their GitHub access is read-only. The Coordinator creates the labels in each repository.
+Each issue's state is an `agent:*` label on the issue (shown in its GitHub colour, grouped by phase). Once the agent PR is open, the PR carries the same label as its issues, so you can see its phase in the PR list too: `agent:pr-open`, `agent:reviewing`, `agent:reviewed`, `agent:in-progress` during a Feedback round, or `agent:failed`, always exactly one of them. The PR's label is only for show: the Coordinator decides from the issue's label. You steer with comments, the `agent:approved` label, reviews and merging; the **Coordinator** applies every label, after an agent's Result or on its own checks. Agents don't set labels: their prompts leave that to the Coordinator. The Coordinator creates the labels in each repository.
 
 ```mermaid
 stateDiagram-v2
@@ -134,11 +134,12 @@ Each Role's default prompt lives in [`prompts/`](prompts/). The Planner decides 
 
 ## Setup
 
-See [docs/setup.md](docs/setup.md): a Linux user with Claude Code logged in, a GitHub App, a ruleset per repository, `config.ts`, and the systemd service. In short:
+See [docs/setup.md](docs/setup.md): a VM with a sudo user and Claude Code logged in, a fine-grained PAT for `gh`, a ruleset per repository, `config.ts`, and the systemd service. In short:
 
 ```sh
-bun install
-cp config.example.ts config.ts   # fill in the Owner, GitHub App, Roles and repositories
+bash deploy/setup-vm.sh          # tools, Bun, Claude Code, systemd unit (as your sudo user, not root)
+gh auth login                    # with the fine-grained PAT
+cp config.example.ts config.ts   # fill in the Owner, Roles and repositories
 bun run doctor                   # checks the setup
 bun start                        # or run it as the systemd service
 ```

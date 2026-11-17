@@ -9,13 +9,12 @@ import { dashboardView } from "../src/dashboard/view.ts";
 
 const config = parseConfig({
   owner: { login: "octo", id: 42 },
-  github: { appId: 7, privateKeyPath: "/secret/keys/app.pem" },
   pollIntervalSec: 45,
   limits: { maxWorktrees: 3 },
   roles: { planner: { model: "opus", effort: "high" }, implementer: { model: "sonnet" }, reviewer: { model: "opus" } },
   repos: [
     { name: "octo/app", setup: "bun install", roles: { reviewer: { model: "haiku", effort: "low" } } },
-    { name: "octo/lib", sandboxDomains: ["crates.io"] },
+    { name: "octo/lib" },
   ],
   dashboard: { host: "127.0.0.1", port: 8787, tokenPath: "/secret/dash/token" },
 });
@@ -203,7 +202,7 @@ describe("dashboard html", () => {
     expect(html).toContain("maxWorktrees");
     expect(html).toMatch(/Reviewer[\s\S]*haiku[\s\S]*low/);
     expect(html).toContain("bun install");
-    expect(html).toContain("crates.io");
+    expect(html).not.toContain("Sandbox domains");
     expect(html).toMatch(/1<\/b>\s*Worktree/);
     expect(html).not.toContain("/secret");
     expect(html).not.toContain("app.pem");

@@ -1,7 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { agentNote, modelDisplayName } from "../src/note.ts";
+import { agentNote, isAgentNote, modelDisplayName } from "../src/note.ts";
 
 describe("agent note", () => {
+  test("REQ-005-03 recognises the agent note at the start of a body", () => {
+    expect(isAgentNote(`${agentNote({ owner: "octo" })}\n\nGave up.`)).toBe(true);
+    expect(isAgentNote(agentNote({ owner: "octo", role: "planner", alias: "opus" }))).toBe(true);
+    expect(isAgentNote("/approve")).toBe(false);
+    expect(isAgentNote("Looks good.\n\n> [!Note]\n> 🤖 Coordinator writing on behalf of octo")).toBe(false);
+  });
+
   test("REQ-001-29 names the model family and version from its id", () => {
     expect(modelDisplayName("claude-opus-5-5")).toBe("Opus 5.5");
     expect(modelDisplayName("claude-sonnet-5-5")).toBe("Sonnet 5.5");

@@ -1,9 +1,8 @@
 /**
  * The Coordinator's GitHub REST client. It performs every comment, label, review and PR action
- * on behalf of the agents (REQ-001-15) and returns plain domain objects.
+ * on behalf of the agents (REQ-005-04) and returns plain domain objects.
  */
 import { AGENT_LABELS } from "../labels.ts";
-import type { AppAuth } from "./app-auth.ts";
 import { API, baseHeaders, errorFrom, type Fetch, GitHubError } from "./http.ts";
 
 export interface Actor {
@@ -121,12 +120,17 @@ interface Page<T> {
   notModified: boolean;
 }
 
+/** REQ-005-02: where the token for a repository comes from (the GitHub CLI's PAT, src/github/gh-token.ts). */
+export interface TokenSource {
+  tokenFor(repo: string): Promise<string>;
+}
+
 export class GitHubClient {
   private readonly fetch: Fetch;
   private readonly etagCache = new Map<string, { etag: string; items: Item[] }>();
   private readonly pullsCache = new Map<string, { etag: string; pulls: OpenPull[] }>();
 
-  constructor(private readonly opts: { auth: AppAuth; fetch?: Fetch }) {
+  constructor(private readonly opts: { auth: TokenSource; fetch?: Fetch }) {
     this.fetch = opts.fetch ?? fetch;
   }
 

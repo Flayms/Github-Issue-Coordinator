@@ -1,6 +1,6 @@
 /**
- * Local clones of the managed repositories. The App token is passed to git per command as an
- * HTTP header and never written into a clone, so agents working there cannot read it (REQ-001-15).
+ * Local clones of the managed repositories. The token (REQ-005-02) is passed to git per command as an
+ * HTTP header and never written into a clone, so it can't end up in a commit or a pushed config.
  */
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";

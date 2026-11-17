@@ -54,7 +54,7 @@ describe("worktrees", () => {
     expect(config("user.email")).toBe("noreply@anthropic.com");
   });
 
-  test("REQ-001-15 the checkout holds no token and its git data stays inside it", async () => {
+  test("REQ-005-02 the checkout holds no token and its git data stays inside it", async () => {
     const wt = await make().create("octo/app", [5], "x");
     expect(readFileSync(join(wt.path, ".git", "config"), "utf8")).not.toContain("tok-123");
     expect(existsSync(join(wt.path, ".git", "objects"))).toBe(true);

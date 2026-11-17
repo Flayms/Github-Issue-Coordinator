@@ -1,8 +1,8 @@
 /**
  * Worktrees: one checkout per issue or Bundle (REQ-001-06, REQ-001-09) and temporary review
- * checkouts (REQ-001-10). Each is a local clone of the main clone, not a `git worktree`: a real
- * worktree writes commits into the main clone's `.git`, outside the Implementer's sandbox. Origin
- * points at GitHub without credentials; the Coordinator fetches and pushes with the token (REQ-001-15).
+ * checkouts (REQ-001-10). Each is a local clone of the main clone, not a `git worktree`, so each one
+ * has its own `.git` and can be removed on its own. Origin points at GitHub without credentials; the
+ * Coordinator fetches and pushes with the token (REQ-005-02).
  */
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -192,7 +192,7 @@ export class Worktrees {
 
   /**
    * Fetches the default branch into a Worktree, so the Implementer can merge it to resolve merge
-   * conflicts; its sandbox has no credentials to fetch itself (REQ-001-28, REQ-001-15).
+   * conflicts (REQ-001-28).
    */
   async fetchBase(repo: string, path: string): Promise<void> {
     const base = this.defaultBranch(path);

@@ -10,7 +10,7 @@ import type { Clones } from "./git.ts";
 import type { Actor, Comment, GitHubClient, Item } from "./github/client.ts";
 import { Implementer, type ImplementerDeps } from "./implementer.ts";
 import { labelPr } from "./labels.ts";
-import { agentNote, ROLE_NAMES } from "./note.ts";
+import { agentNote, isAgentNote, ROLE_NAMES } from "./note.ts";
 import { bodyHash, Planner } from "./planner.ts";
 import { Reviewer, type ReviewerDeps } from "./reviewer.ts";
 import { type SessionRunner, SessionStartError } from "./runner.ts";
@@ -329,7 +329,7 @@ export class Coordinator {
       // Comments matter on proposals (feedback, /approve) and on any agent issue (/wake, REQ-001-24).
       if (issueState(i.labels) === "new") continue;
       const comments = (await this.d.gh.listComments(repo, i.number, { afterId: rec.lastHandledCommentId })).filter(
-        (c) => c.author.id === this.d.config.owner.id,
+        (c) => this.byOwner(c),
       );
       const bodyChanged =
         PROPOSALS.includes(issueState(i.labels)) && rec.bodyHash !== null && rec.bodyHash !== bodyHash(i.body);
@@ -340,7 +340,7 @@ export class Coordinator {
     for (const w of this.d.store.worktrees(repo)) {
       if (w.prNumber === null || !items.some((i) => i.number === w.prNumber)) continue;
       const rec = this.d.store.issue(repo, w.prNumber);
-      const owner = (a: { author: { id: number } }) => a.author.id === this.d.config.owner.id;
+      const owner = (a: { author: { id: number }; body: string }) => this.byOwner(a);
       const comments = (await this.d.gh.listComments(repo, w.prNumber, { afterId: rec.lastHandledCommentId })).filter(
         owner,
       );
@@ -352,6 +352,11 @@ export class Coordinator {
     const view = { items, feedback, labelActors, prFeedback };
     this.views.set(repo, view);
     return view;
+  }
+
+  /** REQ-001-01 / REQ-005-03: the Owner's own words, not what the Coordinator posted with the Owner's PAT. */
+  private byOwner(a: { author: { id: number }; body: string }): boolean {
+    return a.author.id === this.d.config.owner.id && !isAgentNote(a.body);
   }
 
   private async handle(a: Action, view: RepoView, queue: Work[], jobs: Map<string, Job>) {

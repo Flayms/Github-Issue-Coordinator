@@ -50,6 +50,12 @@ export function agentNote(by: { owner: string; role?: Role; modelId?: string; al
   return `> [!Note]\n> 🤖 ${who} writing on behalf of ${by.owner}`;
 }
 
+/**
+ * REQ-005-03: whether a comment or review body starts with an agent note, i.e. the Coordinator posted it. With the
+ * Owner's own PAT its author is the Owner, so this is what keeps it from counting as the Owner's input.
+ */
+export const isAgentNote = (body: string): boolean => /^> \[!Note\]\r?\n> 🤖 /.test(body.trimStart());
+
 /** The note for a session's messages. */
 export const sessionNote = (config: Config, session: SessionRecord): string =>
   agentNote({

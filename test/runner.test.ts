@@ -51,16 +51,12 @@ beforeEach(() => {
     stateDir: dir,
     dbPath: join(dir, "state.db"),
     hookCommand: ["bun", "/app/src/hook.ts"],
-    secretPaths: ["/home/agent/.config/coordinator", "/home/agent/.claude/.credentials.json"],
   });
 });
 afterEach(() => {
   store.close();
   rmSync(dir, { recursive: true });
 });
-
-/** REQ-001-55: every Role's shell commands can reach GitHub, to read it with its read-only token. */
-const GITHUB = ["github.com", "api.github.com", "raw.githubusercontent.com", "objects.githubusercontent.com"];
 
 /** The prompt the session's last launch handed to `claude` (REQ-001-45). */
 const promptOf = (id: number) => readFileSync(join(dir, "sessions", String(id), "prompt.md"), "utf8");
@@ -75,50 +71,34 @@ const startImplementer = () =>
     cwd: "/work/app-5",
     prompt: "Implement #5",
     model: { model: "sonnet", effort: "high" },
-    sandboxDomains: ["registry.npmjs.org"],
   });
 
 describe("claude command line", () => {
-  test("REQ-001-18 / REQ-001-22 registers with Remote Control under its name, with model, effort and hooks; a single-value flag last", () => {
+  test("REQ-001-18 / REQ-001-22 / REQ-005-01 registers with Remote Control under its name, with model, effort, hooks and skipped permissions; a single-value flag last", () => {
     expect(
       claudeArgs({
         name: "octo/app#5 implementer",
         settingsPath: "/s/settings.json",
-        addDir: "/s",
         model: { model: "sonnet", effort: "high" },
-        permissions: { permissionMode: "dontAsk", allowedTools: ["Read", "Bash(git log:*)"], sandbox: false },
       }),
     ).toEqual([
-      "--add-dir",
-      "/s",
       "--settings",
       "/s/settings.json",
+      "--remote-control",
+      "octo/app#5 implementer",
+      "--dangerously-skip-permissions",
       "--model",
       "sonnet",
       "--effort",
       "high",
-      "--allowedTools",
-      "Read",
-      "Bash(git log:*)",
-      "--remote-control",
-      "octo/app#5 implementer",
-      "--permission-mode",
-      "dontAsk",
     ]);
   });
 
   test("REQ-001-20 resumes by Claude session id and leaves out effort when none is set", () => {
-    const args = claudeArgs({
-      name: "n",
-      settingsPath: "s",
-      addDir: "d",
-      model: { model: "opus" },
-      permissions: { permissionMode: "auto", allowedTools: [], sandbox: true },
-      resumeId: "abc",
-    });
+    const args = claudeArgs({ name: "n", settingsPath: "s", model: { model: "opus" }, resumeId: "abc" });
     expect(args.slice(0, 2)).toEqual(["--resume", "abc"]);
     expect(args).not.toContain("--effort");
-    expect(args).not.toContain("--allowedTools");
+    expect(args.at(-2)).toBe("--model");
   });
 
   test("REQ-001-33 names an issue's session after the issue, its Role and the repository", () => {
@@ -187,193 +167,55 @@ describe("session runner", () => {
     expect(runner.liveSessionIds()).toEqual(new Set([id]));
   });
 
-  test("REQ-001-25 the Implementer runs in auto mode in the sandbox; a Reviewer in dontAsk with its allowed tools", () => {
-    const impl = startImplementer();
-    expect(tmux.windows.get(`s${impl}`)?.command).toContain("'--permission-mode' 'auto'");
-    const implSettings = JSON.parse(readFileSync(join(dir, "sessions", String(impl), "settings.json"), "utf8"));
-    // REQ-001-25: never fall back to unsandboxed Bash (e.g. when a sandbox dependency is missing).
-    expect(implSettings.sandbox).toEqual({
-      enabled: true,
-      autoAllowBashIfSandboxed: true,
-      failIfUnavailable: true,
-      allowUnsandboxedCommands: false,
-      filesystem: { denyRead: ["/home/agent/.config/coordinator", "/home/agent/.claude/.credentials.json"] },
-      network: { allowedDomains: ["registry.npmjs.org", ...GITHUB] },
-    });
-
-    const rev = runner.start({
+  const startRole = (role: "planner" | "implementer" | "reviewer") =>
+    runner.start({
       repo: "octo/app",
-      role: "reviewer",
+      role,
       kind: "issue",
-      issues: [9],
-      cwd: "/work/review-9",
-      prompt: "Review #9",
-      model: { model: "opus" },
-    });
-    const cmd = tmux.windows.get(`s${rev}`)?.command ?? "";
-    expect(cmd).toContain("'--permission-mode' 'dontAsk'");
-    expect(cmd).toContain(`'Write(/${join(dir, "sessions", String(rev), "result.json")})'`);
-    const revSettings = JSON.parse(readFileSync(join(dir, "sessions", String(rev), "settings.json"), "utf8"));
-    expect(revSettings.sandbox).toMatchObject({
-      enabled: true,
-      failIfUnavailable: true,
-      network: { allowedDomains: GITHUB },
-    });
-  });
-
-  test("REQ-001-26 every Role is denied reading the Coordinator's secrets, with file tools and in shell commands", () => {
-    for (const role of ["planner", "implementer", "reviewer"] as const) {
-      const id = runner.start({
-        repo: "octo/app",
-        role,
-        kind: "issue",
-        issues: [5],
-        cwd: "/w",
-        prompt: "p",
-        model: { model: "opus" },
-      });
-      const settings = JSON.parse(readFileSync(join(dir, "sessions", String(id), "settings.json"), "utf8"));
-      expect(settings.permissions.deny).toEqual([
-        "Read(//home/agent/.config/coordinator)",
-        "Read(//home/agent/.config/coordinator/**)",
-        "Read(//home/agent/.claude/.credentials.json)",
-        "Read(//home/agent/.claude/.credentials.json/**)",
-      ]);
-      expect(settings.sandbox.filesystem.denyRead).toEqual([
-        "/home/agent/.config/coordinator",
-        "/home/agent/.claude/.credentials.json",
-      ]);
-    }
-  });
-
-  test("REQ-001-30 an Implementer's shell commands may write only to its Worktree and session folder", () => {
-    const impl = startImplementer();
-    const cmd = tmux.windows.get(`s${impl}`)?.command ?? "";
-    expect(tmux.windows.get(`s${impl}`)?.cwd).toBe("/work/app-5");
-    // The sandbox makes the working directory and every --add-dir writable, nothing else.
-    expect(cmd).toContain(`'--add-dir' '${join(dir, "sessions", String(impl))}'`);
-    expect(cmd.match(/'--add-dir'/g)).toHaveLength(1);
-    const settings = JSON.parse(readFileSync(join(dir, "sessions", String(impl), "settings.json"), "utf8"));
-    expect(settings.sandbox.filesystem.allowWrite).toBeUndefined();
-    expect(settings.permissions.additionalDirectories).toBeUndefined();
-  });
-
-  test("REQ-001-25 a Planner's and a Reviewer's shell commands can't write to their cwd; the Implementer's can", () => {
-    // `git log/show/diff --output=<file>` writes files, so read-only git alone doesn't keep them read-only (#23).
-    for (const [role, cwd] of [
-      ["planner", "/clones/octo/app"],
-      ["reviewer", "/reviews/octo/app/9"],
-    ] as const) {
-      const id = runner.start({
-        repo: "octo/app",
-        role,
-        kind: "issue",
-        issues: [9],
-        cwd,
-        prompt: "p",
-        model: { model: "opus" },
-      });
-      const settings = JSON.parse(readFileSync(join(dir, "sessions", String(id), "settings.json"), "utf8"));
-      expect(settings.sandbox.filesystem.denyWrite).toEqual([cwd]);
-    }
-    const impl = startImplementer();
-    const settings = JSON.parse(readFileSync(join(dir, "sessions", String(impl), "settings.json"), "utf8"));
-    expect(settings.sandbox.filesystem.denyWrite).toBeUndefined();
-  });
-
-  test("REQ-001-25 a resumed session keeps its Role's permissions", () => {
-    const id = startImplementer();
-    store.setClaudeSessionId(id, "sess-abc");
-    store.patchSession(id, { state: "idle" });
-    runner.resume(id, "more", { model: "opus" });
-    expect(tmux.windows.get(`s${id}`)?.command).toContain("'--permission-mode' 'auto'");
-  });
-
-  test("REQ-001-55 every Role gets the read-only token for its repository through gh's config folder", () => {
-    const tokens: Record<string, string> = { "octo/app": "read-1" };
-    const r = new SessionRunner({
-      store,
-      tmux,
-      stateDir: dir,
-      dbPath: join(dir, "state.db"),
-      hookCommand: ["bun", "/app/src/hook.ts"],
-      readToken: (repo) => tokens[repo],
-    });
-    for (const role of ["planner", "implementer", "reviewer"] as const) {
-      const id = r.start({
-        repo: "octo/app",
-        role,
-        kind: "issue",
-        issues: [5],
-        cwd: "/w",
-        prompt: "p",
-        model: { model: "opus" },
-      });
-      const ghDir = join(dir, "sessions", String(id), "gh");
-      expect(readFileSync(join(ghDir, "hosts.yml"), "utf8")).toBe(
-        "github.com:\n    oauth_token: read-1\n    git_protocol: https\n",
-      );
-      const cmd = tmux.windows.get(`s${id}`)?.command ?? "";
-      expect(cmd).toContain(`GH_CONFIG_DIR=${shellQuote([ghDir])} `);
-      expect(cmd).toContain("GH_NO_UPDATE_NOTIFIER=1 GH_PROMPT_DISABLED=1 ");
-    }
-    // A repository without a token still starts; gh then reads only public data.
-    const other = r.start({
-      repo: "octo/lib",
-      role: "planner",
-      kind: "issue",
-      issues: [1],
+      issues: [5],
       cwd: "/w",
       prompt: "p",
       model: { model: "opus" },
     });
-    expect(existsSync(join(dir, "sessions", String(other), "gh", "hosts.yml"))).toBe(false);
-    expect(tmux.windows.get(`s${other}`)?.command).toContain("GH_CONFIG_DIR=");
+  const settingsOf = (id: number) =>
+    JSON.parse(readFileSync(join(dir, "sessions", String(id), "settings.json"), "utf8"));
+
+  test("REQ-005-01 every Role starts with permission prompts skipped and no add-dir", () => {
+    for (const role of ["planner", "implementer", "reviewer"] as const) {
+      const cmd = tmux.windows.get(`s${startRole(role)}`)?.command ?? "";
+      expect(cmd).toContain("'--dangerously-skip-permissions'");
+      expect(cmd).not.toContain("--permission-mode");
+      expect(cmd).not.toContain("--allowedTools");
+      expect(cmd).not.toContain("--add-dir");
+      expect(cmd).not.toContain("GH_CONFIG_DIR");
+    }
   });
 
-  test("REQ-001-55 the token of every live session is renewed; closed sessions keep theirs", () => {
-    const tokens: Record<string, string> = { "octo/app": "read-1" };
-    const r = new SessionRunner({
-      store,
-      tmux,
-      stateDir: dir,
-      dbPath: join(dir, "state.db"),
-      hookCommand: ["bun", "/app/src/hook.ts"],
-      readToken: (repo) => tokens[repo],
-    });
-    const start = () =>
-      r.start({
-        repo: "octo/app",
-        role: "reviewer",
-        kind: "issue",
-        issues: [5],
-        cwd: "/w",
-        prompt: "p",
-        model: { model: "opus" },
-      });
-    const live = start();
-    const closed = start();
-    tmux.killWindow(`s${closed}`);
-    tokens["octo/app"] = "read-2";
-    r.refreshGitHubAccess();
-    const hosts = (id: number) => readFileSync(join(dir, "sessions", String(id), "gh", "hosts.yml"), "utf8");
-    expect(hosts(live)).toContain("oauth_token: read-2");
-    expect(hosts(closed)).toContain("oauth_token: read-1");
+  test("REQ-005-01 session settings hold only the hooks, for every Role", () => {
+    for (const role of ["planner", "implementer", "reviewer"] as const) {
+      const id = startRole(role);
+      expect(Object.keys(settingsOf(id))).toEqual(["hooks"]);
+      expect(existsSync(join(dir, "sessions", String(id), "gh"))).toBe(false);
+    }
   });
 
-  test("REQ-001-55 a resumed session runs with the current settings, keeping its repository's network domains", () => {
+  test("REQ-005-01 a resume rewrites the settings without permissions or sandbox", () => {
     const id = startImplementer();
     store.setClaudeSessionId(id, "sess-abc");
     store.patchSession(id, { state: "idle" });
     const path = join(dir, "sessions", String(id), "settings.json");
-    // A session folder written by an older Coordinator, before agents could reach GitHub.
-    writeFileSync(path, JSON.stringify({ sandbox: { network: { allowedDomains: ["registry.npmjs.org"] } } }));
-    writeFileSync(join(dir, "sessions", String(id), "meta.json"), JSON.stringify({ cwd: "/work/app-5" }));
+    // A session folder written by an older Coordinator, with a sandbox and deny rules.
+    writeFileSync(path, JSON.stringify({ sandbox: { enabled: true }, permissions: { deny: ["Read(//x)"] } }));
+    writeFileSync(
+      join(dir, "sessions", String(id), "meta.json"),
+      JSON.stringify({ cwd: "/work/app-5", sandboxDomains: ["registry.npmjs.org"] }),
+    );
     runner.resume(id, "more", { model: "opus" });
     const settings = JSON.parse(readFileSync(path, "utf8"));
-    expect(settings.sandbox.network.allowedDomains).toEqual(["registry.npmjs.org", ...GITHUB]);
+    expect(Object.keys(settings)).toEqual(["hooks"]);
     expect(settings.hooks.Stop).toHaveLength(1);
     expect(tmux.windows.get(`s${id}`)?.cwd).toBe("/work/app-5");
+    expect(tmux.windows.get(`s${id}`)?.command).toContain("'--dangerously-skip-permissions'");
   });
 
   test("the prompt tells the session where to write its Result", () => {
@@ -460,27 +302,20 @@ describe("session runner", () => {
     ]);
   });
 
-  /** The screen Claude Code 2.1.3xx shows for an untrusted `--add-dir` folder (seen on the server, sessions 127 and 135). */
-  const addDirScreen = (folder: string) =>
-    [
-      " Adding a new directory:",
-      "",
-      ` ${folder}`,
-      "",
-      " This session hasn't worked here before. Is this a directory you created or one you trust?",
-      "",
-      " Security guide",
-      "",
-      " ❯ No, exit",
-      "   Yes, add it",
-      "",
-      " Enter to confirm · Esc to cancel",
-    ].join("\n");
+  /** Claude Code's one-time warning before it runs with skipped permissions; "No, exit" comes first and has focus. */
+  const bypassScreen = [
+    " WARNING: Claude Code running in Bypass Permissions mode",
+    "",
+    " In Bypass Permissions mode, Claude Code will not ask for your approval before running potentially dangerous commands.",
+    "",
+    " ❯ 1. No, exit",
+    "   2. Yes, I accept",
+  ].join("\n");
 
-  test("REQ-001-56 answers yes when Claude Code asks to trust the session's own folder", () => {
+  test("REQ-005-01 accepts the Bypass Permissions warning", () => {
     const id = startImplementer();
     const win = tmux.windows.get(`s${id}`);
-    if (win) win.pane = addDirScreen(runner.sessionDir(id));
+    if (win) win.pane = bypassScreen;
     runner.answerDialogs();
     expect(tmux.keys).toEqual([
       [`s${id}`, ["Down"]],
@@ -488,12 +323,10 @@ describe("session runner", () => {
     ]);
   });
 
-  test("REQ-001-56 leaves the question unanswered for any other folder", () => {
+  test("REQ-001-57 leaves any other screen unanswered", () => {
     const id = startImplementer();
     const win = tmux.windows.get(`s${id}`);
-    if (win) win.pane = addDirScreen("/home/agent/somewhere-else");
-    runner.answerDialogs();
-    if (win) win.pane = addDirScreen(`${runner.sessionDir(id)}-other`);
+    if (win) win.pane = " Adding a new directory:\n\n /somewhere\n\n ❯ No, exit\n   Yes, add it";
     runner.answerDialogs();
     expect(tmux.keys).toEqual([]);
   });
@@ -599,12 +432,7 @@ describe("Accounts", () => {
       prompt: "p",
       model: { model: "opus" },
     });
-  /** The command after gh's environment (REQ-001-55, tested in "session runner"). */
-  const commandOf = (id: number) =>
-    (tmux.windows.get(`s${id}`)?.command ?? "").replace(
-      /^GH_CONFIG_DIR='[^']*' GH_NO_UPDATE_NOTIFIER=1 GH_PROMPT_DISABLED=1 /,
-      "",
-    );
+  const commandOf = (id: number) => tmux.windows.get(`s${id}`)?.command ?? "";
 
   test("REQ-004-01 a session starts on the first Account, in Claude's default folder, and records it", () => {
     const id = start();

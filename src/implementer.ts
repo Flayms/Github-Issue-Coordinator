@@ -91,7 +91,6 @@ export class Implementer {
       cwd: wt.path,
       prompt: renderPrompt(loadPrompt("implementer", wt.path), { repo, context }),
       model: roleSettings(this.d.config, repo, "implementer"),
-      sandboxDomains: this.sandboxDomains(repo),
     });
   }
 
@@ -258,7 +257,6 @@ export class Implementer {
         cwd: wt,
         prompt,
         model,
-        sandboxDomains: this.sandboxDomains(repo),
       });
     }
     return id;
@@ -310,10 +308,6 @@ export class Implementer {
     const section = renderScreenshots({ repo, pr, head, checked, skipped, published, error });
     for (const n of issues) this.d.store.updateIssue(repo, n, { screenshots: section });
     return section;
-  }
-
-  private sandboxDomains(repo: string): string[] {
-    return this.d.config.repos.find((r) => r.name.toLowerCase() === repo.toLowerCase())?.sandboxDomains ?? [];
   }
 
   /**
