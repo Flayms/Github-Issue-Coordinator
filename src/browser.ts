@@ -1,6 +1,6 @@
 /**
- * The host's headless browser that Implementers shoot Screenshots with (REQ-001-48, REQ-001-53).
- * Shared by `bun run doctor` and the smoke runner's Screenshot scenario, so both start it the same way.
+ * The VM's headless browser, which Implementers may shoot Screenshots with (REQ-001-48). `bun run doctor`
+ * reports whether one is installed and starts (REQ-005-05); without one, an Implementer may install its own.
  */
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -10,38 +10,21 @@ export const BROWSERS = ["google-chrome", "google-chrome-stable", "chromium", "c
 
 const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47];
 const START_TIMEOUT_MS = 60_000;
-/** Doesn't exist and can't be created without root: stands in for the sandbox's read-only home folder. */
-const UNWRITABLE_HOME = "/nonexistent";
 
 export function findBrowser(which: (bin: string) => string | null = Bun.which): string | undefined {
   return BROWSERS.find((b) => which(b));
 }
 
-/**
- * Arguments for one headless screenshot. `--no-sandbox`: Chrome's own sandbox needs user namespaces,
- * which Claude Code's sandbox doesn't allow ("No usable sandbox!"). A throwaway profile keeps it from
- * writing to the home folder, and no proxy keeps localhost pages off the sandbox's network proxy.
- */
+/** Arguments for one headless screenshot; a throwaway profile keeps the check out of the user's own one. */
 export function screenshotArgs(file: string, url: string, userDataDir: string): string[] {
   return [
     "--headless",
-    "--no-sandbox",
-    "--no-proxy-server",
     "--disable-gpu",
     `--user-data-dir=${userDataDir}`,
     "--window-size=800,600",
     `--screenshot=${file}`,
     url,
   ];
-}
-
-/**
- * Environment for a screenshot: the sandbox's home folder is read-only, and with `--user-data-dir` alone
- * Chrome's crash handler still writes under `~/.config` and core-dumps (exit 133). So config and cache
- * go to `tmp` too.
- */
-export function screenshotEnv(tmp: string): { XDG_CONFIG_HOME: string; XDG_CACHE_HOME: string } {
-  return { XDG_CONFIG_HOME: join(tmp, "config"), XDG_CACHE_HOME: join(tmp, "cache") };
 }
 
 export function isPng(file: string): boolean {
@@ -57,8 +40,6 @@ export function checkBrowserStarts(browser: string, tmp: string): { ok: boolean;
   try {
     const page = "data:text/html,<h1>Coordinator doctor</h1>";
     const p = Bun.spawnSync([browser, ...screenshotArgs(file, page, join(work, "profile"))], {
-      // A home folder nobody can write, so the check fails like the sandbox would if Chrome still wrote there.
-      env: { ...process.env, HOME: UNWRITABLE_HOME, ...screenshotEnv(work) },
       stdout: "pipe",
       stderr: "pipe",
       timeout: START_TIMEOUT_MS,

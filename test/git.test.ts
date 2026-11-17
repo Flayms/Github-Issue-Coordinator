@@ -45,12 +45,12 @@ describe("main clones", () => {
     expect(() => readFileSync(join(path, "stray.txt"))).toThrow();
   });
 
-  test("REQ-001-15 never stores the token in the clone", async () => {
+  test("REQ-005-02 never stores the token in the clone", async () => {
     const path = await clones().mainClone("octo/origin");
     expect(readFileSync(join(path, ".git", "config"), "utf8")).not.toContain("tok-123");
   });
 
-  test("REQ-001-15 passes the token as a one-off HTTP header", () => {
+  test("REQ-005-02 passes the token as a one-off HTTP header", () => {
     expect(gitAuthArgs("tok")).toEqual([
       "-c",
       `http.https://github.com/.extraheader=AUTHORIZATION: basic ${Buffer.from("x-access-token:tok").toString("base64")}`,

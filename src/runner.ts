@@ -8,29 +8,22 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { type Account, accountDir, copyTranscript, DEFAULT_ACCOUNT, freeAccount } from "./accounts.ts";
 import type { Role, RoleSettings } from "./config.ts";
-import { type Permissions, rolePermissions } from "./prompts.ts";
 import { resultInstructions } from "./results.ts";
 import type { SessionRecord, Store } from "./store.ts";
 import type { Tmux } from "./tmux.ts";
 
-/** REQ-001-55: hosts every Role's shell commands may reach, to read GitHub with the session's read-only token. */
-export const GITHUB_DOMAINS = [
-  "github.com",
-  "api.github.com",
-  "raw.githubusercontent.com",
-  "objects.githubusercontent.com",
-];
-
 /** What a resume needs to write the session folder again: the start options that don't change. */
 interface SessionMeta {
   cwd: string;
-  sandboxDomains?: string[];
 }
 
 const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "Notification", "SessionEnd"] as const;
-const TRUST_DIALOG = /Yes, I trust this folder/;
-/** REQ-001-56: newer Claude Code versions also ask about each `--add-dir` folder (docs/known-pitfalls.md). */
-const ADD_DIR_DIALOG = /Adding a new directory[\s\S]*Yes, add it/;
+/** Screens the Coordinator answers with Down, Enter: the second option, which is "yes" on both. */
+const DIALOGS = [
+  /Yes, I trust this folder/,
+  // REQ-005-01: shown once per Claude config folder before it runs with skipped permissions.
+  /Bypass Permissions mode[\s\S]*Yes, I accept/,
+];
 const WINDOW = /^s(\d+)$/;
 
 export class SessionBusyError extends Error {
@@ -71,18 +64,16 @@ export function remoteControlName(s: Pick<SessionRecord, "repo" | "role" | "kind
 export function claudeArgs(o: {
   name: string;
   settingsPath: string;
-  addDir: string;
   model: RoleSettings;
-  permissions: Permissions;
   resumeId?: string;
 }): string[] {
   const args: string[] = [];
   if (o.resumeId) args.push("--resume", o.resumeId);
-  args.push("--add-dir", o.addDir, "--settings", o.settingsPath, "--model", o.model.model);
+  // REQ-005-01: agents run unrestricted on the Coordinator's VM.
+  args.push("--settings", o.settingsPath, "--remote-control", o.name, "--dangerously-skip-permissions");
+  // The prompt must follow a single-value flag: --remote-control has an optional value.
+  args.push("--model", o.model.model);
   if (o.model.effort) args.push("--effort", o.model.effort);
-  if (o.permissions.allowedTools.length) args.push("--allowedTools", ...o.permissions.allowedTools);
-  // The prompt must follow a single-value flag: --add-dir is variadic, --remote-control has an optional value.
-  args.push("--remote-control", o.name, "--permission-mode", o.permissions.permissionMode);
   return args;
 }
 
@@ -96,8 +87,6 @@ export interface StartOptions {
   cwd: string;
   prompt: string;
   model: RoleSettings;
-  /** Network domains the session's sandboxed shell commands may reach (Implementer only, REQ-001-25). */
-  sandboxDomains?: string[];
 }
 
 export class SessionRunner {
@@ -111,14 +100,10 @@ export class SessionRunner {
       /** How to run src/hook.ts, e.g. `[process.execPath, "/…/src/hook.ts"]`. */
       hookCommand: string[];
       claudeBin?: string;
-      /** Files and folders no agent may read: the App key, Claude's credentials (REQ-001-26). */
-      secretPaths?: string[];
       /** In priority order (REQ-004-01); default: the implicit Account in Claude's default folder. */
       accounts?: Account[];
       /** Where Claude's default folder `~/.claude` lives. */
       home?: string;
-      /** REQ-001-55: the current read-only GitHub token for a repository, if there is one. */
-      readToken?: (repo: string) => string | undefined;
     },
   ) {}
 
@@ -143,16 +128,15 @@ export class SessionRunner {
     return id;
   }
 
-  /** Writes the session folder: per-session hooks, permissions and sandbox, and what a resume needs. */
+  /** Writes the session folder: per-session hooks, and what a resume needs. */
   private prepare(id: number, opts: StartOptions): void {
-    const meta: SessionMeta = { cwd: opts.cwd, sandboxDomains: opts.sandboxDomains ?? [] };
     mkdirSync(this.sessionDir(id), { recursive: true });
-    writeFileSync(join(this.sessionDir(id), "meta.json"), JSON.stringify(meta));
-    this.writeSettings(id, opts.role, meta);
+    writeFileSync(join(this.sessionDir(id), "meta.json"), JSON.stringify({ cwd: opts.cwd } satisfies SessionMeta));
+    this.writeSettings(id);
   }
 
-  /** Per-session hooks, permissions and sandbox; rewritten on every resume, so it gets the current rules (REQ-001-55). */
-  private writeSettings(id: number, role: Role, meta: SessionMeta): void {
+  /** REQ-005-01: only the hooks; rewritten on every resume, so a session folder from an older Coordinator loses its sandbox. */
+  private writeSettings(id: number): void {
     const dir = this.sessionDir(id);
     const hooks = Object.fromEntries(
       HOOK_EVENTS.map((ev) => [
@@ -166,65 +150,7 @@ export class SessionRunner {
         ],
       ]),
     );
-    const secrets = this.o.secretPaths ?? [];
-    const sandbox = rolePermissions(role, dir).sandbox
-      ? {
-          enabled: true,
-          autoAllowBashIfSandboxed: true,
-          // REQ-001-25: never run shell commands unsandboxed, e.g. when a sandbox dependency is missing.
-          failIfUnavailable: true,
-          allowUnsandboxedCommands: false,
-          filesystem: {
-            denyRead: secrets,
-            // REQ-001-25: the sandbox lets shell commands write to the cwd, and allowed read-only git can write
-            // files (`git log --output=<file>`). Deny beats that allow, so a Planner's or Reviewer's shell keeps
-            // only its session folder and the sandbox's temporary folder (docs/known-pitfalls.md).
-            ...(role === "implementer" ? {} : { denyWrite: [meta.cwd] }),
-          },
-          network: {
-            allowedDomains: [...(role === "implementer" ? (meta.sandboxDomains ?? []) : []), ...GITHUB_DOMAINS],
-          },
-        }
-      : undefined;
-    // REQ-001-26: deny rules cover the file tools; sandbox.filesystem.denyRead covers shell commands.
-    const permissions = { deny: secrets.flatMap((p) => [`Read(/${p})`, `Read(/${p}/**)`]) };
-    writeFileSync(join(dir, "settings.json"), JSON.stringify({ hooks, permissions, sandbox }, null, 2));
-  }
-
-  /** Reads what a resume needs; a session folder from before REQ-001-55 kept its domains only in its settings. */
-  private readMeta(id: number): SessionMeta {
-    const dir = this.sessionDir(id);
-    const meta = JSON.parse(readFileSync(join(dir, "meta.json"), "utf8")) as SessionMeta;
-    if (meta.sandboxDomains) return meta;
-    try {
-      const old = JSON.parse(readFileSync(join(dir, "settings.json"), "utf8"));
-      const domains: unknown = old?.sandbox?.network?.allowedDomains;
-      const kept = Array.isArray(domains)
-        ? domains.filter((d) => typeof d === "string" && !GITHUB_DOMAINS.includes(d))
-        : [];
-      return { ...meta, sandboxDomains: kept };
-    } catch {
-      return { ...meta, sandboxDomains: [] };
-    }
-  }
-
-  /** REQ-001-55: gives the session's `gh` the current read-only token of its repository, through its config folder. */
-  private writeGitHubAccess(id: number, repo: string): void {
-    const ghDir = join(this.sessionDir(id), "gh");
-    mkdirSync(ghDir, { recursive: true });
-    const token = this.o.readToken?.(repo);
-    const hosts = join(ghDir, "hosts.yml");
-    if (token)
-      writeFileSync(hosts, `github.com:\n    oauth_token: ${token}\n    git_protocol: https\n`, { mode: 0o600 });
-    else rmSync(hosts, { force: true });
-  }
-
-  /** REQ-001-55: renews the token of every live session; tokens expire after an hour. */
-  refreshGitHubAccess(): void {
-    for (const id of this.liveSessionIds()) {
-      const s = this.o.store.session(id);
-      if (s) this.writeGitHubAccess(id, s.repo);
-    }
+    writeFileSync(join(dir, "settings.json"), JSON.stringify({ hooks }, null, 2));
   }
 
   /** Continues a session with a new prompt; refuses while it is running (REQ-001-19). */
@@ -232,10 +158,10 @@ export class SessionRunner {
     const s = this.mustGet(id);
     if (this.isBusy(s)) throw new SessionBusyError(id);
     if (!s.claudeSessionId) throw new Error(`session ${id} has no Claude session id to resume`);
-    const meta = this.readMeta(id);
+    const meta = JSON.parse(readFileSync(join(this.sessionDir(id), "meta.json"), "utf8")) as SessionMeta;
     try {
       this.o.tmux.killWindow(`s${id}`);
-      this.writeSettings(id, s.role, meta);
+      this.writeSettings(id);
       this.o.store.patchSession(id, { state: "running", resultFailures: 0, usageLimited: false });
       this.launch(id, meta.cwd, prompt, model, s.claudeSessionId, opts.keepResult);
     } catch (e) {
@@ -267,16 +193,11 @@ export class SessionRunner {
     return new Set(this.o.tmux.listWindows().flatMap((w) => (WINDOW.test(w) ? [Number(w.slice(1))] : [])));
   }
 
-  /**
-   * Answers the folder trust dialog that blocks `claude` in a new folder, and the question whether to trust the
-   * session's own folder given with `--add-dir` (REQ-001-56); any other folder stays unanswered (docs/known-pitfalls.md).
-   */
+  /** Answers the folder trust dialog and the Bypass Permissions warning (REQ-005-01); any other screen stays (REQ-001-57). */
   answerDialogs(): void {
     for (const id of this.liveSessionIds()) {
       const screen = this.o.tmux.capture(`s${id}`);
-      const ownFolder = this.sessionDir(id);
-      const asksOwnFolder = ADD_DIR_DIALOG.test(screen) && screen.split("\n").some((line) => line.trim() === ownFolder);
-      if (TRUST_DIALOG.test(screen) || asksOwnFolder) {
+      if (DIALOGS.some((d) => d.test(screen))) {
         this.o.tmux.sendKeys(`s${id}`, "Down");
         this.o.tmux.sendKeys(`s${id}`, "Enter");
       }
@@ -328,18 +249,8 @@ export class SessionRunner {
     // argument and does not interpret its content (issue text is untrusted).
     const promptPath = join(dir, "prompt.md");
     writeFileSync(promptPath, keepResult ? prompt : `${prompt}\n\n${resultInstructions(s.role, resultPath)}`);
-    const args = claudeArgs({
-      name: remoteControlName(s),
-      settingsPath: join(dir, "settings.json"),
-      addDir: dir,
-      model,
-      permissions: rolePermissions(s.role, dir),
-      resumeId,
-    });
-    // REQ-001-55: gh reads its token from hosts.yml on every call, so a renewed token reaches a running session.
-    this.writeGitHubAccess(id, s.repo);
-    const gh = `GH_CONFIG_DIR=${shellQuote([join(dir, "gh")])} GH_NO_UPDATE_NOTIFIER=1 GH_PROMPT_DISABLED=1 `;
-    const env = `${gh}${account.configDir ? `CLAUDE_CONFIG_DIR=${shellQuote([account.configDir])} ` : ""}`;
+    const args = claudeArgs({ name: remoteControlName(s), settingsPath: join(dir, "settings.json"), model, resumeId });
+    const env = account.configDir ? `CLAUDE_CONFIG_DIR=${shellQuote([account.configDir])} ` : "";
     const command = `${env}${shellQuote([this.o.claudeBin ?? "claude", ...args])} "$(cat ${shellQuote([promptPath])})"`;
     this.o.tmux.newWindow(`s${id}`, cwd, command);
   }

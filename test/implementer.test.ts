@@ -10,7 +10,6 @@ import { Store } from "../src/store.ts";
 
 const config = parseConfig({
   owner: { login: "octo", id: 42 },
-  github: { appId: 7, privateKeyPath: "/k.pem" },
   roles: { planner: { model: "opus" }, implementer: { model: "sonnet" }, reviewer: { model: "opus" } },
   repos: [{ name: "octo/app" }],
 });
@@ -197,7 +196,6 @@ describe("Implementer run", () => {
         title: "Issue 5",
         cwd: "/wt/5",
         model: { model: "sonnet" },
-        sandboxDomains: ["registry.npmjs.org", "pypi.org", "files.pythonhosted.org"],
       }),
     ]);
     expect(store.issue("octo/app", 6).worktreePath).toBe("/wt/5");
@@ -345,7 +343,6 @@ describe("Implementer run", () => {
       issues: [5],
       title: "Issue 5",
       cwd: "/wt/5",
-      sandboxDomains: ["registry.npmjs.org", "pypi.org", "files.pythonhosted.org"],
     });
     expect(runner.started.at(-1)?.prompt).toContain("Fix it");
   });

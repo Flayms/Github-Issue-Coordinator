@@ -137,7 +137,6 @@ export interface SettingsView {
   repos: {
     name: string;
     setup: string | null;
-    sandboxDomains: string[];
     /** Effective settings per Role. */
     roles: RoleView[];
     /** The Roles this repository overrides, with their effective settings. */
@@ -435,7 +434,6 @@ function settingsView(config: Config, snapshot: RepoSnapshot[]): SettingsView {
       return {
         name: r.name,
         setup: r.setup ?? null,
-        sandboxDomains: [...r.sandboxDomains],
         roles: ROLES.map((role) => roleView(role, roleSettings(config, r.name, role))),
         overrides: ROLES.filter((role) => r.roles?.[role] !== undefined).map((role) =>
           roleView(role, roleSettings(config, r.name, role)),

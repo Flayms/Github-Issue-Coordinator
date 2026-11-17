@@ -10,6 +10,7 @@ One folder per feature: `docs/specs/NNN-name/` with `spec.md` and, for tier 3 wo
 | [002-role-prompts](002-role-prompts/spec.md)           | Roles | Implemented |
 | [003-dashboard](003-dashboard/spec.md)                 | UI    | Implemented |
 | [004-accounts](004-accounts/spec.md)                   | Core  | Implemented |
+| [005-vm-runtime](005-vm-runtime/spec.md)               | Core  | Implemented |
 
 ## Conventions
 

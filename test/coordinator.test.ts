@@ -11,7 +11,6 @@ import { Store } from "../src/store.ts";
 const OWNER = { login: "octo", id: 42 };
 const config = parseConfig({
   owner: OWNER,
-  github: { appId: 7, privateKeyPath: "/k.pem" },
   roles: { planner: { model: "opus" }, implementer: { model: "sonnet" }, reviewer: { model: "opus" } },
   repos: [{ name: "octo/app" }],
 });
@@ -1040,6 +1039,28 @@ describe("reconcile loop", () => {
     expect(runner.resumed[0]?.[1]).not.toContain("Evil");
     expect(store.issue("octo/app", 5).feedbackRounds).toBe(0);
     expect(store.issue("octo/app", 70)).toMatchObject({ lastHandledCommentId: 981, lastHandledReviewId: 5 });
+  });
+
+  test("REQ-005-03 the Coordinator's own comments under the Owner's id are not feedback", async () => {
+    gh.items = [item(5)];
+    await coordinator.tick();
+    finishPlanner(1, [5]);
+    await coordinator.tick();
+    const posted = "> [!Note]\n> 🤖 Claude Opus 5.5 (Planner) writing on behalf of octo\n\n## Assessment\n\n/approve";
+    gh.comments.set(5, [{ id: 950, body: posted, author: OWNER, createdAt: "", updatedAt: "" }]);
+    gh.changed = true;
+    await coordinator.tick();
+    expect(runner.started).toHaveLength(1);
+    expect(gh.items[0]?.labels).toEqual(["agent:proposed"]);
+  });
+
+  test("REQ-005-03 the Coordinator's own reviews and comments under the Owner's id don't start a round on a PR", async () => {
+    prOpen();
+    const note = "> [!Note]\n> 🤖 Claude Opus 5.5 (Reviewer) writing on behalf of octo\n\n";
+    gh.comments.set(70, [{ id: 982, body: `${note}/agent do X`, author: OWNER, createdAt: "", updatedAt: "" }]);
+    gh.reviews.set(70, [{ id: 7, state: "CHANGES_REQUESTED", body: `${note}Split it`, author: OWNER }]);
+    await coordinator.tick();
+    expect(runner.resumed).toEqual([]);
   });
 
   test("REQ-001-24 /wake on a PR resumes its closed Implementer session without a new task", async () => {

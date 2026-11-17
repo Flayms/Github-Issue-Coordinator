@@ -8,7 +8,6 @@ import type { CoordinatorEvent, SessionRecord } from "../src/store.ts";
 
 const config = parseConfig({
   owner: { login: "octo", id: 42 },
-  github: { appId: 7, privateKeyPath: "/secret/keys/app.pem" },
   pollIntervalSec: 45,
   limits: { maxWorktrees: 3, maxFeedbackRounds: 2 },
   roles: { planner: { model: "opus", effort: "high" }, implementer: { model: "sonnet" }, reviewer: { model: "opus" } },
@@ -356,7 +355,6 @@ describe("dashboard view", () => {
       {
         name: "octo/app",
         setup: "bun install",
-        sandboxDomains: ["registry.npmjs.org", "pypi.org", "files.pythonhosted.org"],
         roles: [
           { role: "Planner", model: "opus", effort: "high" },
           { role: "Implementer", model: "sonnet", effort: null },

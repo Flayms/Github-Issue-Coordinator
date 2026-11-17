@@ -4,9 +4,9 @@
  */
 import { existsSync } from "node:fs";
 import { isIP } from "node:net";
-import { dirname, join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { z } from "zod";
-import { accountDir, DEFAULT_ACCOUNT } from "./accounts.ts";
+import { DEFAULT_ACCOUNT } from "./accounts.ts";
 
 export const ROLES = ["planner", "implementer", "reviewer"] as const;
 export type Role = (typeof ROLES)[number];
@@ -27,8 +27,6 @@ const repoSchema = z.strictObject({
   name: z.string().regex(/^[\w.-]+\/[\w.-]+$/, "must be owner/repo"),
   /** Shell command run once in each new Worktree, e.g. `bun install`. */
   setup: z.string().min(1).optional(),
-  /** Network domains the Implementer's sandboxed shell commands may reach (REQ-001-25). */
-  sandboxDomains: z.array(z.string().min(1)).default(["registry.npmjs.org", "pypi.org", "files.pythonhosted.org"]),
   roles: z
     .strictObject({ planner: roleOverrideSchema, implementer: roleOverrideSchema, reviewer: roleOverrideSchema })
     .partial()
@@ -78,15 +76,15 @@ export const isLoopback = (host: string): boolean =>
 const configSchema = z
   .strictObject({
     owner: z.strictObject({ login: z.string().min(1), id: positiveInt }),
-    /** The Coordinator's GitHub identity: a private GitHub App (REQ-001-15). Keep the key outside the repo. */
-    github: z.strictObject({
-      appId: positiveInt,
-      privateKeyPath: z.string().min(1),
-      /** Author of the Implementer's commits. */
-      commitAuthor: z
-        .strictObject({ name: z.string().min(1), email: z.string().min(3) })
-        .default({ name: "Claude", email: "noreply@anthropic.com" }),
-    }),
+    /** REQ-005-02: the token comes from the GitHub CLI's login (a fine-grained PAT), not from the config. */
+    github: z
+      .strictObject({
+        /** Author of the Implementer's commits. */
+        commitAuthor: z
+          .strictObject({ name: z.string().min(1), email: z.string().min(3) })
+          .default({ name: "Claude", email: "noreply@anthropic.com" }),
+      })
+      .prefault({}),
     pollIntervalSec: positiveInt.default(60),
     /** How long after a push a PR without check runs waits before its Review, so CI can register (REQ-001-10). */
     checksGraceSeconds: z.number().int().nonnegative().default(120),
@@ -174,18 +172,4 @@ export function roleSettings(config: Config, repo: string, role: Role): RoleSett
   const r = config.repos.find((x) => x.name.toLowerCase() === repo.toLowerCase());
   if (!r) throw new Error(`repository ${repo} is not configured`);
   return { ...config.roles[role], ...r.roles?.[role] };
-}
-
-/**
- * What every agent session is denied reading (REQ-001-26, REQ-003-10, REQ-004-02): the App key's and the dashboard
- * token's folders, and every Account's Claude login.
- */
-export function secretPaths(config: Config, home: string): string[] {
-  const tokenPath = config.dashboard?.tokenPath;
-  const logins = [DEFAULT_ACCOUNT, ...config.accounts].map((a) => join(accountDir(a, home), ".credentials.json"));
-  return [
-    dirname(resolve(config.github.privateKeyPath)),
-    ...new Set(logins),
-    ...(tokenPath ? [dirname(resolve(tokenPath))] : []),
-  ];
 }

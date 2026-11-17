@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ROLES, type Role } from "../src/config.ts";
-import { loadPrompt, renderPrompt, rolePermissions } from "../src/prompts.ts";
+import { loadPrompt, renderPrompt } from "../src/prompts.ts";
 
 let repo: string;
 beforeEach(() => {
@@ -104,20 +104,9 @@ describe("prompts (REQ-002)", () => {
     ]);
   });
 
-  test("REQ-002-13 the Implementer prompt uses only the host browser with --no-sandbox and never downloads one", () => {
-    expectAll(prompt("implementer"), [
-      /host's headless Chrome or Chromium/i,
-      /--no-sandbox/,
-      /never download or install/i,
-      /npm/,
-      /playwright install/i,
-      /quote the error/i,
-      /auto mode/i,
-    ]);
-  });
-
-  test("REQ-002-13 the Implementer prompt keeps the browser's config and cache out of the read-only home folder", () => {
-    expectAll(prompt("implementer"), [/XDG_CONFIG_HOME="\$TMPDIR\//, /XDG_CACHE_HOME="\$TMPDIR\//, /read-only/i]);
+  test("REQ-002-13 the Implementer prompt may install a browser and needs no sandbox workarounds", () => {
+    expectAll(prompt("implementer"), [/install/i, /playwright/i, /quote the error/i]);
+    expect(prompt("implementer")).not.toMatch(/--no-sandbox|XDG_|read-only|never download|auto mode/i);
   });
 
   test("REQ-002-05 the Reviewer prompt checks against the Assessment with a checklist and well-founded findings", () => {
@@ -127,7 +116,7 @@ describe("prompts (REQ-002)", () => {
       /tautolog/i,
       /edge cases/i,
       /secrets/i,
-      /sandbox/i,
+      /GitHub token/,
       /injection|injected/i,
       /docs and specs/i,
       /unrelated changes/i,
@@ -166,10 +155,26 @@ describe("prompts (REQ-002)", () => {
     }
   });
 
-  test("REQ-002-14 every default prompt reads missing GitHub context with gh before calling it missing, and never writes", () => {
+  test("REQ-002-14 every default prompt reads missing GitHub context with gh before calling it missing", () => {
     for (const role of ROLES) {
-      expectAll(prompt(role), [/`gh (issue|pr|api)/, /read-only/i, /before (you )?(say|report|call)/i, /comments/i]);
+      expectAll(prompt(role), [/`gh (issue|pr|api)/, /before (you )?(say|report|call)/i, /comments/i]);
     }
+  });
+
+  test("REQ-005-04 every default prompt leaves GitHub writes to the Coordinator", () => {
+    for (const role of ROLES) {
+      expectAll(prompt(role), [
+        /don't post, comment, label, push, open or merge PRs on GitHub yourself/i,
+        /the Coordinator does that from your Result/i,
+      ]);
+      expect(prompt(role)).not.toMatch(/sandbox|read-only token|token is read-only/i);
+    }
+  });
+
+  test("REQ-005-04 Planner and Reviewer don't change the repository; the Implementer may use sudo", () => {
+    for (const role of ["planner", "reviewer"] as const)
+      expect(prompt(role)).toMatch(/don't change the repository's files or git history/i);
+    expect(prompt("implementer")).toMatch(/sudo/);
   });
 
   /** The Result fields whose text the Coordinator posts to GitHub, per Role. */
@@ -211,47 +216,5 @@ describe("prompts (REQ-002)", () => {
         /no ASCII art/i,
       ]);
     }
-  });
-});
-
-describe("permissions", () => {
-  test("REQ-001-25 / REQ-002-07 Planner and Reviewer may only read, run read-only git, use the web and write their Result; nothing prompts", () => {
-    for (const role of ["planner", "reviewer"] as const) {
-      const p = rolePermissions(role, "/state/sessions/3");
-      expect(p.permissionMode).toBe("dontAsk");
-      expect(p.allowedTools).toEqual([
-        "Read",
-        "Grep",
-        "Glob",
-        "Bash(git log:*)",
-        "Bash(git show:*)",
-        "Bash(git diff:*)",
-        "Bash(git status:*)",
-        "Bash(git ls-files:*)",
-        "WebSearch",
-        "WebFetch",
-        // REQ-001-55: read GitHub; the session's token is read-only, so GitHub refuses any write.
-        "Bash(gh issue view:*)",
-        "Bash(gh issue list:*)",
-        "Bash(gh pr view:*)",
-        "Bash(gh pr list:*)",
-        "Bash(gh pr diff:*)",
-        "Bash(gh search:*)",
-        "Bash(gh api:*)",
-        "Write(//state/sessions/3/result.json)",
-        "Edit(//state/sessions/3/result.json)",
-      ]);
-      expect(p.sandbox).toBe(true); // REQ-001-26: even read-only git can print any file (git diff --no-index)
-      // REQ-002-07: `git grep -O<cmd>` runs any command; content search goes through the Grep tool.
-      expect(p.allowedTools.some((t) => t.startsWith("Bash(git grep"))).toBe(false);
-    }
-  });
-
-  test("REQ-001-25 the Implementer runs in auto mode inside the sandbox", () => {
-    expect(rolePermissions("implementer", "/s")).toEqual({
-      permissionMode: "auto",
-      allowedTools: [],
-      sandbox: true,
-    });
   });
 });

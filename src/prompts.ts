@@ -1,5 +1,5 @@
 /**
- * Role prompts (REQ-001-22) and the permissions each Role runs with (REQ-001-25).
+ * Role prompts (REQ-001-22).
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -20,49 +20,4 @@ export function renderPrompt(template: string, vars: Record<string, string>): st
     if (value === undefined) throw new Error(`prompt uses unknown placeholder ${match}`);
     return value;
   });
-}
-
-export interface Permissions {
-  permissionMode: "dontAsk" | "auto";
-  /** Pre-approved tools; in `dontAsk` mode everything else is denied without a prompt. */
-  allowedTools: string[];
-  /** Run Bash inside Claude Code's sandbox. */
-  sandbox: boolean;
-}
-
-const READ_ONLY = [
-  "Read",
-  "Grep",
-  "Glob",
-  "Bash(git log:*)",
-  "Bash(git show:*)",
-  "Bash(git diff:*)",
-  "Bash(git status:*)",
-  // REQ-002-07: list tracked files. Not `git grep`: `-O<cmd>` runs any command; the Grep tool searches content.
-  "Bash(git ls-files:*)",
-  "WebSearch",
-  "WebFetch",
-  // REQ-001-55: read GitHub. The session's token is read-only, so GitHub refuses a write even through `gh api`.
-  "Bash(gh issue view:*)",
-  "Bash(gh issue list:*)",
-  "Bash(gh pr view:*)",
-  "Bash(gh pr list:*)",
-  "Bash(gh pr diff:*)",
-  "Bash(gh search:*)",
-  "Bash(gh api:*)",
-];
-
-/** Sessions don't wait for routine permission prompts (REQ-001-25). */
-export function rolePermissions(role: Role, sessionDir: string): Permissions {
-  // Auto mode decides on its own; what it won't allow is left to the Owner in the Claude app.
-  if (role === "implementer") return { permissionMode: "auto", allowedTools: [], sandbox: true };
-  // Permission rules take absolute paths with a leading `//`.
-  const result = `/${join(sessionDir, "result.json")}`;
-  return {
-    permissionMode: "dontAsk",
-    allowedTools: [...READ_ONLY, `Write(${result})`, `Edit(${result})`],
-    // REQ-001-26: even read-only git can print any file (`git diff --no-index`), so their shell runs sandboxed too.
-    // REQ-001-25: and write one (`git log --output=<file>`), so the sandbox denies writes to their cwd (src/runner.ts).
-    sandbox: true,
-  };
 }

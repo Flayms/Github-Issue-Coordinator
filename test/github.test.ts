@@ -1,100 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { createPublicKey, generateKeyPairSync, verify } from "node:crypto";
-import { AppAuth, createAppJwt } from "../src/github/app-auth.ts";
 import { GitHubClient } from "../src/github/client.ts";
 import { GitHubError } from "../src/github/http.ts";
-import { ReadTokens } from "../src/github/read-tokens.ts";
 import { AGENT_LABELS } from "../src/labels.ts";
 import { fakeFetch } from "./support/fake-fetch.ts";
 
-const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-const pem = privateKey.export({ type: "pkcs1", format: "pem" }).toString();
-const NOW = new Date("2026-11-10T12:00:00Z");
-
-const b64json = (s: string) => JSON.parse(Buffer.from(s, "base64url").toString());
-
-const installationRoutes = (tokens: string[] = ["tok-1", "tok-2"]) => ({
-  "GET /repos/octo/app/installation": { body: { id: 99 } },
-  "GET /repos/octo/lib/installation": { body: { id: 99 } },
-  "POST /app/installations/99/access_tokens": () => ({
-    status: 201,
-    body: { token: tokens.shift(), expires_at: "2026-11-10T13:00:00Z" },
-  }),
-});
-
-function client(routes: Parameters<typeof fakeFetch>[0], clock = () => NOW) {
-  const fake = fakeFetch({ ...installationRoutes(), ...routes });
-  const auth = new AppAuth({ appId: 7, privateKey: pem, fetch: fake.fetch, now: clock });
+function client(routes: Parameters<typeof fakeFetch>[0]) {
+  const fake = fakeFetch(routes);
+  // REQ-005-02: one PAT for every repository, from gh.
+  const auth = { tokenFor: async (_repo: string) => "github_pat_1" };
   return { gh: new GitHubClient({ auth, fetch: fake.fetch }), ...fake };
 }
 
-const apiRequests = (requests: ReturnType<typeof fakeFetch>["requests"]) =>
-  requests.filter((r) => !r.url.pathname.endsWith("/installation") && !r.url.pathname.endsWith("/access_tokens"));
-
-describe("GitHub App auth", () => {
-  test("REQ-001-15 signs an RS256 app JWT, backdated for clock drift and valid under 10 minutes", () => {
-    const jwt = createAppJwt(7, pem, NOW);
-    const [h = "", p = "", s = ""] = jwt.split(".");
-    expect(b64json(h)).toEqual({ alg: "RS256", typ: "JWT" });
-    const now = NOW.getTime() / 1000;
-    expect(b64json(p)).toEqual({ iss: "7", iat: now - 60, exp: now + 540 });
-    const ok = verify("sha256", Buffer.from(`${h}.${p}`), createPublicKey(pem), Buffer.from(s, "base64url"));
-    expect(ok).toBe(true);
-  });
-
-  test("REQ-001-15 mints an installation token per repository and caches it until shortly before expiry", async () => {
-    let now = NOW;
-    const { gh, requests } = client({ "GET /repos/octo/app/issues": { body: [] } }, () => now);
-    await gh.listOpenItems("octo/app");
-    await gh.listOpenItems("octo/app");
-    const mints = requests.filter((r) => r.url.pathname.endsWith("/access_tokens"));
-    expect(mints).toHaveLength(1);
-    expect(mints[0]?.headers.get("authorization")).toStartWith("Bearer ey");
-    expect(apiRequests(requests).map((r) => r.headers.get("authorization"))).toEqual(["token tok-1", "token tok-1"]);
-
-    now = new Date("2026-11-10T12:56:00Z"); // < 5 minutes left
-    await gh.listOpenItems("octo/app");
-    expect(apiRequests(requests).at(-1)?.headers.get("authorization")).toBe("token tok-2");
-  });
-
-  test("REQ-001-55 / REQ-001-15 mints a read-only token for agents, cached apart from the Coordinator's own token", async () => {
-    let now = NOW;
-    const fake = fakeFetch(installationRoutes(["write-1", "read-1", "read-2"]));
-    const auth = new AppAuth({ appId: 7, privateKey: pem, fetch: fake.fetch, now: () => now });
-    expect(await auth.tokenFor("octo/app")).toBe("write-1");
-    expect(await auth.readTokenFor("octo/app")).toBe("read-1");
-    expect(await auth.readTokenFor("octo/lib")).toBe("read-1"); // same installation
-    expect(await auth.tokenFor("octo/app")).toBe("write-1");
-    const mints = fake.requests.filter((r) => r.url.pathname.endsWith("/access_tokens"));
-    expect(mints.map((r) => r.body)).toEqual([
-      undefined,
-      { permissions: { contents: "read", issues: "read", pull_requests: "read", checks: "read", metadata: "read" } },
-    ]);
-    now = new Date("2026-11-10T12:56:00Z");
-    expect(await auth.readTokenFor("octo/app")).toBe("read-2");
-  });
-});
-
-describe("agents' read tokens", () => {
-  test("REQ-001-55 keeps the current read-only token per repository; a repository whose mint fails is left out", async () => {
-    const logs: string[] = [];
-    let n = 0;
-    const tokens = new ReadTokens(
-      async (repo) => {
-        if (repo === "octo/broken") throw new Error("not installed");
-        return `read-${++n}`;
-      },
-      (m) => logs.push(m),
-    );
-    expect(tokens.get("octo/app")).toBeUndefined();
-    await tokens.refresh(["Octo/App", "octo/broken"]);
-    expect(tokens.get("octo/app")).toBe("read-1");
-    expect(tokens.get("octo/broken")).toBeUndefined();
-    expect(logs).toEqual(["octo/broken: no read-only GitHub token for agents: not installed"]);
-    await tokens.refresh(["octo/app"]);
-    expect(tokens.get("OCTO/app")).toBe("read-2");
-  });
-});
+const apiRequests = (requests: ReturnType<typeof fakeFetch>["requests"]) => requests;
 
 describe("GitHub client", () => {
   const rawIssue = (n: number, extra: Record<string, unknown> = {}) => ({
@@ -106,6 +23,12 @@ describe("GitHub client", () => {
     created_at: "2026-11-01T00:00:00Z",
     updated_at: "2026-11-02T00:00:00Z",
     ...extra,
+  });
+
+  test("REQ-005-02 authenticates every request with the token from gh", async () => {
+    const { gh, requests } = client({ "GET /repos/octo/app/issues/3/comments": { body: [] } });
+    await gh.listComments("octo/app", 3);
+    expect(requests.map((r) => r.headers.get("authorization"))).toEqual(["token github_pat_1"]);
   });
 
   test("REQ-001-01 lists open issues and PRs with their author's numeric id, following pagination", async () => {

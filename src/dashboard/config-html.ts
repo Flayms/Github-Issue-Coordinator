@@ -50,11 +50,8 @@ function repos(s: SettingsView): string {
           r.counts.worktrees === 1 ? "Worktree" : "Worktrees"
         }</li></ul>`
       : `<p class="muted">No tick yet.</p>`;
-    const domains = r.sandboxDomains.length
-      ? r.sandboxDomains.map((d) => `<span class="chip mono">${esc(d)}</span>`).join("")
-      : "–";
     return `<li class="row repo"><div class="r-name">${icon("repo")}<span class="mono">${esc(r.name)}</span></div>${counts}
-<dl class="r-facts"><dt>Setup</dt><dd>${r.setup ? `<code class="mono">${esc(r.setup)}</code>` : "–"}</dd><dt>Sandbox domains</dt><dd class="chips">${domains}</dd></dl></li>`;
+<dl class="r-facts"><dt>Setup</dt><dd>${r.setup ? `<code class="mono">${esc(r.setup)}</code>` : "–"}</dd></dl></li>`;
   };
   return `<section id="repos"><h2>Repositories <span class="count">${s.repos.length}</span></h2>${
     s.repos.length ? `<ul class="rows">${s.repos.map(repo).join("")}</ul>` : empty("No repositories configured.")
