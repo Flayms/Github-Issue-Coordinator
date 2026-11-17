@@ -5,7 +5,7 @@
  */
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { type Account, accountDir, copyTranscript, DEFAULT_ACCOUNT, freeAccount } from "./accounts.ts";
 import type { Role, RoleSettings } from "./config.ts";
 import { resultInstructions } from "./results.ts";
@@ -58,6 +58,22 @@ export function remoteControlName(s: Pick<SessionRecord, "repo" | "role" | "kind
   const title = s.title.length > TITLE_LIMIT ? `${s.title.slice(0, TITLE_LIMIT - 1)}…` : s.title;
   const more = s.issues.length > 1 ? ` (+${s.issues.length - 1})` : "";
   return `#${s.issues[0]} ${title}${more} · ${role} · ${repoName}`;
+}
+
+/**
+ * REQ-005-07: the instruction files of every folder above a session's own, for `claudeMdExcludes`. Claude Code loads
+ * CLAUDE.md from each of them, so a Worktree inside the Coordinator's checkout would load the Coordinator's own
+ * instructions and stop at the screen asking about their imports (#87). The Owner's own `~/.claude` still loads.
+ */
+export function parentInstructionFiles(cwd: string, home: string): string[] {
+  const files: string[] = [];
+  const userDir = resolve(home);
+  for (let dir = dirname(resolve(cwd)); ; dir = dirname(dir)) {
+    const at = dir === "/" ? "" : dir;
+    files.push(`${at}/CLAUDE.md`, `${at}/CLAUDE.local.md`);
+    if (dir !== userDir) files.push(`${at}/.claude/CLAUDE.md`, `${at}/.claude/rules/**`);
+    if (dirname(dir) === dir) return files;
+  }
 }
 
 /** The arguments before the prompt, which `launch` appends from the session's prompt file (REQ-001-45). */
@@ -132,11 +148,14 @@ export class SessionRunner {
   private prepare(id: number, opts: StartOptions): void {
     mkdirSync(this.sessionDir(id), { recursive: true });
     writeFileSync(join(this.sessionDir(id), "meta.json"), JSON.stringify({ cwd: opts.cwd } satisfies SessionMeta));
-    this.writeSettings(id);
+    this.writeSettings(id, opts.cwd);
   }
 
-  /** REQ-005-01: only the hooks; rewritten on every resume, so a session folder from an older Coordinator loses its sandbox. */
-  private writeSettings(id: number): void {
+  /**
+   * REQ-005-01: the hooks and, for REQ-005-07, the CLAUDE.md files above the session's folder to skip; rewritten on
+   * every resume, so a session folder from an older Coordinator loses its sandbox.
+   */
+  private writeSettings(id: number, cwd: string): void {
     const dir = this.sessionDir(id);
     const hooks = Object.fromEntries(
       HOOK_EVENTS.map((ev) => [
@@ -150,7 +169,8 @@ export class SessionRunner {
         ],
       ]),
     );
-    writeFileSync(join(dir, "settings.json"), JSON.stringify({ hooks }, null, 2));
+    const claudeMdExcludes = parentInstructionFiles(cwd, this.o.home ?? homedir());
+    writeFileSync(join(dir, "settings.json"), JSON.stringify({ hooks, claudeMdExcludes }, null, 2));
   }
 
   /** Continues a session with a new prompt; refuses while it is running (REQ-001-19). */
@@ -161,7 +181,7 @@ export class SessionRunner {
     const meta = JSON.parse(readFileSync(join(this.sessionDir(id), "meta.json"), "utf8")) as SessionMeta;
     try {
       this.o.tmux.killWindow(`s${id}`);
-      this.writeSettings(id);
+      this.writeSettings(id, meta.cwd);
       this.o.store.patchSession(id, { state: "running", resultFailures: 0, usageLimited: false });
       this.launch(id, meta.cwd, prompt, model, s.claudeSessionId, opts.keepResult);
     } catch (e) {

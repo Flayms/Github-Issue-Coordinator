@@ -10,7 +10,7 @@ export default defineConfig({
   pollIntervalSec: 60,
   // A PR head without check runs is reviewed only this long after it appeared, so CI can register first.
   checksGraceSeconds: 120,
-  stateDir: "state", // store, session files and clones (outside the managed repos)
+  stateDir: ".coordinator", // store, session files, clones and Worktrees (outside the managed repos)
   // All optional; these are the defaults. maxLiveSessions counts running and idle sessions.
   limits: {
     maxRunning: 1,
