@@ -5,6 +5,7 @@
  * (REQ-003-09). No inline styles or scripts: the CSP allows only same-origin files.
  */
 
+import type { WorkKind } from "../scheduler.ts";
 import type { EventKind } from "../store.ts";
 import { assetUrl } from "./assets.ts";
 import type {
@@ -54,6 +55,11 @@ const ICONS = {
   doc: "M7 3h7l4 4v14H7zM14 3v4h4M10 12h5M10 16h5",
   pr: "M6 3v12M6 21a3 3 0 100-6 3 3 0 000 6zM18 21a3 3 0 100-6 3 3 0 000 6zM18 15V8a3 3 0 00-3-3h-4M13 3l-2 2 2 2",
   loop: "M4 12a8 8 0 0114-5.3M20 4v4h-4M20 12a8 8 0 01-14 5.3M4 20v-4h4",
+  compass: "M12 21a9 9 0 100-18 9 9 0 000 18zM15.5 8.5l-2 5-5 2 2-5z",
+  code: "M8 7l-5 5 5 5M16 7l5 5-5 5M13.5 5l-3 14",
+  eye: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 15a3 3 0 100-6 3 3 0 000 6z",
+  hourglass: "M6 3h12M6 21h12M7 3c0 5 10 5 10 9s-10 4-10 9M17 3c0 5-10 5-10 9s10 4 10 9",
+  arrow: "M7 17L17 7M9 7h8v8",
 } as const;
 export type Icon = keyof typeof ICONS;
 
@@ -141,12 +147,14 @@ function prDetails(p: PullView): string {
 
 function summary(v: DashboardView): string {
   const s = v.summary;
-  const headline = s.ready ? `${plural(s.ready, "PR", "PRs")} ready to merge` : "Nothing to merge right now";
+  const headline = s.ready
+    ? `<span class="ok">${esc(s.ready)}</span> ${s.ready === 1 ? "PR" : "PRs"} ready to merge`
+    : "Nothing to merge right now";
   const ready = v.readyToMerge.length
     ? `<ul class="rows">${v.readyToMerge
         .map((p) => {
           const c = checksText(p);
-          return `<li><a class="row ready" href="${esc(p.url)}" rel="noreferrer">${icon("merge", "i ok")}<span class="r-main"><span class="r-title">${esc(p.title)}</span><span class="r-sub mono">${esc(p.repo)} #${esc(p.number)}</span></span><span class="r-chk ${c.tone}">${icon(c.icon)}${c.text}</span><span class="r-ext">GitHub${icon("ext")}</span></a></li>`;
+          return `<li><a class="row ready" href="${esc(p.url)}" rel="noreferrer"><span class="r-main"><span class="r-title">${esc(p.title)}</span><span class="r-sub"><span>${icon("repo")}${esc(p.repo)}</span><span>${icon("pr")}#${esc(p.number)}</span><span class="${c.tone}">${icon("shield")}${c.text}</span></span></span><span class="r-ext" title="Open on GitHub">${icon("arrow")}</span></a></li>`;
         })
         .join("")}</ul>`
     : empty("When a Review finds nothing and the checks pass, the PR shows up here.");
@@ -155,7 +163,7 @@ function summary(v: DashboardView): string {
   return `<section id="summary" class="hero">
 <div class="hero-text">
 <p class="eyebrow">Overview</p>
-<h1 class="${s.ready ? "has-ready" : ""}">${headline}</h1>
+<h1>${headline}</h1>
 <ul class="counts">${count(s.working, "working", "acc")}${count(s.needYou, "need you", "warn")}${count(s.stuck, "stuck", "bad")}${count(s.queued, "queued", "muted")}</ul>
 </div>
 <div class="panel"><h2 class="panel-title">${icon("merge")}Ready to merge</h2>${ready}</div>
@@ -175,27 +183,44 @@ function meter(m: MeterView): string {
 const capacity = (v: DashboardView) =>
   `<section id="capacity" class="wrap"><h2>Capacity</h2><ul class="meters">${v.capacity.map(meter).join("")}</ul></section>`;
 
-const STATE_LABEL = { running: "running", idle: "idle", gone: "window gone" } as const;
+/** A section heading in the mockup's style: the title and a quiet note next to it. */
+const heading = (title: string, note: string) => `<h2 class="title">${title} <span class="note">${note}</span></h2>`;
+
+const ROLE_ICONS: Record<string, Icon> = { Planner: "compass", Implementer: "code", Reviewer: "eye" };
+
+/** REQ-003-01: what the session is doing, and the bar under its head: flowing while running, idle time out of the timeout. */
+function sessionState(s: SessionView): { text: string; bar: string } {
+  switch (s.state) {
+    case "running":
+      return { text: `<span class="pulse"></span>running`, bar: "fill flow" };
+    case "idle":
+      return { text: `idle ${esc(s.idleFor ?? "")} of ${esc(s.idleTimeout)}`, bar: `fill w${s.idleShare ?? 0}` };
+    case "gone":
+      return { text: "window gone", bar: "fill w100" };
+  }
+}
 
 function session(s: SessionView): string {
-  const issues = s.issues.map((i) => `${link(i.url, `#${i.number}`)}${i.title ? ` ${esc(i.title)}` : ""}`).join(", ");
-  const meta = [
-    esc(s.repo),
-    `<span class="mono">${esc(s.model)}</span>`,
-    `started ${s.startedAt ? esc(formatTime(s.startedAt)) : "–"}`,
-    ...(s.idleFor ? [`idle for ${esc(s.idleFor)}`] : []),
-  ].join(" · ");
-  return `<li class="row session">
-<span class="state ${s.state}"><span class="pulse"></span>${STATE_LABEL[s.state]}</span>
-<div class="s-main"><div class="s-title"><b>${esc(s.role)}</b> ${issues}</div><div class="s-meta">${meta}</div></div>
-<div class="s-name"><code class="mono" title="Remote Control name in the Claude app">${esc(s.name)}</code><button class="copy" type="button" data-copy="${esc(s.name)}" hidden>${icon("copy")}<span>Copy name</span></button></div>
+  const st = sessionState(s);
+  const issues = s.issues
+    .map(
+      (i) =>
+        `<a href="${esc(i.url)}" rel="noreferrer"><span class="a-num">#${esc(i.number)}</span>${i.title ? ` ${esc(i.title)}` : ""}</a>`,
+    )
+    .join(", ");
+  return `<li class="agent ${s.state}">
+<div class="a-head">${icon(ROLE_ICONS[s.role] ?? "user")}<b>${esc(s.role)}</b><span class="a-state">${st.text}</span></div>
+<div class="a-bar"><span class="${st.bar}"></span></div>
+<div class="a-issue">${issues}</div>
+<div class="a-meta"><span>${esc(s.repo)}</span><span class="mono">${esc(s.model)}</span><span>since ${s.startedAt ? esc(formatTime(s.startedAt)) : "–"}</span><button class="copy" type="button" data-copy="${esc(s.name)}" hidden>${icon("copy")}<span>Copy name</span></button></div>
+<code class="a-name mono" title="Remote Control name in the Claude app">${esc(s.name)}</code>
 </li>`;
 }
 
 const working = (v: DashboardView) =>
-  `<section id="working"><h2>Working now <span class="count">${v.sessions.length}</span></h2>${
+  `<section id="working">${heading("Working now", plural(v.sessions.length, "live session", "live sessions"))}${
     v.sessions.length
-      ? `<ul class="rows">${v.sessions.map(session).join("")}</ul>`
+      ? `<ul class="agents">${v.sessions.map(session).join("")}</ul>`
       : empty("No agent sessions are open.")
   }</section>`;
 
@@ -220,37 +245,50 @@ ${icon(EVENT_ICONS[e.kind] ?? "dot")}<div class="e-main"><div class="e-text">${e
 }
 
 const recent = (v: DashboardView) =>
-  `<section id="recent"><h2>Recent</h2>${
+  `<section id="recent">${heading("Recent", "newest first")}${
     v.recent.length
       ? `<ul class="rows">${v.recent.map(event).join("")}</ul>`
       : empty("Nothing has happened yet. Events show up here once the Coordinator acts on an issue.")
   }</section>`;
 
+/** REQ-003-04: what each kind of queued work does, as a step's name and icon. */
+const WORK: Record<WorkKind, { label: string; icon: Icon }> = {
+  "resume-interrupted": { label: "Resume", icon: "loop" },
+  feedback: { label: "Feedback", icon: "code" },
+  wake: { label: "Wake", icon: "bolt" },
+  review: { label: "Review", icon: "eye" },
+  implement: { label: "Implement", icon: "code" },
+  plan: { label: "Plan", icon: "compass" },
+  revise: { label: "Revise", icon: "compass" },
+};
+
+/** Up next: numbered steps on a dashed pipe, sideways on wider screens; blocked issues come last. */
 function upNext(v: DashboardView): string {
+  const n = (i: number) => `<span class="st-n">${String(i + 1).padStart(2, "0")}</span>`;
   const steps = [
-    ...v.queue.map(
-      (q, i) =>
-        `<li class="step${i === 0 ? " first" : ""}${q.waiting ? "" : " go"}"><span class="node"></span><div class="st-main"><div class="st-key mono">${esc(q.key)}</div><div class="st-why">${esc(q.status)}</div></div>${i === 0 ? '<span class="tag">next</span>' : ""}</li>`,
-    ),
+    ...v.queue.map((q, i) => {
+      const w = WORK[q.kind] ?? { label: q.kind, icon: "dot" };
+      return `<li class="step${i === 0 ? " first" : ""}${q.waiting ? "" : " go"}"><span class="node"></span><div class="st-main"><div class="st-head">${n(i)}${icon(w.icon)}<b>${esc(w.label)}</b></div><div class="st-key mono">${esc(q.key)}</div><div class="st-why">${icon(q.waiting ? "hourglass" : "bolt")}${esc(q.status)}</div></div>${i === 0 ? '<span class="tag">next</span>' : ""}</li>`;
+    }),
     ...v.blocked.map(
-      (b) =>
-        `<li class="step bad"><span class="node"></span><div class="st-main"><div class="st-key">${link(b.url, `${b.repo}#${b.number}`, "mono")} ${esc(b.title)}</div><div class="st-why">blocked by ${
+      (b, i) =>
+        `<li class="step bad"><span class="node"></span><div class="st-main"><div class="st-head">${n(v.queue.length + i)}${icon("lock")}<b>${link(b.url, `${b.repo}#${b.number}`)}</b></div><div class="st-key">${esc(b.title)}</div><div class="st-why">${icon("lock")}<span>blocked by ${
           b.blockedBy.map((x) => link(x.url, `#${x.number}`)).join(", ") || "–"
-        }</div></div><span class="tag">blocked</span></li>`,
+        }</span></div></div><span class="tag">blocked</span></li>`,
     ),
   ];
-  return `<section id="up-next"><h2>Up next <span class="count">${v.queue.length}</span></h2>${
-    steps.length ? `<ol class="steps">${steps.join("")}</ol>` : empty("Nothing is queued.")
+  return `<section id="up-next">${heading("Up next", "what the scheduler starts, in order")}${
+    steps.length ? `<div class="pipe"><ol class="steps">${steps.join("")}</ol></div>` : empty("Nothing is queued.")
   }</section>`;
 }
 
 function item(i: IssueView): string {
-  return `<li class="item ${i.tone}">
+  return `<li class="item ${i.tone}"><div class="nudge">
 <div class="it-head">${link(i.url, i.title, "it-title")}<span class="it-ref mono">${esc(i.repo)}#${esc(i.number)}</span></div>
 <p class="it-status">${esc(i.status)}</p>${
     i.pr ? `<div class="it-pr">${link(i.pr.url, `PR #${i.pr.number}`)}${prDetails(i.pr)}</div>` : ""
   }
-</li>`;
+</div></li>`;
 }
 
 const column = (c: ColumnView) =>
@@ -267,7 +305,8 @@ function pipeline(v: DashboardView): string {
           .map((r) => chip(`/?repo=${encodeURIComponent(r)}#pipeline`, r, v.repoFilter === r))
           .join("")}</nav>`
       : "";
-  return `<section id="pipeline"><div class="p-head"><h2>Pipeline</h2>${filter}</div><div class="board">${v.columns
+  const open = v.columns.reduce((n, c) => n + c.issues.length, 0);
+  return `<section id="pipeline"><div class="p-head">${heading("Pipeline", plural(open, "open issue", "open issues"))}${filter}</div><div class="board">${v.columns
     .map(column)
     .join("")}</div></section>`;
 }

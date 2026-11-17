@@ -112,7 +112,7 @@ const order = (html: string, marks: string[]) => marks.map((m) => html.indexOf(m
 describe("dashboard html", () => {
   test("REQ-003-11 / REQ-003-12 / REQ-003-01 / REQ-003-04 / REQ-003-02 the Overview shows its sections in order", () => {
     const html = overview();
-    const at = order(html, ["1 PR ready to merge", "Capacity", "Working now", "Recent", "Up next", "Pipeline"]);
+    const at = order(html, ["PR ready to merge", "Capacity", "Working now", "Recent", "Up next", "Pipeline"]);
     expect(at.every((i) => i >= 0)).toBe(true);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
   });
@@ -126,6 +126,10 @@ describe("dashboard html", () => {
     expect(summary).toContain("checks passed");
     expect(summary).toContain('href="https://github.com/octo/app/pull/70"');
     for (const label of ["working", "need you", "stuck", "queued"]) expect(summary).toContain(label);
+    // #87: a plain headline with only the number in green, and the "Ready to merge" header over the PRs.
+    expect(summary).toMatch(/<h1><span class="ok">1<\/span> PR ready to merge<\/h1>/);
+    expect(summary).toMatch(/<h2 class="panel-title">[\s\S]*Ready to merge<\/h2>/);
+    expect(asset("dashboard.css")).not.toContain("background-clip: text");
   });
 
   test("REQ-003-12 shows each meter as used out of the limit", () => {

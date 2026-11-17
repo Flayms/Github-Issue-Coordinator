@@ -48,49 +48,74 @@
     }
   }
 
-  // REQ-003-14: a slow dark-metal height field. Always on, also for reduced motion (the Owner's
-  // call; it moves slowly). Paused in a hidden tab, drawn at reduced scale and about 30 frames a
-  // second to save battery; without WebGL the static gradient of the page stays.
+  // REQ-003-14: polished dark metal after the v3 mockup in #41 (#87): broad, slow, domain-warped
+  // folds that reflect a sharp key light, a highlight strip and a violet fill. The pointer pushes an
+  // uneven, lobed dent that smears along its motion. Always on, also for reduced motion (the
+  // Owner's call; it moves slowly). Paused in a hidden tab, drawn at reduced scale and about 30
+  // frames a second to save battery; without WebGL the static gradient of the page stays.
   const canvas = document.getElementById("bg");
   if (!(canvas instanceof HTMLCanvasElement)) return;
   const gl = canvas.getContext("webgl", { antialias: false, depth: false, powerPreference: "low-power" });
   if (!gl) return;
 
+  /** Smaller is closer in: broader shapes. */
+  const ZOOM = 1.9;
   const vertex = "attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}";
   const fragment = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
 precision mediump float;
+#endif
 uniform vec2 res;
-uniform float time;
-uniform vec2 mouse;
-uniform float dent;
-float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+uniform float t;
+uniform vec2 m;
+uniform vec2 vel;
+uniform float energy;
+const float ZOOM=${ZOOM.toFixed(2)};
+float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
 float noise(vec2 p){
   vec2 i=floor(p),f=fract(p),u=f*f*(3.-2.*f);
   return mix(mix(hash(i),hash(i+vec2(1.,0.)),u.x),mix(hash(i+vec2(0.,1.)),hash(i+vec2(1.,1.)),u.x),u.y);
 }
 float fbm(vec2 p){
-  float v=0.,a=.5;
-  for(int i=0;i<4;i++){v+=a*noise(p);p=p*2.03+vec2(1.7,9.2);a*=.5;}
+  float v=0.,a=.55;
+  mat2 r=mat2(.8,.6,-.6,.8);
+  for(int i=0;i<4;i++){v+=a*noise(p);p=r*p*2.;a*=.48;}
   return v;
 }
 float height(vec2 p){
-  vec2 q=vec2(fbm(p+time*.018),fbm(p+vec2(5.2,1.3)-time*.013));
-  float h=fbm(p*1.15+1.8*q);
-  vec2 d=(p-mouse)*vec2(1.,1.25);
-  return h-dent*.32*exp(-dot(d,d)*5.);
+  vec2 q=vec2(fbm(p+vec2(0.,t*.012)),fbm(p+vec2(5.2,1.3)-t*.009));
+  float h=fbm(p*.8+1.4*q);
+  vec2 d=p-m;
+  d+=.22*(vec2(noise(p*2.3+t*.08),noise(p*2.3+7.1-t*.07))-.5);
+  float sp=length(vel);
+  vec2 dir=sp>1e-4?vel/sp:vec2(1.,0.);
+  float along=dot(d,dir);
+  vec2 perp=d-along*dir;
+  float stretch=1.+clamp(sp*40.,0.,2.5)*step(along,0.);
+  d=perp+dir*along/stretch;
+  float ang=atan(d.y,d.x);
+  float lobes=1.+.28*sin(ang*3.+t*.25)+.16*sin(ang*5.-t*.18+1.7);
+  float r2=dot(d,d)*lobes;
+  h-=(.2+.3*energy)*exp(-r2*4.2);
+  float r=sqrt(r2);
+  h+=.04*energy*sin(r*11.-t*.9+noise(p*3.)*3.)*exp(-r*2.2);
+  return h;
 }
 void main(){
-  vec2 p=gl_FragCoord.xy/res.y*1.5;
-  float e=.006;
-  float h=height(p);
-  vec3 n=normalize(vec3((h-height(p+vec2(e,0.)))/e*.12,(h-height(p+vec2(0.,e)))/e*.12,1.));
-  vec3 l=normalize(vec3(-.45,.6,.65));
-  float diff=max(dot(n,l),0.);
-  float spec=pow(max(dot(n,normalize(l+vec3(0.,0.,1.))),0.),36.);
-  vec3 base=mix(vec3(.018,.02,.04),vec3(.075,.075,.12),h);
-  vec3 col=base*(.35+.85*diff)+spec*vec3(.49,.45,1.)*.28;
-  vec2 c=gl_FragCoord.xy/res-.5;
-  col*=1.-dot(c,c)*1.2;
+  vec2 uv=gl_FragCoord.xy/res;
+  vec2 p=(gl_FragCoord.xy-.5*res)/res.y*ZOOM;
+  float e=ZOOM/res.y*1.5;
+  float h=height(p),hx=height(p+vec2(e,0.)),hy=height(p+vec2(0.,e));
+  vec3 n=normalize(vec3((h-hx)/e,(h-hy)/e,3.4));
+  vec3 rf=reflect(vec3(0.,0.,-1.),n);
+  float key=pow(max(dot(rf,normalize(vec3(-.45,.55,.7))),0.),14.);
+  float strip=smoothstep(.8,1.,1.-abs(rf.x*.8+rf.y*.6-.18))*.3;
+  float fill=pow(max(dot(rf,normalize(vec3(.5,-.6,.6))),0.),5.);
+  float fres=pow(1.-max(n.z,0.),2.);
+  vec3 col=vec3(.035,.038,.06)+vec3(.78,.78,.9)*key*.5+vec3(.9,.9,1.)*strip*.3+vec3(.30,.27,.75)*fill*.5+vec3(.24,.22,.55)*fres*.8;
+  col*=.55+.45*smoothstep(1.25,.2,length((uv-vec2(.72,.62))*vec2(1.5,1.)));
   gl_FragColor=vec4(col,1.);
 }`;
   const compile = (type, source) => {
@@ -115,9 +140,10 @@ void main(){
   gl.vertexAttribPointer(at, 2, gl.FLOAT, false, 0, 0);
   const u = (name) => gl.getUniformLocation(program, name);
   const uRes = u("res");
-  const uTime = u("time");
-  const uMouse = u("mouse");
-  const uDent = u("dent");
+  const uTime = u("t");
+  const uMouse = u("m");
+  const uVel = u("vel");
+  const uEnergy = u("energy");
 
   const SCALE = 0.75;
   const resize = () => {
@@ -128,22 +154,23 @@ void main(){
   resize();
   window.addEventListener("resize", resize);
 
-  // The dent follows the pointer with a lag (the smear) and fades when it rests.
-  const target = { x: -10, y: -10 };
-  const mouse = { x: -10, y: -10 };
-  let dent = 0;
-  let moved = 0;
+  // The dent follows the pointer with a lag; moving fast deepens it and smears it backwards.
+  const toP = (x, y) => [
+    ((x - window.innerWidth / 2) / window.innerHeight) * ZOOM,
+    (-(y - window.innerHeight / 2) / window.innerHeight) * ZOOM,
+  ];
+  let target = toP(window.innerWidth * 0.72, window.innerHeight * 0.3);
+  const cur = target.slice();
+  const vel = [0, 0];
+  let energy = 0.2;
+  let lastP = null;
   window.addEventListener(
     "pointermove",
     (e) => {
-      const h = window.innerHeight;
-      target.x = (e.clientX / h) * 1.5;
-      target.y = ((h - e.clientY) / h) * 1.5;
-      if (mouse.x < -5) {
-        mouse.x = target.x;
-        mouse.y = target.y;
-      }
-      moved = performance.now();
+      const p = toP(e.clientX, e.clientY);
+      if (lastP) energy = Math.min(1, energy + Math.hypot(p[0] - lastP[0], p[1] - lastP[1]) * 1.4);
+      lastP = p;
+      target = p;
     },
     { passive: true },
   );
@@ -154,14 +181,22 @@ void main(){
   const draw = (now) => {
     frame = requestAnimationFrame(draw);
     if (now - last < 33) return;
+    // The mockup eased per frame at 60 fps; at about 30 the same easing per frame is taken twice.
+    for (let k = 0; k < 2; k++) {
+      const nx = cur[0] + (target[0] - cur[0]) * 0.03;
+      const ny = cur[1] + (target[1] - cur[1]) * 0.03;
+      vel[0] += (nx - cur[0] - vel[0]) * 0.08;
+      vel[1] += (ny - cur[1] - vel[1]) * 0.08;
+      cur[0] = nx;
+      cur[1] = ny;
+      energy += (0.2 - energy) * 0.01;
+    }
     last = now;
-    mouse.x += (target.x - mouse.x) * 0.06;
-    mouse.y += (target.y - mouse.y) * 0.06;
-    dent += ((now - moved < 1200 ? 1 : 0) - dent) * 0.04;
     gl.uniform2f(uRes, canvas.width, canvas.height);
     gl.uniform1f(uTime, (now - start) / 1000);
-    gl.uniform2f(uMouse, mouse.x, mouse.y);
-    gl.uniform1f(uDent, dent);
+    gl.uniform2f(uMouse, cur[0], cur[1]);
+    gl.uniform2f(uVel, vel[0], vel[1]);
+    gl.uniform1f(uEnergy, energy);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     canvas.classList.add("on");
   };
