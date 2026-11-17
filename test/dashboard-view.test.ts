@@ -218,7 +218,7 @@ describe("dashboard view", () => {
     expect(dashboardView(snapshot(), config, NOW).columns.map((c) => c.issues.length)).toEqual([0, 0, 0, 0, 0, 0, 0]);
   });
 
-  test("REQ-003-02 says in words what is happening or what the Owner must do", () => {
+  test("REQ-003-02 / REQ-003-17 says in words what is happening or what the Owner must do, toned by meaning", () => {
     const v = dashboardView(
       snapshot({
         repos: [
@@ -244,10 +244,10 @@ describe("dashboard view", () => {
     expect(status).toEqual({
       4: ["Approve it, or reply to revise", "warn"],
       5: ["Answer the Planner's questions", "warn"],
-      8: ["Blocked by #4, #5", "bad"],
+      8: ["Blocked by #4, #5", "muted"],
       10: ["The Implementer is building it", "acc"],
       13: ["Ready: merge the PR", "ok"],
-      14: ["Reviewed; the PR has conflicts or pending checks", "warn"],
+      14: ["Reviewed; the PR has conflicts or pending checks", "muted"],
       9: ["The Coordinator gave up; see its comment", "bad"],
     });
   });
@@ -595,7 +595,7 @@ describe("dashboard view", () => {
     expect(v.recent.at(-1)?.text).toBe("#88 unblocked");
   });
 
-  test("REQ-003-16 gives each kind of Event a tone: success, neutral, attention or failure", () => {
+  test("REQ-003-16 / REQ-003-17 gives each kind of Event a tone: success, neutral, attention only for the Owner's move, failure", () => {
     const kinds = [
       "assessed",
       "approved",
@@ -611,7 +611,7 @@ describe("dashboard view", () => {
     expect(Object.fromEntries(v.recent.map((e) => [e.kind, e.tone]))).toEqual({
       assessed: "warn",
       approved: "muted",
-      blocked: "warn",
+      blocked: "muted",
       unblocked: "muted",
       "pr-opened": "ok",
       "review-passed": "ok",

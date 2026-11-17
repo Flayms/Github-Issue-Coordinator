@@ -137,10 +137,18 @@ The Owner wants to see at a glance, also on a phone, what the Coordinator is doi
 - **Given** recorded Events
 - **When** the dashboard is shown
 - **Then** the newest 15 appear newest first in a "Recent" column next to "Working now"
-- **And** each one shows an icon and a tone by kind (success, neutral, attention or failure), its time, and links to its issue or PR
+- **And** each one shows an icon and a tone by kind (success, neutral, attention or failure, as in REQ-003-17), its time, and links to its issue or PR
 - **And** the `?repo=` filter (REQ-003-13) narrows it too
 - **And** with no Events yet it says so
 - **And** titles, failure reasons and other text from GitHub or agents are shown as text only (REQ-003-09)
+
+### REQ-003-17 Colour by meaning
+
+- **Given** the Overview shows items in each state
+- **When** an item is waiting for the Owner, has failed, or is only waiting or blocked
+- **Then** only the Owner's move uses the attention tone, only failures (a failed issue or Event, failing checks, a gone session window, a failed poll) use red, and blocked or waiting items use a neutral tone
+- **And** no item is shown in the attention tone in one place and red in another
+- **And** a status's tone marks its dot or icon, while its text stays neutral
 
 ### REQ-003-19 Component build
 
@@ -187,5 +195,6 @@ The Owner wants to see at a glance, also on a phone, what the Coordinator is doi
 | REQ-003-14 | `dashboard html > REQ-003-14 the animated background shows, also for reduced motion …` (checks the stylesheet and script; the behaviour in a browser is manual)                                                                                                                                                                                                                                                                                                                                                                                 | pass (static); browser: open                                                                                       |
 | REQ-003-15 | `store > REQ-003-15 …` (2 tests: newest first across a restart, cap at 200); `reconcile loop > REQ-003-15 records one Event per action …` (11 tests: Assessment, approval incl. blocked and unblock, block, PR opened and none on a failed `createPull`, Review with and without findings, Feedback round counted or not, failure with reason, a failing GitHub call records nothing, a store error is only logged); `Planner pass > REQ-003-15 …`, `Implementer run > REQ-003-15 …`, `Reviewer run > REQ-003-15 …` (failures inside the syncs) | pass                                                                                                               |
 | REQ-003-16 | `dashboard view > REQ-003-16 …` (5 tests: order, limit, tone, time and links; tone per kind; repo filter; empty state; escaping); `dashboard html > REQ-003-16 Recent sits next to Working now …`, `… the Overview shows its sections in order`; `reconcile loop > REQ-003-16 the snapshot carries the recorded Events …`                                                                                                                                                                                                                       | pass                                                                                                               |
+| REQ-003-17 | `dashboard view > REQ-003-02 / REQ-003-17 says in words what is happening …` (tone per Pipeline status), `… REQ-003-16 / REQ-003-17 gives each kind of Event a tone …`; `dashboard html > REQ-003-17 red marks only failures, the attention tone only the Owner's move, and status text stays neutral`; contrast and the look: screenshots on the PR (#102) | pass |
 | REQ-003-19 | `dashboard html > REQ-003-19 the stylesheet is built from its Tailwind source and has a rule for every class the pages use`; every other `dashboard html` / `dashboard view` / `dashboard server` test renders the React components                                                                                                                                                                                                                                                                                                             | pass                                                                                                               |
 | Acceptance | #72: desktop, phone and Config screenshots from fixture data before and after the React migration look the same; manual: open it on a phone over Tailscale and on desktop, compare with the mockup in #41, screenshots on the PR; without a `dashboard` block, an SSH tunnel to `127.0.0.1:8080` loads the page                                                                                                                                                                                                                                 | #87: desktop and phone screenshots from fixture data match the mockup; on a real phone and the hover effects: open |

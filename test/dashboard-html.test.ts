@@ -119,12 +119,70 @@ const selector = (cls: string) => `.${cls.replace(/[^\w-]/g, (c) => `\\${c}`)}`;
 
 const order = (html: string, marks: string[]) => marks.map((m) => html.indexOf(m));
 
+/** The selectors of `targets` that sit inside an element matching `outer`. */
+const inside = (html: string, outer: string, targets: string[]) => {
+  let depth = 0;
+  const found = new Set<string>();
+  let rw = new HTMLRewriter().on(outer, {
+    element(e) {
+      depth++;
+      e.onEndTag(() => {
+        depth--;
+      });
+    },
+  });
+  for (const t of targets)
+    rw = rw.on(t, {
+      element() {
+        if (depth > 0) found.add(t);
+      },
+    });
+  rw.transform(html);
+  return found;
+};
+
 describe("dashboard html", () => {
   test("REQ-003-11 / REQ-003-12 / REQ-003-01 / REQ-003-04 / REQ-003-02 the Overview shows its sections in order", () => {
     const html = overview();
     const at = order(html, ["PR ready to merge", "Capacity", "Working now", "Recent", "Up next", "Pipeline"]);
     expect(at.every((i) => i >= 0)).toBe(true);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
+    // #100: the frosted band holds Up next, the Pipeline and the footer, so it runs to the bottom of the page.
+    expect(inside(html, "div.band", ["#up-next", "#pipeline", "footer"])).toEqual(
+      new Set(["#up-next", "#pipeline", "footer"]),
+    );
+    expect(html.indexOf("<footer")).toBeGreaterThan(html.indexOf('id="pipeline"'));
+  });
+
+  test("#100 the band fades in at the top only and grows to the bottom of a short page; the Config page keeps its footer", () => {
+    const css = asset("dashboard.css");
+    const mask = css.match(/\.band:before\s*\{[^}]*?mask-image:\s*([^;]+);/)?.[1];
+    // Built and minified: transparent at the top, opaque from 72px on, and no stop that fades the bottom out.
+    expect(mask).toMatch(/^linear-gradient\((?:180deg, )?(?:transparent|#0000) 0, #000 72px\)$/);
+    const html = overview();
+    expect(html).toMatch(/<body class="[^"]*flex-col/);
+    expect(html).toMatch(/<main class="[^"]*grow[^"]*"[\s\S]*<div class="band [^"]*grow/);
+    const config = configPage();
+    expect(config).toContain("Read-only: this page changes nothing.");
+    expect(inside(config, "main", ["footer"]).size).toBe(0);
+  });
+
+  test("REQ-003-17 red marks only failures, the attention tone only the Owner's move, and status text stays neutral", () => {
+    const html = overview();
+    // The fixture has a blocked issue and a failed Event: only the failed Event is red.
+    const reds = [...html.matchAll(/<li [^>]*data-tone="bad"[\s\S]*?<\/li>|(?:text|bg|border)-bad\b/g)].map(
+      (m) => m[0],
+    );
+    expect(reds).toHaveLength(1);
+    expect(reds[0]).toContain("#2 failed: boom");
+    const upNext = html.slice(html.indexOf('id="up-next"'), html.indexOf('id="pipeline"'));
+    expect(upNext).toMatch(/data-step="blocked"[\s\S]*text-muted[^"]*">blocked</);
+    // In the Pipeline the tone is a dot; the status text itself is neutral.
+    const pipeline = html.slice(html.indexOf('id="pipeline"'));
+    expect(pipeline).toMatch(
+      /data-tone="warn"[\s\S]*?<p class="[^"]*text-white\/70[^"]*"><span class="[^"]*bg-warn[^"]*" aria-hidden="true"><\/span>Approve it, or reply to revise/,
+    );
+    expect(pipeline).toMatch(/data-tone="muted"[\s\S]*?bg-muted[\s\S]*?Blocked by #6/);
   });
 
   test("REQ-003-11 lists the ready PRs next to the headline with title, repository, number, checks and link", () => {
