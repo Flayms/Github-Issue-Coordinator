@@ -165,7 +165,8 @@ export class Implementer {
       return;
     }
     const branch = this.d.worktrees.currentBranch(wt);
-    await this.d.worktrees.push(s.repo, wt, branch);
+    // REQ-001-58: without a PR on record, a remote branch of the same name is left over from a closed PR.
+    await this.d.worktrees.push(s.repo, wt, branch, { replace: first.prNumber === null });
     // REQ-001-50: the Screenshots section follows prBody; a turn without Screenshots keeps the last one.
     const body = (screenshots: string | null) =>
       [note, result.prBody, screenshots, s.issues.map((n) => `Closes #${n}`).join("\n")].filter(Boolean).join("\n\n");

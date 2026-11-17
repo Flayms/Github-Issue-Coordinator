@@ -95,6 +95,23 @@ describe("worktrees", () => {
     expect(git(origin, "rev-parse", wt.branch)).toBe(w.head(wt.path));
   });
 
+  test("REQ-001-58 a replacing push overwrites a leftover remote branch that a plain push may not", async () => {
+    git(origin, "checkout", "-q", "-b", "agent/5-x");
+    writeFileSync(join(origin, "old.txt"), "closed PR");
+    git(origin, "add", "-A");
+    git(origin, "commit", "-qm", "closed PR");
+    git(origin, "checkout", "-q", "main");
+
+    const w = make();
+    const wt = await w.create("octo/app", [5], "x");
+    writeFileSync(join(wt.path, "f.txt"), "1");
+    git(wt.path, "add", "-A");
+    git(wt.path, "commit", "-qm", "work");
+    await expect(w.push("octo/app", wt.path, wt.branch)).rejects.toThrow();
+    await w.push("octo/app", wt.path, wt.branch, { replace: true });
+    expect(git(origin, "rev-parse", wt.branch)).toBe(w.head(wt.path));
+  });
+
   test("knows the checkout's branch and the default branch", async () => {
     const w = make();
     const wt = await w.create("octo/app", [5], "x");
