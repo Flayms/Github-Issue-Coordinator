@@ -20,7 +20,7 @@ The Coordinator reads it with `gh auth token` and picks up a new one within 5 mi
 
 ## 2. Each managed repository
 
-- **Ruleset** (Settings → Rules → Rulesets → New branch ruleset): target the default branch, empty bypass list, rules **Restrict deletions**, **Block force pushes**, **Require a pull request before merging** (0 approvals). This keeps pushes off the default branch; merging is left to you by the prompts.
+- **Ruleset** (Settings → Rules → Rulesets → New branch ruleset): target the default branch, empty bypass list, rules **Restrict deletions**, **Block force pushes**, **Require a pull request before merging** (0 approvals). This keeps pushes off the default branch; merging is left to you by the prompts. Optional, if the repository has CI: add **Require status checks to pass** with its check (for this repository: `check` from `.github/workflows/ci.yml`).
 - **Old review workflow:** disable any GitHub Actions workflow that reviews PRs with Claude; the Reviewer replaces it.
 
 ## 3. Configure

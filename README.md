@@ -1,5 +1,7 @@
 # github-issue-coordinator
 
+[![CI](https://github.com/Flayms/Github-Issue-Coordinator/actions/workflows/ci.yml/badge.svg)](https://github.com/Flayms/Github-Issue-Coordinator/actions/workflows/ci.yml)
+
 A self-hosted Bun daemon that polls GitHub and runs Claude Code agents. They triage, plan, implement and review your issues (one Worktree per issue), with your approval as the gate. Every agent session also shows up in the Claude app, where you can follow it live and chat with it.
 
 ## How it works
@@ -156,3 +158,5 @@ bun start                        # or run it as the systemd service
 ## Development
 
 `bun test` · `bun run lint` · `bun scripts/smoke-runner.ts` (real tmux + claude). See `AGENTS.md` and `docs/`.
+
+CI (`.github/workflows/ci.yml`) runs `bun install --frozen-lockfile`, `bun run lint` and `bun test` on every push to `main` and every PR, drafts included, so agent PRs here are checked before their Review. The smoke runner needs a subscription and doesn't run in CI.
