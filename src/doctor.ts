@@ -25,13 +25,9 @@ const run = (cmd: string[], env?: Record<string, string | undefined>) => {
   }
 };
 
-// REQ-005-05: Claude Code refuses skipped permissions as root; the Coordinator runs as a normal user with sudo.
-const uid = process.getuid?.();
-report(
-  uid === 0 ? "fail" : "ok",
-  "not running as root",
-  uid === 0 ? "run the Coordinator as a normal user with sudo (docs/setup.md step 1)" : userInfo().username,
-);
+// REQ-005-05: root works (sessions get IS_SANDBOX=1, REQ-005-01); a normal user needs sudo without a password.
+const isRoot = process.getuid?.() === 0;
+report("ok", "user", isRoot ? "root (sessions run with IS_SANDBOX=1)" : `${userInfo().username} (not root)`);
 
 for (const [bin, arg] of [
   ["claude", "--version"],
@@ -45,12 +41,14 @@ for (const [bin, arg] of [
 }
 
 // Agents may install what they need; a sudo that asks for a password stalls them.
-const sudo = run(["sudo", "-n", "true"]);
-report(
-  sudo.ok ? "ok" : "warn",
-  "sudo without a password",
-  sudo.ok ? "" : "agents can't use sudo (see docs/setup.md step 1)",
-);
+if (!isRoot) {
+  const sudo = run(["sudo", "-n", "true"]);
+  report(
+    sudo.ok ? "ok" : "warn",
+    "sudo without a password",
+    sudo.ok ? "" : "agents can't use sudo (see docs/setup.md step 1)",
+  );
+}
 
 // REQ-001-48: an Implementer may shoot Screenshots with a headless browser, or install one itself.
 const browser = findBrowser();

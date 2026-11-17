@@ -4,21 +4,21 @@ How to run the Coordinator on a VM. The Owner does these steps once; nothing her
 
 ## 1. VM, tools and Claude login
 
-The Coordinator and its agents run on a VM dedicated to them, as one normal user with `sudo` ([spec 005](specs/005-vm-runtime/spec.md)). Agents run with Claude Code's permission prompts skipped and no sandbox: they may read and write anything on the VM, reach any host and install packages. So put nothing on the VM you wouldn't hand to them, and keep it easy to rebuild (a snapshot helps). The only boundary is GitHub: the fine-grained PAT of step 2.
+The Coordinator and its agents run on a VM dedicated to them, as one user ([spec 005](specs/005-vm-runtime/spec.md)). Agents run with Claude Code's permission prompts skipped and no sandbox: they may read and write anything on the VM, reach any host and install packages. So put nothing on the VM you wouldn't hand to them, and keep it easy to rebuild (a snapshot helps). The only boundary is GitHub: the fine-grained PAT of step 2.
 
-Use a normal user, not root: Claude Code refuses skipped permissions as root. Give it `sudo` without a password, so agents can install what they need without stalling at a password prompt:
+That user can simply be **root**. Claude Code refuses skipped permissions as root unless `IS_SANDBOX=1` is set, and the Coordinator sets it for every session. A separate normal user adds no security here (with passwordless `sudo` an agent becomes root whenever it likes); if you prefer one anyway, give it `sudo` without a password, so agents don't stall at a password prompt:
 
 ```sh
 echo "$USER ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/coordinator
 ```
 
-Then, as that user, from a checkout of this repository (or after downloading the script):
+Then, as that user (root or your sudo user), from a checkout of this repository:
 
 ```sh
 bash deploy/setup-vm.sh
 ```
 
-It installs tmux, git, the GitHub CLI (`gh`), Bun and Claude Code, uses this checkout (or clones it to `~/github-issue-coordinator`), installs its dependencies and writes the systemd unit for your user. It is safe to run again.
+It installs tmux, git, the GitHub CLI (`gh`), Bun and Claude Code, uses this checkout (or clones it to `~/github-issue-coordinator`), installs its dependencies and writes the systemd unit for the user that ran it. It is safe to run again.
 
 **Headless browser (optional, for Screenshots):** Implementers capture Screenshots of UI changes with a headless Chrome or Chromium (REQ-001-48). If none is installed, they install one themselves; to save them the time, install Google Chrome once:
 

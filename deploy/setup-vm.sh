@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Sets up a VM for the Coordinator (docs/setup.md, step 1, REQ-005-06).
-# Run once as the normal user the Coordinator and its agents will run as (not root; it needs sudo):
+# Run once as the user the Coordinator and its agents will run as: root, or a normal user with sudo.
 #   bash deploy/setup-vm.sh
 # Safe to run again: every step skips what already exists.
 set -euo pipefail
@@ -8,14 +8,13 @@ set -euo pipefail
 REPO_URL=https://github.com/Flayms/Github-Issue-Coordinator.git
 UNIT=/etc/systemd/system/github-issue-coordinator.service
 
-if [[ $EUID -eq 0 ]]; then
-  echo "Run as the normal user the agents should run as, not root (Claude Code refuses skipped permissions as root)." >&2
-  exit 1
-fi
+# As root, no sudo is needed (sessions get IS_SANDBOX=1, REQ-005-01).
+if [[ $EUID -eq 0 ]]; then SUDO=""; else SUDO="sudo"; fi
+USER=${USER:-$(id -un)}
 
 echo "== System packages (tmux, git, gh, curl, unzip)"
-sudo apt-get update -qq
-sudo apt-get install -y -qq tmux git gh curl unzip >/dev/null
+$SUDO apt-get update -qq
+$SUDO apt-get install -y -qq tmux git gh curl unzip >/dev/null
 
 echo "== Bun"
 command -v bun >/dev/null || [ -x ~/.bun/bin/bun ] || curl -fsSL https://bun.sh/install | bash
@@ -37,8 +36,8 @@ if [ -f "$HERE/package.json" ] && [ -d "$HERE/.git" ]; then CHECKOUT=$HERE; else
 
 echo "== systemd unit $UNIT (for $USER)"
 sed -e "s#@USER@#$USER#g" -e "s#@HOME@#$HOME#g" -e "s#@CHECKOUT@#$CHECKOUT#g" \
-  "$CHECKOUT/deploy/github-issue-coordinator.service" | sudo tee "$UNIT" >/dev/null
-sudo systemctl daemon-reload
+  "$CHECKOUT/deploy/github-issue-coordinator.service" | $SUDO tee "$UNIT" >/dev/null
+$SUDO systemctl daemon-reload
 
 cat <<DONE
 
@@ -47,5 +46,5 @@ Done. Next:
   gh auth login          # paste the fine-grained PAT (docs/setup.md step 2)
   cp $CHECKOUT/config.example.ts $CHECKOUT/config.ts   # and fill it in (step 5)
   cd $CHECKOUT && bun run doctor
-  sudo systemctl enable --now github-issue-coordinator
+  ${SUDO:+sudo }systemctl enable --now github-issue-coordinator
 DONE

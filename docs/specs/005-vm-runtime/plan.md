@@ -4,13 +4,13 @@
 
 Remove, don't wrap. Every piece that existed only to contain agents goes; what stays is orchestration.
 
-- **Sessions** (`src/runner.ts`, `src/prompts.ts`): `claude --dangerously-skip-permissions` for every Role. The per-session `settings.json` keeps only the hooks. No `--add-dir` (the Result file is writable without it), so the add-dir trust question disappears; the folder trust question stays, and the one-time Bypass Permissions warning is answered the same way (Down, Enter). `meta.json` keeps only the cwd. No `gh/hosts.yml`, no `GH_CONFIG_DIR`: agents use the user's own `gh` login.
+- **Sessions** (`src/runner.ts`, `src/prompts.ts`): `IS_SANDBOX=1 claude --dangerously-skip-permissions` for every Role (`IS_SANDBOX=1` lets it run as root). The per-session `settings.json` keeps only the hooks. No `--add-dir` (the Result file is writable without it), so the add-dir trust question disappears; the folder trust question stays, and the one-time Bypass Permissions warning is answered the same way (Down, Enter). `meta.json` keeps only the cwd. No `gh/hosts.yml`, no `GH_CONFIG_DIR`: agents use the user's own `gh` login.
 - **GitHub** (`src/github/gh-token.ts`): one `GhToken` with the `tokenFor(repo)` shape the client, clones and Worktrees already use, backed by `gh auth token` and cached for 5 minutes. `app-auth.ts` and `read-tokens.ts` are deleted; the config loses `github.appId` and `github.privateKeyPath` (`github.commitAuthor` stays). A config that still has them fails validation with a clear message, as any unknown key does.
 - **Owner input** (`src/coordinator.ts`): comments and reviews are the Owner's only if their author is the Owner _and_ their body does not start with the agent note (`isAgentNote` in `src/note.ts`). This is what makes the Owner's own PAT usable.
 - **Config** (`src/config.ts`): `sandboxDomains` and `secretPaths` go; the dashboard's Config page loses the "Sandbox domains" row.
 - **Browser** (`src/browser.ts`): only lookup and a plain headless start check for the doctor; the sandbox flags and the `XDG_*`/unwritable-home workarounds go. The smoke runner's `--screenshot` sandbox probe goes.
 - **Prompts**: the Implementer may install what it needs (with `sudo`); Planner and Reviewer are told not to change the repository; every Role is told to leave GitHub writes to the Coordinator.
-- **Doctor**: no bwrap/socat/AppArmor/App checks; adds root, `gh` login and identity, push access per repository, and passwordless `sudo`.
+- **Doctor**: no bwrap/socat/AppArmor/App checks; reports the user (root works), and checks the `gh` login and identity, push access per repository, and passwordless `sudo` for a normal user.
 - **Deploy**: `deploy/setup-vm.sh` (run as the VM user) replaces `deploy/create-agent-user.sh`, and writes the systemd unit for that user.
 - **Docs**: README, setup, architecture, glossary, pitfalls (sandbox rows removed), specs 001–004 (deprecations).
 
