@@ -231,7 +231,10 @@ const Capacity = ({ v }: { v: DashboardView }) => (
 
 const ROLE_ICONS: Record<string, IconName> = { Planner: "compass", Implementer: "code", Reviewer: "eye" };
 
-/** REQ-003-01: a card per session: what it is doing, the bar under its head, its issues and its names. */
+/**
+ * REQ-003-01: a card per session: what it is doing, the bar under its head, its issues and its names.
+ * An idle session says when it closes (#74); its bar shows the idle time out of `idleTimeoutMin`.
+ */
 function Session({ s }: { s: SessionView }) {
   const tone = { running: "text-acc-hi", idle: "text-white/45", gone: "text-fg" }[s.state];
   const bar = {
@@ -254,7 +257,7 @@ function Session({ s }: { s: SessionView }) {
               running
             </>
           )}
-          {s.state === "idle" && `idle ${s.idleFor ?? ""} of ${s.idleTimeout}`}
+          {s.state === "idle" && `idle · closes ${s.closesIn ?? ""}`}
           {s.state === "gone" && (
             <>
               <span className="size-1.5 rounded-full bg-bad" />
@@ -263,7 +266,10 @@ function Session({ s }: { s: SessionView }) {
           )}
         </span>
       </div>
-      <div className="mt-2.5 h-0.5 overflow-hidden rounded-xs bg-white/7">
+      <div
+        className="mt-2.5 h-0.5 overflow-hidden rounded-xs bg-white/7"
+        title={s.state === "idle" ? `idle ${s.idleFor ?? ""} of ${s.idleTimeout}` : undefined}
+      >
         <span className={`block h-full rounded-xs ${bar}`} />
       </div>
       <div className="mt-3 leading-[1.35] wrap-anywhere">
@@ -301,11 +307,51 @@ function Session({ s }: { s: SessionView }) {
   );
 }
 
-const Working = ({ v }: { v: DashboardView }) => (
-  <section id="working">
-    <Heading title="Working now" note={plural(v.sessions.length, "live session", "live sessions")} />
+/**
+ * REQ-003-20: one part of the Activity timeline, its head a dot on the timeline with what part of time
+ * it is (done, now, next). `className` places it: Now, Next, Recent on a phone, time order from lg on.
+ */
+function Phase({
+  id,
+  title,
+  tag,
+  current = false,
+  className,
+  children,
+}: {
+  id: string;
+  title: string;
+  tag: string;
+  current?: boolean;
+  className: string;
+  children: ReactNode;
+}) {
+  return (
+    <section id={id} className={`min-w-0 ${className}`}>
+      <h3 className="relative mb-2 flex items-baseline gap-2.5 border-line-2 border-t pt-4 font-bold font-display text-[17px] text-white leading-tight">
+        <span
+          aria-hidden="true"
+          className={`absolute top-0 left-0 size-2.5 -translate-y-1/2 rounded-full ${
+            current ? "bg-acc shadow-[0_0_14px_rgb(124_114_255/0.85)]" : "border-2 border-white/30 bg-ink"
+          }`}
+        />
+        {title}
+        <span
+          className={`font-mono font-semibold text-[11px] uppercase tracking-[0.14em] ${current ? "text-acc-hi" : "text-white/40"}`}
+        >
+          {tag}
+        </span>
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+/** REQ-003-01: the open sessions, running ones first; idle ones say they wait, not that they work (#74). */
+const Now = ({ v }: { v: DashboardView }) => (
+  <Phase id="now" title="Now" tag="now" current className="order-1 lg:order-none">
     {v.sessions.length ? (
-      <ul className="grid gap-x-10 gap-y-8 sm:grid-cols-2">
+      <ul className="grid gap-x-10 gap-y-8 pt-2 sm:grid-cols-2 lg:grid-cols-1">
         {v.sessions.map((s) => (
           <Session key={s.name} s={s} />
         ))}
@@ -313,7 +359,30 @@ const Working = ({ v }: { v: DashboardView }) => (
     ) : (
       <Empty>No agent sessions are open.</Empty>
     )}
-  </section>
+  </Phase>
+);
+
+/** REQ-003-20: the row Recent and Next share: an icon, a line of text and a muted line under it. */
+const Row = ({
+  icon,
+  className,
+  data,
+  sub,
+  children,
+}: {
+  icon: IconName;
+  className: string;
+  data: Record<`data-${string}`, string>;
+  sub: ReactNode;
+  children: ReactNode;
+}) => (
+  <li className={`flex items-start gap-3 border-line border-t py-3 first:border-t-0 ${className}`} {...data}>
+    <Icon name={icon} className="mt-0.5 size-4 flex-none" />
+    <div className="min-w-0 flex-1">
+      <div className="text-fg wrap-anywhere">{children}</div>
+      <div className="mt-0.5 text-[12px] text-muted wrap-anywhere">{sub}</div>
+    </div>
+  </li>
 );
 
 /** REQ-003-16: an icon per kind of Event; the tone comes from the view. */
@@ -330,14 +399,12 @@ const EVENT_ICONS: Record<EventKind, IconName> = {
 };
 
 const Event = ({ e }: { e: EventView }) => (
-  <li
-    className={`flex items-start gap-3 border-line border-t py-3 first:border-t-0 ${TONE_TEXT[e.tone]}`}
-    data-tone={e.tone}
-  >
-    <Icon name={EVENT_ICONS[e.kind] ?? "dot"} className="mt-0.5 size-4" />
-    <div className="min-w-0 flex-1">
-      <div className="text-fg wrap-anywhere">{e.text}</div>
-      <div className="mt-0.5 text-[12px] text-muted wrap-anywhere">
+  <Row
+    icon={EVENT_ICONS[e.kind] ?? "dot"}
+    className={TONE_TEXT[e.tone]}
+    data={{ "data-tone": e.tone }}
+    sub={
+      <>
         <time dateTime={e.datetime} title={e.at}>
           {e.ago}
         </time>{" "}
@@ -348,25 +415,50 @@ const Event = ({ e }: { e: EventView }) => (
             <Link href={l.url}>{l.label}</Link>
           </span>
         ))}
-      </div>
-    </div>
-  </li>
+      </>
+    }
+  >
+    {e.text}
+  </Row>
 );
 
-const Recent = ({ v }: { v: DashboardView }) => (
-  <section id="recent">
-    <Heading title="Recent" note="newest first" />
-    {v.recent.length ? (
-      <ul>
-        {v.recent.map((e) => (
-          <Event key={`${e.datetime} ${e.text}`} e={e} />
-        ))}
-      </ul>
-    ) : (
-      <Empty>Nothing has happened yet. Events show up here once the Coordinator acts on an issue.</Empty>
-    )}
-  </section>
-);
+/** How many Events Recent shows on a phone before the expander (REQ-003-16). */
+const RECENT_ON_PHONE = 5;
+
+/**
+ * REQ-003-16: the newest Events. On a phone the first five show and the rest sit in a `<details>`,
+ * which needs no script; from lg on its content always shows and its summary hides.
+ */
+function Recent({ v }: { v: DashboardView }) {
+  const more = v.recent.slice(RECENT_ON_PHONE);
+  return (
+    <Phase id="recent" title="Recent" tag="done" className="order-3 lg:order-none">
+      {v.recent.length ? (
+        <>
+          <ul>
+            {v.recent.slice(0, RECENT_ON_PHONE).map((e) => (
+              <Event key={`${e.datetime} ${e.text}`} e={e} />
+            ))}
+          </ul>
+          {more.length > 0 && (
+            <details className="border-line border-t lg:details-content:[content-visibility:visible] lg:details-content:block">
+              <summary className="cursor-pointer py-3 font-medium text-[13px] text-acc-hi lg:hidden">
+                Show {more.length} more
+              </summary>
+              <ul>
+                {more.map((e) => (
+                  <Event key={`${e.datetime} ${e.text}`} e={e} />
+                ))}
+              </ul>
+            </details>
+          )}
+        </>
+      ) : (
+        <Empty>Nothing has happened yet. Events show up here once the Coordinator acts on an issue.</Empty>
+      )}
+    </Phase>
+  );
+}
 
 /** REQ-003-04: what each kind of queued work does, as a step's name and icon. */
 const WORK: Record<WorkKind, { label: string; icon: IconName }> = {
@@ -379,99 +471,50 @@ const WORK: Record<WorkKind, { label: string; icon: IconName }> = {
   revise: { label: "Revise", icon: "compass" },
 };
 
-type StepKind = "next" | "later" | "blocked";
+const StepNumber = ({ n, first }: { n: number; first: boolean }) => (
+  <span className={`mr-2 font-bold font-display text-[13px] tabular-nums ${first ? "text-acc-hi" : "text-white/30"}`}>
+    {String(n + 1).padStart(2, "0")}
+  </span>
+);
 
-/** One step on the pipe: a diamond node, the number and what it is; the first is "next", blocked ones are muted (REQ-003-17). */
-function Step({
-  n,
-  kind,
-  head,
-  sub,
-  why,
-}: {
-  n: number;
-  kind: StepKind;
-  head: [IconName, ReactNode];
-  sub: ReactNode;
-  why: [IconName, ReactNode];
-}) {
-  const first = kind === "next";
-  const blocked = kind === "blocked";
-  const accent = first ? "text-acc-hi" : blocked ? "text-muted" : "text-white/55";
-  return (
-    <li
-      className="step group relative pl-8 sm:max-w-80 sm:flex-[1_0_220px] sm:snap-start sm:pt-8 sm:pr-6 sm:pl-0 sm:last:max-w-none sm:last:grow-2"
-      data-step={kind}
-    >
-      <span
-        className={`absolute top-px left-0 size-3.5 rotate-45 rounded-[3px] border-2 transition-[scale,box-shadow] duration-450 ease-calm group-hover:scale-135 group-hover:shadow-[0_0_14px_rgb(124_114_255/0.8)] ${
-          first
-            ? "border-acc bg-acc shadow-[0_0_16px_rgb(124_114_255/0.85)]"
-            : blocked
-              ? "border-white/30 bg-ink"
-              : "border-acc/60 bg-ink"
-        }`}
-      />
-      <div
-        className={`min-w-0 transition-transform duration-450 ease-calm group-hover:-translate-y-0.5 ${first ? "mt-5 sm:mt-0" : ""}`}
-      >
-        <div className="flex items-center gap-2">
-          <span
-            className={`font-bold font-display text-[14px] tabular-nums leading-none ${first ? "text-acc-hi" : "text-white/30"}`}
-          >
-            {String(n + 1).padStart(2, "0")}
-          </span>
-          <Icon name={head[0]} className={`size-4 ${accent}`} />
-          <b className="font-display font-semibold text-[15px] leading-[1.3] wrap-anywhere [&_a]:text-white">
-            {head[1]}
-          </b>
-        </div>
-        <div className="mt-1 text-[13px] text-white/55 wrap-anywhere">{sub}</div>
-        <div className="mt-1.5 flex items-start gap-1.5 text-[12px] text-white/40">
-          <Icon name={why[0]} className="mt-px size-[13px]" />
-          <span>{why[1]}</span>
-        </div>
-      </div>
-      {first && (
-        <span className="absolute -top-0.5 left-6 font-semibold text-[11px] text-acc-hi leading-none sm:-top-[22px] sm:-left-0.5">
-          next
-        </span>
-      )}
-      {blocked && (
-        <span className="mt-1.5 inline-block font-semibold text-[10px] text-muted uppercase leading-none tracking-widest">
-          blocked
-        </span>
-      )}
-    </li>
-  );
-}
-
-/** Up next: numbered steps on a dashed pipe, sideways on wider screens; blocked issues come last. */
-function UpNext({ v }: { v: DashboardView }) {
+/**
+ * REQ-003-04: the queue in the scheduler's order, the first step marked "next", each with why it
+ * waits; blocked issues come last and are muted (REQ-003-17). A plain list in the row style of Recent.
+ */
+function Next({ v }: { v: DashboardView }) {
   const steps = [
     ...v.queue.map((q, i) => {
       const w = WORK[q.kind] ?? { label: q.kind, icon: "dot" as const };
+      const first = i === 0;
       return (
-        <Step
+        <Row
           key={q.key}
-          n={i}
-          kind={i === 0 ? "next" : "later"}
-          head={[w.icon, w.label]}
-          sub={<span className="font-mono text-[0.86em]">{q.key}</span>}
-          why={[q.waiting ? "hourglass" : "bolt", q.status]}
-        />
+          icon={w.icon}
+          className={first ? "text-acc-hi" : "text-white/55"}
+          data={{ "data-step": first ? "next" : "later" }}
+          sub={
+            <span className="inline-flex items-start gap-1.5">
+              <Icon name={q.waiting ? "hourglass" : "bolt"} className="mt-px size-[13px] flex-none" />
+              {q.status}
+            </span>
+          }
+        >
+          <StepNumber n={i} first={first} />
+          <b className="font-display font-semibold">{w.label}</b>{" "}
+          <span className="font-mono text-[0.86em] text-white/70">{q.key}</span>
+          {first && <span className="ml-2 font-semibold text-[11px] text-acc-hi">next</span>}
+        </Row>
       );
     }),
     ...v.blocked.map((b, i) => (
-      <Step
+      <Row
         key={b.url}
-        n={v.queue.length + i}
-        kind="blocked"
-        head={["lock", <Link key="issue" href={b.url}>{`${b.repo}#${b.number}`}</Link>]}
-        sub={b.title}
-        why={[
-          "lock",
+        icon="lock"
+        className="text-muted"
+        data={{ "data-step": "blocked" }}
+        sub={
           <>
+            <span className="mr-2 font-semibold text-[10px] text-muted uppercase tracking-widest">blocked</span>
             blocked by{" "}
             {b.blockedBy.length
               ? b.blockedBy.map((x, n) => (
@@ -481,21 +524,37 @@ function UpNext({ v }: { v: DashboardView }) {
                   </span>
                 ))
               : "–"}
-          </>,
-        ]}
-      />
+          </>
+        }
+      >
+        <StepNumber n={v.queue.length + i} first={false} />
+        <Link className="font-display font-semibold text-white" href={b.url}>{`${b.repo}#${b.number}`}</Link>{" "}
+        <span className="text-white/70">{b.title}</span>
+      </Row>
     )),
   ];
   return (
-    <section id="up-next" className="min-w-0">
-      <Heading title="Up next" note="what the scheduler starts, in order" />
-      {steps.length ? (
-        <div className="thin-scroll relative sm:scroll-px-1.5 sm:snap-x sm:snap-proximity sm:overflow-x-auto sm:overscroll-x-contain sm:px-1.5 sm:pt-7 sm:pb-2">
-          <ol className="relative grid gap-7 sm:flex sm:gap-0">{steps}</ol>
-        </div>
-      ) : (
-        <Empty>Nothing is queued.</Empty>
-      )}
+    <Phase id="next" title="Next" tag="next" className="order-2 lg:order-none">
+      {steps.length ? <ol>{steps}</ol> : <Empty>Nothing is queued.</Empty>}
+    </Phase>
+  );
+}
+
+/**
+ * REQ-003-20: Recent, Now and Next as past, present and future of the same work, under one header
+ * with the counts: side by side in time order from lg on, joined by the timeline, stacked Now,
+ * Next, Recent on a phone.
+ */
+function Activity({ v }: { v: DashboardView }) {
+  const idle = v.sessions.filter((s) => s.state === "idle").length;
+  return (
+    <section id="activity" className="wrap mt-9">
+      <Heading title="Activity" note={`${v.summary.working} running · ${idle} idle · ${v.summary.queued} queued`} />
+      <div className="timeline grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1fr)]">
+        <Recent v={v} />
+        <Now v={v} />
+        <Next v={v} />
+      </div>
     </section>
   );
 }
@@ -598,8 +657,8 @@ function Pipeline({ v }: { v: DashboardView }) {
 }
 
 /**
- * The Overview: Summary, Capacity, Working now next to Recent, then Up next, the Pipeline and the
- * footer in the band, which grows to the bottom of a short page (#100).
+ * The Overview: Summary, Capacity, Activity (REQ-003-20), then the Pipeline and the footer in the
+ * band, which grows to the bottom of a short page (#100).
  */
 export const Overview = ({ v }: { v: DashboardView }) => (
   <Layout v={v} page="overview">
@@ -608,13 +667,9 @@ export const Overview = ({ v }: { v: DashboardView }) => (
         <Summary v={v} />
       </div>
       <Capacity v={v} />
-      <div className="wrap mt-9 grid gap-9 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] lg:gap-10">
-        <Working v={v} />
-        <Recent v={v} />
-      </div>
-      <div className="band mt-4 flex grow flex-col pt-24">
-        <div className="wrap grid gap-16">
-          <UpNext v={v} />
+      <Activity v={v} />
+      <div className="band mt-12 flex grow flex-col pt-24">
+        <div className="wrap">
           <Pipeline v={v} />
         </div>
         <Footer className="mt-auto pt-16" />

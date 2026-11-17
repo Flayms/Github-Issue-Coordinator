@@ -2,14 +2,14 @@
  * Dashboard styles (spec 003), the Tailwind source of `/assets/dashboard.css` (REQ-003-19). The
  * components use Tailwind's utilities; this file holds the design tokens, the fonts, the page
  * backdrop and the few effects that utilities can't say clearly (pseudo-elements, gradients that
- * move, the dashed pipe).
+ * move, the Activity timeline).
  *
  * Colour carries meaning (REQ-003-17): indigo = an agent is on it, running, next; green = ready,
  * mergeable, passing; amber = only the Owner's move; red = only a failure. Waiting and blocked are
  * neutral. Amber and red are softened for the dark background (#102), and a status colours its dot
  * or icon while its text stays neutral. Divided rows instead of boxes; the only glass panel is
- * "Ready to merge"; a full-width frosted band holds Up next, the Pipeline and the footer, down to
- * the bottom of the page (#100). Follows the v3 mockup of #41 (#87). Fonts are served from this
+ * "Ready to merge"; a full-width frosted band holds the Pipeline and the footer, down to the bottom
+ * of the page (#100). Recent, Now and Next sit above it, as one timeline in Activity (REQ-003-20). Follows the v3 mockup of #41 (#87). Fonts are served from this
  * origin (REQ-003-09).
  */
 @import "tailwindcss" source(none);
@@ -89,16 +89,6 @@
 @keyframes drift-h {
   to {
     background-position: 20px 0;
-  }
-}
-@keyframes pipe-v {
-  to {
-    background-position: 0 14px;
-  }
-}
-@keyframes pipe-h {
-  to {
-    background-position: 14px 0;
   }
 }
 
@@ -273,7 +263,7 @@
   }
 
   /*
-   * The frosted band around Up next, the Pipeline and the footer: full width, darker and blurred, its
+   * The frosted band around the Pipeline and the footer: full width, darker and blurred, its
    * top faded in by a mask instead of a hard border; it has no bottom fade, since it runs to the bottom
    * of the page (#100). A thin violet line runs above the first heading.
    */
@@ -311,45 +301,28 @@
   }
 
   /*
-   * Up next: numbered steps on a dashed pipe whose dashes drift in the direction of travel. On a
-   * phone the pipe runs down; from 640px it runs sideways and scrolls when the steps don't fit.
+   * Activity (REQ-003-20): from lg on, one line joins the heads of Recent, Now and Next across the
+   * gaps between them, brightest at Now, so they read left to right as past, present and future.
    */
-  .step::before {
-    content: "";
-    position: absolute;
-    left: 6px;
-    top: 8px;
-    bottom: -28px;
-    width: 2px;
-    background-image: linear-gradient(180deg, rgb(164 157 255 / 0.6) 50%, transparent 50%);
-    background-size: 2px 14px;
-    background-repeat: repeat-y;
-    animation: pipe-v 4s linear infinite;
+  .timeline {
+    position: relative;
   }
-  .step:last-child::before {
-    bottom: 0;
-  }
-  @media (min-width: 640px) {
-    .step:last-child::after {
-      content: "later ›";
+  @media (min-width: 1000px) {
+    .timeline::before {
+      content: "";
       position: absolute;
-      right: 0;
-      top: -22px;
-      font-size: 11px;
-      color: rgb(164 157 255 / 0.7);
-    }
-    .step::before,
-    .step:last-child::before {
       left: 0;
       right: 0;
-      top: 6px;
-      bottom: auto;
-      width: auto;
-      height: 2px;
-      background-image: linear-gradient(90deg, rgb(164 157 255 / 0.6) 50%, transparent 50%);
-      background-size: 14px 2px;
-      background-repeat: repeat-x;
-      animation-name: pipe-h;
+      top: 0;
+      height: 1px;
+      pointer-events: none;
+      background: linear-gradient(
+        90deg,
+        var(--color-line-2),
+        rgb(164 157 255 / 0.55) 45%,
+        rgb(164 157 255 / 0.55) 55%,
+        var(--color-line-2)
+      );
     }
   }
 
