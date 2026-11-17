@@ -1,10 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { parseConfig } from "../src/config.ts";
 import type { RepoSnapshot, TickSnapshot } from "../src/coordinator.ts";
-import { renderConfig } from "../src/dashboard/config-html.ts";
-import { renderDashboard } from "../src/dashboard/html.ts";
+import { asset as served } from "../src/dashboard/assets.ts";
+import { renderConfig } from "../src/dashboard/config-html.tsx";
+import { renderDashboard } from "../src/dashboard/html.tsx";
 import { dashboardView } from "../src/dashboard/view.ts";
 
 const config = parseConfig({
@@ -105,7 +104,18 @@ const snap: TickSnapshot = {
 
 const overview = (opts?: { repo?: string }) => renderDashboard(dashboardView(snap, config, NOW, opts));
 const configPage = () => renderConfig(dashboardView(snap, config, NOW));
-const asset = (name: string) => readFileSync(join(import.meta.dir, "../src/dashboard/assets", name), "utf8");
+/** A file as the server serves it (the stylesheet is built from its Tailwind source, REQ-003-19). */
+const asset = (name: string) => new TextDecoder().decode(served(name)?.body);
+
+/** The classes used in a page's markup. */
+const classes = (html: string) =>
+  new Set(
+    [...html.matchAll(/ class="([^"]*)"/g)].flatMap(
+      (m) => m[1]?.replaceAll("&gt;", ">").replaceAll("&amp;", "&").split(/\s+/) ?? [],
+    ),
+  );
+/** `.cls` as it appears in a selector, e.g. `.w-\[10\%\]` for `w-[10%]`. */
+const selector = (cls: string) => `.${cls.replace(/[^\w-]/g, (c) => `\\${c}`)}`;
 
 const order = (html: string, marks: string[]) => marks.map((m) => html.indexOf(m));
 
@@ -127,8 +137,8 @@ describe("dashboard html", () => {
     expect(summary).toContain('href="https://github.com/octo/app/pull/70"');
     for (const label of ["working", "need you", "stuck", "queued"]) expect(summary).toContain(label);
     // #87: a plain headline with only the number in green, and the "Ready to merge" header over the PRs.
-    expect(summary).toMatch(/<h1><span class="ok">1<\/span> PR ready to merge<\/h1>/);
-    expect(summary).toMatch(/<h2 class="panel-title">[\s\S]*Ready to merge<\/h2>/);
+    expect(summary).toMatch(/<h1 class="[^"]*text-white[^"]*"><span class="text-ok">1<\/span> PR ready to merge<\/h1>/);
+    expect(summary).toMatch(/<div class="panel"><h2 [^>]*>(?:(?!<\/h2>)[\s\S])*Ready to merge<\/h2>/);
     expect(asset("dashboard.css")).not.toContain("background-clip: text");
   });
 
@@ -149,13 +159,16 @@ describe("dashboard html", () => {
 
   test("REQ-003-16 Recent sits next to Working now: each Event with icon, tone, time and links", () => {
     const html = overview();
-    expect(html).toMatch(/<div class="wrap duo">\s*<section id="working"[\s\S]*<section id="recent"/);
+    expect(html).toMatch(
+      /<div class="wrap [^"]*grid[^"]*"><section id="working"(?:(?!<section)[\s\S])*<\/section><section id="recent"/,
+    );
     const recent = html.slice(html.indexOf('id="recent"'), html.indexOf('id="up-next"'));
     expect(recent).toMatch(
-      /<li class="row event ok">\s*<svg class="i"[\s\S]*Review of PR #70: no findings, ready for the Owner/,
+      /<li class="[^"]*text-ok" data-tone="ok"><svg [^>]*>[\s\S]*Review of PR #70: no findings, ready for the Owner/,
     );
-    expect(recent).toMatch(/<li class="row event bad">\s*<svg class="i"[\s\S]*#2 failed: boom/);
-    expect(recent).toContain('<time datetime="2026-11-15T10:25:00.000Z" title="2026-11-15 10:25 UTC">5 min ago</time>');
+    expect(recent).toMatch(/<li class="[^"]*text-bad" data-tone="bad"><svg [^>]*>[\s\S]*#2 failed: boom/);
+    // Attribute names are case-insensitive in HTML; React writes `dateTime`.
+    expect(recent).toMatch(/<time datetime="2026-11-15T10:25:00.000Z" title="2026-11-15 10:25 UTC">5 min ago<\/time>/i);
     expect(recent).toContain('href="https://github.com/octo/app/pull/70"');
     expect(recent).toContain('href="https://github.com/octo/app/issues/5"');
     expect(recent.indexOf("Review of PR #70")).toBeLessThan(recent.indexOf("#2 failed"));
@@ -171,7 +184,7 @@ describe("dashboard html", () => {
     const upNext = html.slice(html.indexOf('id="up-next"'), html.indexOf('id="pipeline"'));
     expect(upNext).toMatch(/octo\/app#6 implement[\s\S]*next/);
     expect(upNext).toContain("maxRunning (1) reached");
-    expect(upNext).toMatch(/class="step bad"[\s\S]*Waits for six[\s\S]*blocked by/);
+    expect(upNext).toMatch(/data-step="blocked"[\s\S]*Waits for six[\s\S]*blocked by/);
   });
 
   test("REQ-003-02 the Pipeline shows seven columns with counts and what each issue needs", () => {
@@ -223,7 +236,7 @@ describe("dashboard html", () => {
   test("REQ-003-06 a countdown to the next reload, and a meta refresh for browsers without JavaScript", () => {
     const html = overview();
     expect(html).toContain('data-reload="45"');
-    expect(html).toContain('<noscript><meta http-equiv="refresh" content="45"></noscript>');
+    expect(html).toContain('<noscript><meta http-equiv="refresh" content="45"/></noscript>');
   });
 
   test("REQ-003-09 both pages load only same-origin assets and have no inline scripts or styles", () => {
@@ -232,8 +245,8 @@ describe("dashboard html", () => {
       expect(html).not.toContain("<style");
       expect(html).not.toMatch(/<script(?![^>]*\bsrc="\/assets\/)/);
       expect(html).not.toMatch(/\b(src|href)="(https?:)?\/\/(?!github\.com\/)/);
-      expect(html).toMatch(/<link rel="stylesheet" href="\/assets\/dashboard\.css\?v=[0-9a-f]+">/);
-      expect(html).toMatch(/<script src="\/assets\/dashboard\.js\?v=[0-9a-f]+" defer><\/script>/);
+      expect(html).toMatch(/<link rel="stylesheet" href="\/assets\/dashboard\.css\?v=[0-9a-f]+"\/>/);
+      expect(html).toMatch(/<script src="\/assets\/dashboard\.js\?v=[0-9a-f]+" defer=""><\/script>/);
     }
     expect(asset("dashboard.css")).not.toMatch(/url\((["']?)(https?:)?\/\//);
     expect(asset("dashboard.css")).not.toContain("@import");
@@ -241,7 +254,7 @@ describe("dashboard html", () => {
 
   test("REQ-003-14 the animated background shows, also for reduced motion; other animations stay off; a hidden tab pauses it", () => {
     const css = asset("dashboard.css");
-    const rule = (selector: string) => css.match(new RegExp(`(?:^|\\n)${selector} \\{([^}]*)\\}`))?.[1] ?? "";
+    const rule = (selector: string) => css.match(new RegExp(`(?:^|\\n)\\s*${selector} \\{([^}]*)\\}`))?.[1] ?? "";
     // The page backdrop sits on the root, which paints below #bg (z-index: -1); a body background would cover it.
     expect(rule("html")).toContain("radial-gradient");
     expect(rule("body")).not.toContain("background");
@@ -254,5 +267,21 @@ describe("dashboard html", () => {
     expect(js).not.toContain("prefers-reduced-motion");
     expect(js).toContain("visibilitychange");
     expect(js).toContain('getContext("webgl"');
+  });
+
+  test("REQ-003-19 the stylesheet is built from its Tailwind source and has a rule for every class the pages use", () => {
+    const css = asset("dashboard.css");
+    expect(css).toContain("tailwindcss v4");
+    expect(css).not.toMatch(/@(tailwind|apply|theme|source|import)\b/);
+    const pages = [
+      overview(),
+      overview({ repo: "octo/lib" }),
+      configPage(),
+      renderDashboard(dashboardView(undefined, config, NOW)),
+    ];
+    const missing = [...new Set(pages.flatMap((html) => [...classes(html)]))].filter(
+      (cls) => cls && !new RegExp(`${selector(cls).replace(/[\\.[\]()%/:]/g, "\\$&")}(?![\\w-])`).test(css),
+    );
+    expect(missing).toEqual([]);
   });
 });

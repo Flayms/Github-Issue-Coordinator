@@ -13,7 +13,8 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
-    "types": ["bun"]
+    "types": ["bun"],
+    "jsx": "react-jsx"
   },
   "include": ["src", "test", "scripts", "config.example.ts"],
   "exclude": ["node_modules"]

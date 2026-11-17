@@ -1,10 +1,12 @@
 /**
  * The dashboard's static files (REQ-003-09): a fixed list, served from its own origin. A path not
- * listed here is never read, so a request cannot reach any other file.
+ * listed here is never read, so a request cannot reach any other file. The stylesheet is built from
+ * its Tailwind source once, when this module loads (REQ-003-19); the rest are files under `assets/`.
  */
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { buildStyles } from "./styles.ts";
 
 const DIR = join(import.meta.dir, "assets");
 
@@ -30,6 +32,9 @@ export interface Asset {
   version: string;
 }
 
+/** Assets built at start instead of read from `assets/`. */
+const BUILT = new Map<string, Uint8Array>([["dashboard.css", new TextEncoder().encode(await buildStyles())]]);
+
 const cache = new Map<string, Asset>();
 
 /** The listed file at `name` (relative to `/assets/`), or undefined for anything else. */
@@ -38,7 +43,7 @@ export function asset(name: string): Asset | undefined {
   if (type === undefined) return undefined;
   let a = cache.get(name);
   if (!a) {
-    const body = readFileSync(join(DIR, name));
+    const body = BUILT.get(name) ?? readFileSync(join(DIR, name));
     a = { body, type, version: createHash("sha256").update(body).digest("hex").slice(0, 10) };
     cache.set(name, a);
   }

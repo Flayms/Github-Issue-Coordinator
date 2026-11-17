@@ -1,6 +1,6 @@
 /**
  * Dashboard view model (spec 003): turns the last tick's snapshot and the config into what the page
- * shows. Pure, so every rule is unit-tested; src/dashboard/html.ts renders it.
+ * shows. Pure, so every rule is unit-tested; src/dashboard/html.tsx renders it.
  */
 import { type Config, type Limits, ROLES, type Role, roleSettings } from "../config.ts";
 import type { RepoSnapshot, TickSnapshot } from "../coordinator.ts";

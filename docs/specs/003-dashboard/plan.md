@@ -23,6 +23,8 @@
 
 **Remote access.** Documented in `docs/setup.md`: keep loopback and use `tailscale serve` (HTTPS, tailnet only) or an SSH tunnel. A token is recommended even on loopback, since `tailscale serve` proxies from localhost and agents run on the same machine.
 
+**React and Tailwind (#72).** The pages are React components (`html.tsx`, `config-html.tsx`, shared parts in `ui.tsx`) rendered with `renderToStaticMarkup`, so the page still works without JavaScript and React escapes every value. No client-side React and no data fetching: the page reloads every poll interval anyway. Styling is Tailwind v4 utilities in the components; `styles.css` keeps the tokens (`@theme`), the fonts, the backdrop and the effects that need pseudo-elements or moving gradients. `styles.ts` builds it with `@tailwindcss/node` and the oxide scanner when `assets.ts` loads (about 0.1 s at start), so there is no build step and no built file in git; it is served as `/assets/dashboard.css` from the fixed list. The script stays the small `assets/dashboard.js`. Not taken from #72's list: Vite (Bun builds and serves), Vitest (`bun test`), Radix/cmdk/sonner and TanStack Query/Virtual (read-only page, tens of rows), Playwright (screenshots use headless Chrome); shadcn/ui's static parts became small local components (`Count`, `Label`, `Heading`), since its default styles would all be overwritten to keep the mockup's look.
+
 ## Tasks
 
 - [x] Spec (REQ-003-01 … REQ-003-10)
@@ -44,3 +46,11 @@ Redesign (#60):
 - [x] Assets: CSS, script, self-hosted fonts with their licences (REQ-003-06, 09, 14)
 - [x] Server: `/config`, `?repo=`, `/assets/*` from a fixed list, CSP (REQ-003-05, 09, 13)
 - [ ] Manual: screenshots on phone and desktop (no browser in the Implementer's sandbox)
+
+React and Tailwind (#72):
+
+- [x] Spec: REQ-003-19
+- [x] Tailwind source and build at start, served from the fixed list (REQ-003-09, REQ-003-19)
+- [x] Overview and Config page as React components; tests adapted to the new markup (REQ-003-01 … 16)
+- [x] Biome: React rules for the components, Tailwind directives in CSS
+- [x] Screenshots before and after from fixture data
