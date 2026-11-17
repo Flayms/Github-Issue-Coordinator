@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { parseConfig } from "../src/config.ts";
 import type { RepoSnapshot, TickSnapshot } from "../src/coordinator.ts";
-import { renderConfig } from "../src/dashboard/config-html.ts";
-import { renderDashboard } from "../src/dashboard/html.ts";
+import { renderConfig } from "../src/dashboard/config-html.tsx";
+import { renderDashboard } from "../src/dashboard/html.tsx";
 import { dashboardView, RECENT_SHOWN } from "../src/dashboard/view.ts";
 import type { CoordinatorEvent, SessionRecord } from "../src/store.ts";
 
@@ -150,8 +150,8 @@ describe("dashboard view", () => {
     ]);
     const html = renderDashboard(v);
     expect(html).toContain("idle 6 min of 30 min");
-    expect(html).toMatch(/class="a-bar"><span class="fill w20">/);
-    expect(html).toMatch(/class="a-bar"><span class="fill w100">/);
+    expect(html).toContain('<span class="block h-full rounded-xs bg-white/35 w-2/10">');
+    expect(html).toContain('<span class="block h-full rounded-xs bg-white/35 w-full">');
   });
 
   test("REQ-003-01 shows the model the session reported, else the configured one", () => {
@@ -527,7 +527,7 @@ describe("dashboard view", () => {
     expect(v.errors).toEqual([{ repo: "octo/lib", error: "GitHub down" }]);
     expect(v.pausedUntil).toBe("2026-11-15 11:00 UTC");
     const html = renderDashboard(v);
-    expect(html).toContain('<meta http-equiv="refresh" content="45">');
+    expect(html).toContain('<meta http-equiv="refresh" content="45"/>');
     expect(html).toContain("2026-11-15 10:29 UTC");
     expect(html).toContain("GitHub down");
   });
@@ -551,7 +551,10 @@ describe("dashboard view", () => {
       NOW,
     );
     // The page's own script (REQ-003-09) is the only one.
-    const html = renderDashboard(v).replace(/<script src="\/assets\/dashboard\.js\?v=[0-9a-f]+" defer><\/script>/, "");
+    const html = renderDashboard(v).replace(
+      /<script src="\/assets\/dashboard\.js\?v=[0-9a-f]+" defer=""><\/script>/,
+      "",
+    );
     expect(html).not.toContain("<script");
     expect(html).not.toContain("<img");
     expect(html).toContain("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;");
@@ -646,7 +649,10 @@ describe("dashboard view", () => {
       config,
       NOW,
     );
-    const html = renderDashboard(v).replace(/<script src="\/assets\/dashboard\.js\?v=[0-9a-f]+" defer><\/script>/, "");
+    const html = renderDashboard(v).replace(
+      /<script src="\/assets\/dashboard\.js\?v=[0-9a-f]+" defer=""><\/script>/,
+      "",
+    );
     expect(html).not.toContain("<script");
     expect(html).not.toContain("<img");
     expect(html).toContain("#5 failed: &lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;");

@@ -7,8 +7,8 @@ import { readFileSync } from "node:fs";
 import type { Config } from "../config.ts";
 import type { TickSnapshot } from "../coordinator.ts";
 import { asset } from "./assets.ts";
-import { renderConfig } from "./config-html.ts";
-import { renderDashboard } from "./html.ts";
+import { renderConfig } from "./config-html.tsx";
+import { renderDashboard } from "./html.tsx";
 import { dashboardView } from "./view.ts";
 
 const COOKIE = "coordinator_dashboard";

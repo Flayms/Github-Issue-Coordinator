@@ -142,6 +142,13 @@ The Owner wants to see at a glance, also on a phone, what the Coordinator is doi
 - **And** with no Events yet it says so
 - **And** titles, failure reasons and other text from GitHub or agents are shown as text only (REQ-003-09)
 
+### REQ-003-19 Component build
+
+- **Given** the dashboard sources: React components and a Tailwind stylesheet
+- **When** the Coordinator starts (`bun install && bun start`, no build step of the Owner's own)
+- **Then** the pages are rendered on the server from the React components, and the stylesheet is built from its Tailwind source and served from the fixed list of files (REQ-003-09)
+- **And** every class the pages use has a rule in that stylesheet
+
 ## Out of scope
 
 - Write actions (approve, retry, merge, edit settings). Approval stays on GitHub, where the Owner's identity is checked.
@@ -154,6 +161,7 @@ The Owner wants to see at a glance, also on a phone, what the Coordinator is doi
 ## Assumptions
 
 - One Owner, one browser; no user accounts.
+- The page is server-rendered and has no client-side data fetching: it reloads every poll interval anyway and must work without JavaScript (#72).
 - A view of the last tick (every `pollIntervalSec`) is fresh enough.
 - 200 kept and 15 shown Events are enough to see what happened since the Owner last looked; no setting for either.
 - The Owner reaches the server over Tailscale or an SSH tunnel, so the page needs no login of its own beyond the token.
@@ -179,4 +187,5 @@ The Owner wants to see at a glance, also on a phone, what the Coordinator is doi
 | REQ-003-14 | `dashboard html > REQ-003-14 the animated background shows, also for reduced motion …` (checks the stylesheet and script; the behaviour in a browser is manual)                                                                                                                                                                                                                                                                                                                                                                                 | pass (static); browser: open                                                                                       |
 | REQ-003-15 | `store > REQ-003-15 …` (2 tests: newest first across a restart, cap at 200); `reconcile loop > REQ-003-15 records one Event per action …` (11 tests: Assessment, approval incl. blocked and unblock, block, PR opened and none on a failed `createPull`, Review with and without findings, Feedback round counted or not, failure with reason, a failing GitHub call records nothing, a store error is only logged); `Planner pass > REQ-003-15 …`, `Implementer run > REQ-003-15 …`, `Reviewer run > REQ-003-15 …` (failures inside the syncs) | pass                                                                                                               |
 | REQ-003-16 | `dashboard view > REQ-003-16 …` (5 tests: order, limit, tone, time and links; tone per kind; repo filter; empty state; escaping); `dashboard html > REQ-003-16 Recent sits next to Working now …`, `… the Overview shows its sections in order`; `reconcile loop > REQ-003-16 the snapshot carries the recorded Events …`                                                                                                                                                                                                                       | pass                                                                                                               |
-| Acceptance | manual: open it on a phone over Tailscale and on desktop, compare with the mockup in #41, screenshots on the PR; without a `dashboard` block, an SSH tunnel to `127.0.0.1:8080` loads the page                                                                                                                                                                                                                                                                                                                                                  | #87: desktop and phone screenshots from fixture data match the mockup; on a real phone and the hover effects: open |
+| REQ-003-19 | `dashboard html > REQ-003-19 the stylesheet is built from its Tailwind source and has a rule for every class the pages use`; every other `dashboard html` / `dashboard view` / `dashboard server` test renders the React components                                                                                                                                                                                                                                                                                                             | pass                                                                                                               |
+| Acceptance | #72: desktop, phone and Config screenshots from fixture data before and after the React migration look the same; manual: open it on a phone over Tailscale and on desktop, compare with the mockup in #41, screenshots on the PR; without a `dashboard` block, an SSH tunnel to `127.0.0.1:8080` loads the page                                                                                                                                                                                                                                 | #87: desktop and phone screenshots from fixture data match the mockup; on a real phone and the hover effects: open |
