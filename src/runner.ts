@@ -250,7 +250,8 @@ export class SessionRunner {
     const promptPath = join(dir, "prompt.md");
     writeFileSync(promptPath, keepResult ? prompt : `${prompt}\n\n${resultInstructions(s.role, resultPath)}`);
     const args = claudeArgs({ name: remoteControlName(s), settingsPath: join(dir, "settings.json"), model, resumeId });
-    const env = account.configDir ? `CLAUDE_CONFIG_DIR=${shellQuote([account.configDir])} ` : "";
+    // REQ-005-01: Claude Code refuses skipped permissions as root unless IS_SANDBOX=1 is set.
+    const env = `IS_SANDBOX=1 ${account.configDir ? `CLAUDE_CONFIG_DIR=${shellQuote([account.configDir])} ` : ""}`;
     const command = `${env}${shellQuote([this.o.claudeBin ?? "claude", ...args])} "$(cat ${shellQuote([promptPath])})"`;
     this.o.tmux.newWindow(`s${id}`, cwd, command);
   }

@@ -3,10 +3,10 @@
  * Manual smoke test of the session runner against real tmux + claude (uses the subscription).
  * Starts a session in a throwaway git repo, waits for a valid Result, resumes it with a second
  * prompt, then closes it. Usage: bun scripts/smoke-runner.ts [--role implementer|reviewer] [--model haiku] [--keep]
- * Checks that the session runs with skipped permissions (REQ-005-01): no permission prompt, the Implementer's
- * commands and commit work, and whether `sudo` works without a password. Exits 1 on a mismatch.
+ * Checks that the session runs with skipped permissions (REQ-005-01): no permission prompt, and the Implementer's
+ * commands and commit work. Exits 1 on a mismatch.
  */
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -42,8 +42,7 @@ const role = opts.role === "reviewer" ? "reviewer" : "implementer";
 const PROMPTS = {
   implementer:
     "Automated smoke test of the Coordinator's session runner, run by its Owner. Run `ls -la` and `git status` with " +
-    "Bash. Then run `sudo -n true && echo yes > sudo.txt || echo no > sudo.txt` exactly once. Create the file " +
-    'smoke.txt containing "ok", and commit smoke.txt with git (message "smoke"). ' +
+    'Bash. Create the file smoke.txt containing "ok", and commit smoke.txt with git (message "smoke"). ' +
     'Your Result: prTitle "smoke", prBody "smoke", summary: one short sentence about what you did.',
   reviewer:
     "Automated smoke test of the Coordinator's session runner. Run `git status`, `git log -1` and `git ls-files` " +
@@ -109,9 +108,6 @@ try {
   if (notes.includes("permission_prompt")) mismatches.push("the session asked for a permission");
   if (role === "implementer") {
     if (!log.includes("smoke")) mismatches.push("no smoke commit in the repo");
-    const sudo = join(repo, "sudo.txt");
-    const answer = existsSync(sudo) ? readFileSync(sudo, "utf8").trim() : "not run";
-    console.log(`  ${answer === "yes" ? "✓" : "!"} sudo without a password: ${answer}`);
   }
 
   runner.resume(id, SECOND[role], model);

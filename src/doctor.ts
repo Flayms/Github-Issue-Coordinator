@@ -3,9 +3,7 @@
  * Setup check: `bun run doctor`. Verifies everything the Coordinator needs before its first start
  * (docs/setup.md) and prints what is missing. Read-only: it changes nothing.
  */
-import { tmpdir, userInfo } from "node:os";
 import { DEFAULT_ACCOUNT } from "./accounts.ts";
-import { checkBrowserStarts, findBrowser } from "./browser.ts";
 import { loadConfig } from "./config.ts";
 import { GhToken } from "./github/gh-token.ts";
 import { API, baseHeaders } from "./github/http.ts";
@@ -25,14 +23,6 @@ const run = (cmd: string[], env?: Record<string, string | undefined>) => {
   }
 };
 
-// REQ-005-05: Claude Code refuses skipped permissions as root; the Coordinator runs as a normal user with sudo.
-const uid = process.getuid?.();
-report(
-  uid === 0 ? "fail" : "ok",
-  "not running as root",
-  uid === 0 ? "run the Coordinator as a normal user with sudo (docs/setup.md step 1)" : userInfo().username,
-);
-
 for (const [bin, arg] of [
   ["claude", "--version"],
   ["tmux", "-V"],
@@ -43,25 +33,6 @@ for (const [bin, arg] of [
   const line = r.out.split("\n").find((l) => /version/i.test(l)) ?? r.out.split("\n")[0];
   report(r.ok ? "ok" : "fail", `${bin} installed`, r.ok ? line : "not found");
 }
-
-// Agents may install what they need; a sudo that asks for a password stalls them.
-const sudo = run(["sudo", "-n", "true"]);
-report(
-  sudo.ok ? "ok" : "warn",
-  "sudo without a password",
-  sudo.ok ? "" : "agents can't use sudo (see docs/setup.md step 1)",
-);
-
-// REQ-001-48: an Implementer may shoot Screenshots with a headless browser, or install one itself.
-const browser = findBrowser();
-const browserStart = browser ? checkBrowserStarts(browser, tmpdir()) : undefined;
-report(
-  browserStart?.ok ? "ok" : "warn",
-  "headless browser for Screenshots",
-  !browser
-    ? "no Chrome or Chromium found; Implementers will have to install one (see docs/setup.md step 1)"
-    : `${browser} ${browserStart?.ok ? "" : "does not start headless: "}${browserStart?.detail}`,
-);
 
 let config: Awaited<ReturnType<typeof loadConfig>> | undefined;
 try {
@@ -135,10 +106,10 @@ if (config && token) {
     report(
       checks.ok ? "ok" : "fail",
       `${name} check runs readable`,
-      checks.ok ? "" : `GitHub says ${checks.status} (the Reviewer waits for checks; see docs/setup.md step 2)`,
+      checks.ok ? "" : `GitHub says ${checks.status} (the Reviewer waits for checks; see docs/setup.md step 1)`,
     );
   }
-  report("warn", "default-branch rulesets", "not checked; see docs/setup.md step 3");
+  report("warn", "default-branch rulesets", "not checked; see docs/setup.md step 2");
 }
 
 const failed = results.filter((r) => r.status === "fail").length;
