@@ -173,6 +173,9 @@ class FakeWorktrees {
   async publishScreenshots() {
     return "c0ffee";
   }
+  async publishImages() {
+    return "c0ffee";
+  }
   async reviewCheckout(_repo: string, pr: number) {
     return `/reviews/${pr}`;
   }
@@ -488,6 +491,43 @@ describe("reconcile loop", () => {
     expect(worktrees.removed).toEqual(["/wt/5"]);
     expect(store.session(id)?.state).toBe("closed");
     expect(store.issue("octo/app", 5).worktreePath).toBeNull();
+  });
+
+  test("REQ-001-59 the Owner's comment on a bundled proposal is answered before the Bundle starts", async () => {
+    gh.checkState = "pending";
+    gh.items = [item(5), item(6)];
+    await coordinator.tick();
+    const bundled = (issue: number, other: number) => ({
+      issue,
+      verdict: "proposed",
+      approach: `A${issue}`,
+      bundleWith: [other],
+      blockedBy: [],
+      questions: [],
+    });
+    writeFileSync(join(runner.sessionDir(1), "result.json"), JSON.stringify([bundled(5, 6), bundled(6, 5)]));
+    store.patchSession(1, { state: "idle", needsSync: true });
+    await coordinator.tick();
+
+    // #5 is approved; then, before the Bundle starts, the Owner asks for more on #6.
+    gh.comments.set(5, [{ id: 970, body: "/approve", author: OWNER, createdAt: "t", updatedAt: "" }]);
+    gh.changed = true;
+    await coordinator.tick(); // approve
+    gh.comments.set(6, [{ id: 971, body: "add the mockup images", author: OWNER, createdAt: "t", updatedAt: "" }]);
+    gh.changed = true;
+    await coordinator.tick();
+    expect(runner.started.filter((s) => s.role === "implementer")).toEqual([]);
+    expect(runner.started.at(-1)).toMatchObject({ role: "planner", issues: [6] });
+    expect(gh.items.find((i) => i.number === 6)?.labels).not.toContain("agent:in-progress");
+
+    // Once the revision is synced and replied to, the Bundle starts with both issues.
+    const revision = runner.started.length;
+    writeFileSync(join(runner.sessionDir(revision), "result.json"), JSON.stringify([bundled(6, 5)]));
+    store.patchSession(revision, { state: "idle", needsSync: true });
+    await coordinator.tick();
+    expect(gh.calls).toContainEqual(["createComment", 6, expect.stringContaining("#issuecomment-971")]);
+    await coordinator.tick();
+    expect(runner.started.at(-1)).toMatchObject({ role: "implementer", issues: [5, 6] });
   });
 
   test("REQ-001-14 an issue whose PR was closed without merging is open again without an agent label and planned anew", async () => {

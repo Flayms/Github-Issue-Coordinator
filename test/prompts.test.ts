@@ -171,6 +171,18 @@ describe("prompts (REQ-002)", () => {
     }
   });
 
+  test("REQ-002-15 the Planner may render Mockups and never quietly defers what the Owner asked for", () => {
+    expectAll(prompt("planner"), [
+      /## Mockups/,
+      /`mockups`/,
+      /outside the repository/i,
+      /headless/i,
+      /on the issue, not in the PR/i,
+      /never move what the Owner asked for to a later phase without saying so/i,
+      /`questions`/,
+    ]);
+  });
+
   test("REQ-005-04 Planner and Reviewer don't change the repository; the Implementer may use sudo", () => {
     for (const role of ["planner", "reviewer"] as const)
       expect(prompt(role)).toMatch(/don't change the repository's files or git history/i);

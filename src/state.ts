@@ -224,6 +224,10 @@ export function deriveActions(s: Snapshot): Action[] {
   const openBlockers = (n: number) =>
     coordination(s.records?.get(n)?.assessment ?? null, "blockedBy").filter((b) => open.has(b));
 
+  /** The Owner's comments on an issue that are feedback, not commands (REQ-001-03). */
+  const ownFeedback = (f: IssueFeedback | undefined) =>
+    (f?.comments ?? []).filter((c) => c.author.id === s.ownerId && !isCommand(c.body));
+
   // REQ-001-04 / REQ-001-03: on a proposal, the Owner's /approve approves it; other feedback revises the plan.
   for (const i of issues) {
     const state = issueState(i.labels);
@@ -231,7 +235,7 @@ export function deriveActions(s: Snapshot): Action[] {
     const f = s.feedback?.get(i.number);
     const own = (f?.comments ?? []).filter((c) => c.author.id === s.ownerId);
     const approval = state === "proposed" ? own.findLast((c) => /^\/approve(\s|$)/.test(c.body.trim())) : undefined;
-    const comments = own.filter((c) => !isCommand(c.body));
+    const comments = ownFeedback(f);
     if (approval) {
       const notes = [...comments.map((c) => c.body), approval.body.trim().slice("/approve".length).trim()];
       actions.push({
@@ -273,6 +277,16 @@ export function deriveActions(s: Snapshot): Action[] {
     if (state === "blocked" && !blockers.length) actions.push({ type: "unblock", repo: s.repo, issue: i.number });
   }
 
+  // REQ-001-59: an issue being planned, or a proposal with the Owner's feedback the Planner hasn't seen.
+  const discussed = (n: number) => {
+    const other = issues.find((x) => x.number === n);
+    if (!other || withPull.has(n)) return false;
+    const state = issueState(other.labels);
+    if (state === "planning") return true;
+    const f = s.feedback?.get(n);
+    return PROPOSALS.includes(state) && (ownFeedback(f).length > 0 || !!f?.bodyChanged);
+  };
+
   // REQ-001-09 / REQ-001-06: approved, unblocked issues start an Implementer, together with their Bundle.
   const bundled = new Set<number>();
   for (const i of [...issues].sort((a, b) => a.number - b.number)) {
@@ -280,13 +294,14 @@ export function deriveActions(s: Snapshot): Action[] {
     if (issueState(i.labels) !== "approved" || !rec?.approvedAt || bundled.has(i.number)) continue;
     if (withPull.has(i.number)) continue; // REQ-001-42
     if (coordination(rec.assessment, "blockedBy").some((n) => open.has(n))) continue;
+    const bundleWith = coordination(rec.assessment, "bundleWith");
+    // REQ-001-59: wait while the Owner is still discussing a bundled issue, so its plan is revised first.
+    if (bundleWith.some(discussed)) continue;
     const joinable = (n: number) => {
       const other = issues.find((x) => x.number === n);
       return other !== undefined && !withPull.has(n) && ["proposed", "approved"].includes(issueState(other.labels));
     };
-    const members = [...new Set([i.number, ...coordination(rec.assessment, "bundleWith").filter(joinable)])].sort(
-      (a, b) => a - b,
-    );
+    const members = [...new Set([i.number, ...bundleWith.filter(joinable)])].sort((a, b) => a - b);
     for (const n of members) bundled.add(n);
     const approvedAt = members
       .map((n) => s.records?.get(n)?.approvedAt)

@@ -1,6 +1,7 @@
 /**
  * Screenshots an Implementer lists in its Result (REQ-001-48): checked before publishing (REQ-001-51)
- * and shown in the PR body (REQ-001-50). Paths come from the agent, so they are untrusted.
+ * and shown in the PR body (REQ-001-50). A Planner's Mockups (REQ-001-60/61) go the same way into the
+ * Assessment. Paths come from the agent, so they are untrusted.
  */
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -9,6 +10,8 @@ import { basename, extname, isAbsolute, join, relative, resolve, sep } from "nod
 export const SCREENSHOT_DIR = ".coordinator/screenshots";
 export const MAX_SCREENSHOTS = 5;
 export const MAX_SCREENSHOT_BYTES = 2 * 1024 * 1024;
+/** Where a Planner saves Mockups, relative to its session folder, outside the repository (REQ-001-60). */
+export const MOCKUP_DIR = "mockups";
 
 export interface ListedScreenshot {
   path: string;
@@ -38,22 +41,27 @@ function imageType(data: Uint8Array): "png" | "jpg" | null {
   return null;
 }
 
-/** REQ-001-51: reads the listed files that pass the checks; the others are skipped with a reason. */
+/**
+ * REQ-001-51 / REQ-001-61: reads the listed files that pass the checks; the others are skipped with a reason.
+ * Paths are relative to `base` and must stay inside `base`/`dir`; `noun` names the files in reasons.
+ */
 export function checkScreenshots(
-  worktree: string,
+  base: string,
   list: ListedScreenshot[],
+  dir = SCREENSHOT_DIR,
+  noun = "Screenshots",
 ): { checked: CheckedScreenshot[]; skipped: SkippedScreenshot[] } {
   const checked: CheckedScreenshot[] = [];
   const skipped: SkippedScreenshot[] = [];
-  const outside = `outside ${SCREENSHOT_DIR}/`;
+  const outside = `outside ${dir}/`;
   for (const [i, s] of list.entries()) {
     const skip = (reason: string) => skipped.push({ path: s.path, reason });
     if (i >= MAX_SCREENSHOTS) {
-      skip(`more than ${MAX_SCREENSHOTS} Screenshots`);
+      skip(`more than ${MAX_SCREENSHOTS} ${noun}`);
       continue;
     }
-    const path = resolve(worktree, s.path);
-    if (!inside(resolve(worktree, SCREENSHOT_DIR), path)) {
+    const path = resolve(base, s.path);
+    if (!inside(resolve(base, dir), path)) {
       skip(outside);
       continue;
     }
@@ -64,8 +72,8 @@ export function checkScreenshots(
       skip("not found");
       continue;
     }
-    // Resolved against the real Worktree, so a symlinked file or folder can't lead out of it.
-    if (!inside(join(realpathSync(worktree), SCREENSHOT_DIR), real)) {
+    // Resolved against the real base folder, so a symlinked file or folder can't lead out of it.
+    if (!inside(join(realpathSync(base), dir), real)) {
       skip(outside);
       continue;
     }
@@ -90,14 +98,14 @@ export function checkScreenshots(
   return { checked, skipped };
 }
 
-/** Where a published Screenshot lives on the `agent-screenshots` branch (REQ-001-49). */
-export const screenshotPath = (pr: number, head: string, name: string) => `pr-${pr}/${head}/${name}`;
-
 /** Through github.com, so a private repository's images render for viewers with access. */
 const screenshotUrl = (repo: string, commit: string, path: string) =>
   `https://github.com/${repo}/raw/${commit}/${path}`;
 
 const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
+
+/** Where a Planner's Mockups of an issue live on the `agent-screenshots` branch (REQ-001-61). */
+export const mockupFolder = (issue: number, hash: string) => `issue-${issue}/${hash}`;
 
 /**
  * REQ-001-50: the `## Screenshots` section of the PR body. `published` is the commit the checked files
@@ -112,18 +120,33 @@ export function renderScreenshots(o: {
   published?: string;
   error?: string;
 }): string {
-  const parts = ["## Screenshots"];
+  return renderImages({ ...o, heading: "## Screenshots", noun: "Screenshots", folder: `pr-${o.pr}/${o.head}` });
+}
+
+/**
+ * REQ-001-50 / REQ-001-61: a section showing published images with their captions, linked by the commit
+ * they were published in, under `folder` of the `agent-screenshots` branch; skipped files and a failed
+ * publish are named.
+ */
+export function renderImages(o: {
+  repo: string;
+  heading: string;
+  noun: string;
+  folder: string;
+  checked: CheckedScreenshot[];
+  skipped: SkippedScreenshot[];
+  published?: string;
+  error?: string;
+}): string {
+  const parts = [o.heading];
   if (o.published) {
     for (const s of o.checked) {
       const caption = oneLine(s.caption);
       const alt = oneLine(caption.replace(/[[\]()]/g, " "));
-      parts.push(
-        `**${caption}**`,
-        `![${alt}](${screenshotUrl(o.repo, o.published, screenshotPath(o.pr, o.head, s.name))})`,
-      );
+      parts.push(`**${caption}**`, `![${alt}](${screenshotUrl(o.repo, o.published, `${o.folder}/${s.name}`)})`);
     }
   }
-  if (o.error) parts.push(`The Screenshots could not be published: ${oneLine(o.error).slice(0, 500)}`);
+  if (o.error) parts.push(`The ${o.noun} could not be published: ${oneLine(o.error).slice(0, 500)}`);
   if (o.skipped.length)
     parts.push(
       ["Skipped:", ...o.skipped.map((s) => `- \`${oneLine(s.path).replace(/`/g, "'")}\`: ${s.reason}`)].join("\n"),

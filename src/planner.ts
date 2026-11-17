@@ -13,8 +13,10 @@ import { sessionNote } from "./note.ts";
 import { loadPrompt, renderPrompt } from "./prompts.ts";
 import { type PlannerResult, validateResult } from "./results.ts";
 import type { SessionRunner } from "./runner.ts";
+import { checkScreenshots, MOCKUP_DIR, mockupFolder, renderImages } from "./screenshots.ts";
 import type { IssueFeedback } from "./state.ts";
 import type { SplitOff, Store } from "./store.ts";
+import type { Worktrees } from "./worktrees.ts";
 
 export { isCommand } from "./state.ts";
 
@@ -30,8 +32,9 @@ const BODY_LIMIT = 4_000;
 
 export const bodyHash = (body: string): string => createHash("sha256").update(body).digest("hex");
 
-export function renderAssessment(a: Assessment, note: string, splitOffs: SplitOff[] = []): string {
+export function renderAssessment(a: Assessment, note: string, splitOffs: SplitOff[] = [], mockups?: string): string {
   const parts = [note, `## Assessment: ${VERDICT_TITLES[a.verdict]}`, a.approach];
+  if (mockups) parts.push(mockups);
   if (a.questions.length) parts.push(`**Questions**\n\n${a.questions.map((q) => `- ${q}`).join("\n")}`);
   const notes = [
     ...a.bundleWith.map((n) => `- Do together with #${n}`),
@@ -175,6 +178,7 @@ export interface PlannerDeps {
     "addLabels" | "removeLabel" | "createComment" | "updateComment" | "createIssue" | "itemHistory"
   >;
   runner: Pick<SessionRunner, "start" | "resume" | "close" | "sessionDir">;
+  worktrees: Pick<Worktrees, "publishImages">;
   log?: Log;
 }
 
@@ -358,7 +362,8 @@ export class Planner {
       let commentId = rec.assessmentCommentId;
       if (rec.assessment !== json || commentId === null) {
         const splitOffs = await this.createSplitOffs(s.repo, a, note);
-        const body = renderAssessment(a, note, splitOffs);
+        const mockups = await this.publishMockups(s.repo, a, this.d.runner.sessionDir(sessionId));
+        const body = renderAssessment(a, note, splitOffs, mockups);
         commentId = await this.postAssessment(s.repo, a.issue, commentId, body);
         this.d.store.updateIssue(s.repo, a.issue, { assessment: json, assessmentCommentId: commentId });
 
@@ -386,6 +391,29 @@ export class Planner {
     }
     this.d.store.patchSession(sessionId, { needsSync: false });
     if (s.kind === "batch") this.d.runner.close(sessionId);
+  }
+
+  /**
+   * REQ-001-61: checks the entry's Mockups in the session's `mockups/` folder, publishes those that pass under
+   * `issue-<n>/<content hash>/`, and renders the Assessment's Mockups section. None listed: no section.
+   */
+  private async publishMockups(repo: string, a: Assessment, sessionDir: string): Promise<string | undefined> {
+    if (!a.mockups?.length) return undefined;
+    const { checked, skipped } = checkScreenshots(sessionDir, a.mockups, MOCKUP_DIR, "Mockups");
+    const hash = createHash("sha256");
+    for (const m of checked) hash.update(m.name).update(m.data);
+    const folder = mockupFolder(a.issue, hash.digest("hex").slice(0, 12));
+    let published: string | undefined;
+    let error: string | undefined;
+    if (checked.length) {
+      try {
+        published = await this.d.worktrees.publishImages(repo, folder, checked, `Mockups of #${a.issue}`);
+      } catch (e) {
+        error = e instanceof Error ? e.message : String(e);
+        (this.d.log ?? defaultLog)(`${repo}#${a.issue}: could not publish the Mockups: ${error}`);
+      }
+    }
+    return renderImages({ repo, heading: "### Mockups", noun: "Mockups", folder, checked, skipped, published, error });
   }
 
   /**

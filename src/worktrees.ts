@@ -7,7 +7,6 @@
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { type Clones, git, gitAuthArgs } from "./git.ts";
-import { screenshotPath } from "./screenshots.ts";
 
 export const branchName = (issue: number, title: string): string => {
   const slug = title
@@ -158,6 +157,19 @@ export class Worktrees {
     head: string,
     files: { name: string; data: Uint8Array }[],
   ): Promise<string> {
+    return this.publishImages(repo, `pr-${pr}/${head}`, files, `Screenshots of PR #${pr} at ${head}`);
+  }
+
+  /**
+   * REQ-001-49 / REQ-001-61: commits `files` under `folder` of the `agent-screenshots` branch, on top of its
+   * previous tip, and pushes it. Returns the commit, which links the images.
+   */
+  async publishImages(
+    repo: string,
+    folder: string,
+    files: { name: string; data: Uint8Array }[],
+    message: string,
+  ): Promise<string> {
     const dir = join(this.o.root, "screenshots", ...repo.split("/"));
     if (!existsSync(join(dir, "HEAD"))) {
       mkdirSync(dir, { recursive: true });
@@ -175,7 +187,7 @@ export class Worktrees {
     git(dir, parent ? ["read-tree", parent] : ["read-tree", "--empty"], { env });
     for (const f of files) {
       const blob = git(dir, ["hash-object", "-w", "--stdin"], { stdin: f.data });
-      git(dir, ["update-index", "--add", "--cacheinfo", `100644,${blob},${screenshotPath(pr, head, f.name)}`], { env });
+      git(dir, ["update-index", "--add", "--cacheinfo", `100644,${blob},${folder}/${f.name}`], { env });
     }
     const tree = git(dir, ["write-tree"], { env });
     const { name, email } = this.o.commitAuthor;
@@ -188,7 +200,7 @@ export class Worktrees {
       tree,
       ...(parent ? ["-p", parent] : []),
       "-m",
-      `Screenshots of PR #${pr} at ${head}`,
+      message,
     ]);
     git(dir, [...auth, "push", "-q", url, `${commit}:${ref}`]);
     git(dir, ["update-ref", ref, commit]);

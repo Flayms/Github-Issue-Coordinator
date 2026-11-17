@@ -234,4 +234,20 @@ describe("worktrees", () => {
     expect(w.head(wt.path)).toBe(head);
     expect(git(wt.path, "status", "--porcelain")).toBe("");
   });
+
+  test("REQ-001-61 publishes Mockups under issue-<n>/<hash>/ on the same branch, keeping the Screenshots", async () => {
+    const w = make();
+    const shots = await w.publishScreenshots("octo/app", 77, "h1", [{ name: "1-board.png", data: Buffer.from("A") }]);
+    const mockups = await w.publishImages(
+      "octo/app",
+      "issue-5/abc123",
+      [{ name: "1-option-a.png", data: Buffer.from("M") }],
+      "Mockups of #5",
+    );
+    expect(git(origin, "rev-parse", "agent-screenshots")).toBe(mockups);
+    expect(git(origin, "rev-parse", `${mockups}^`)).toBe(shots);
+    expect(git(origin, "show", `${mockups}:issue-5/abc123/1-option-a.png`)).toBe("M");
+    expect(git(origin, "show", `${mockups}:pr-77/h1/1-board.png`)).toBe("A");
+    expect(git(origin, "log", "-1", "--format=%s", mockups)).toBe("Mockups of #5");
+  });
 });

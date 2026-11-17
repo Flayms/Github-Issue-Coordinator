@@ -4,7 +4,7 @@
  */
 import { z } from "zod";
 import type { Role } from "./config.ts";
-import { SCREENSHOT_DIR } from "./screenshots.ts";
+import { MOCKUP_DIR, SCREENSHOT_DIR } from "./screenshots.ts";
 
 const issueRef = z.number().int().positive();
 
@@ -25,6 +25,12 @@ const plannerSchema = z.array(
       .default([])
       .describe(
         "New issues the Coordinator creates, split off from this one: independent changes, or a separate bug or follow-up found while reading the code",
+      ),
+    mockups: z
+      .array(z.strictObject({ path: z.string().min(1), caption: z.string().min(1) }))
+      .optional()
+      .describe(
+        `Mockups for the Owner to choose from or look at (REQ-001-60): PNG or JPEG files you saved in the ${MOCKUP_DIR}/ folder next to this Result file, outside the repository; absolute paths or relative to that folder's parent; at most 5, 2 MB each`,
       ),
     reply: z
       .string()

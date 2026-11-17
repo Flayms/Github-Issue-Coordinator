@@ -97,6 +97,16 @@ class FakeGitHub {
   }
 }
 
+class FakeWorktrees {
+  published: { repo: string; folder: string; names: string[]; message: string }[] = [];
+  fail = false;
+  async publishImages(repo: string, folder: string, files: { name: string; data: Uint8Array }[], message: string) {
+    if (this.fail) throw new Error("push rejected");
+    this.published.push({ repo, folder, names: files.map((f) => f.name), message });
+    return "c0ffee";
+  }
+}
+
 class FakeRunner {
   started: StartOptions[] = [];
   resumed: [number, string][] = [];
@@ -128,13 +138,15 @@ let store: Store;
 let gh: FakeGitHub;
 let runner: FakeRunner;
 let planner: Planner;
+let worktrees: FakeWorktrees;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "planner-"));
   store = new Store(":memory:");
   gh = new FakeGitHub();
   runner = new FakeRunner(store, dir);
-  planner = new Planner({ config, store, gh, runner });
+  worktrees = new FakeWorktrees();
+  planner = new Planner({ config, store, gh, runner, worktrees });
 });
 afterEach(() => {
   store.close();
@@ -818,5 +830,93 @@ describe("Linked history", () => {
     );
     expect(gh.of("itemHistory").map((c) => c[2])).toEqual([48, 47]);
     expect(runner.started.at(-1)?.prompt).toContain("### Issue #47");
+  });
+});
+
+describe("Mockups", () => {
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+  const save = (id: number, name: string, data: Uint8Array = PNG) => {
+    const folder = join(runner.sessionDir(id), "mockups");
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, name), data);
+    return join(folder, name);
+  };
+  const bodyOf = (call: unknown[] | undefined) => String(call?.at(-1));
+
+  test("REQ-001-61 Mockups are published under issue-<n>/<hash>/ and shown after the approach, linked by commit", async () => {
+    const id = await planner.startPass("octo/app", "/c", [item(5)], none);
+    const a = save(id, "option a.png");
+    save(id, "b.png");
+    finishTurn(id, [
+      entry(5, {
+        questions: ["Which one?"],
+        mockups: [
+          { path: a, caption: "Option A: softer tones" },
+          { path: "mockups/b.png", caption: "Option B" },
+        ],
+      }),
+    ]);
+    await planner.sync(id);
+    expect(worktrees.published).toHaveLength(1);
+    const { folder, names, message } = worktrees.published[0] ?? { folder: "", names: [], message: "" };
+    expect(folder).toMatch(/^issue-5\/[0-9a-f]{12}$/);
+    expect(names).toEqual(["1-option-a.png", "2-b.png"]);
+    expect(message).toBe("Mockups of #5");
+    const body = bodyOf(gh.of("createComment")[0]);
+    expect(body).toContain(
+      `![Option A: softer tones](https://github.com/octo/app/raw/c0ffee/${folder}/1-option-a.png)`,
+    );
+    expect(body.indexOf("Approach for 5")).toBeLessThan(body.indexOf("### Mockups"));
+    expect(body.indexOf("### Mockups")).toBeLessThan(body.indexOf("**Questions**"));
+  });
+
+  test("REQ-001-61 files outside the mockups folder or not PNG/JPEG are skipped and named, the rest published", async () => {
+    const id = await planner.startPass("octo/app", "/c", [item(5)], none);
+    save(id, "ok.png");
+    save(id, "notes.txt", Buffer.from("hello"));
+    writeFileSync(join(runner.sessionDir(id), "result-copy.png"), PNG);
+    finishTurn(id, [
+      entry(5, {
+        mockups: [
+          { path: "mockups/ok.png", caption: "OK" },
+          { path: "mockups/notes.txt", caption: "Text" },
+          { path: "result-copy.png", caption: "Outside" },
+        ],
+      }),
+    ]);
+    await planner.sync(id);
+    expect(worktrees.published[0]?.names).toEqual(["1-ok.png"]);
+    const body = bodyOf(gh.of("createComment")[0]);
+    expect(body).toContain("`mockups/notes.txt`: not a PNG or JPEG");
+    expect(body).toContain("`result-copy.png`: outside mockups/");
+  });
+
+  test("REQ-001-61 a failed publish still posts the Assessment and says the Mockups could not be published", async () => {
+    const id = await planner.startPass("octo/app", "/c", [item(5)], none);
+    save(id, "a.png");
+    worktrees.fail = true;
+    finishTurn(id, [entry(5, { mockups: [{ path: "mockups/a.png", caption: "A" }] })]);
+    await planner.sync(id);
+    const body = bodyOf(gh.of("createComment")[0]);
+    expect(body).toContain("Approach for 5");
+    expect(body).toContain("The Mockups could not be published: push rejected");
+    expect(gh.of("addLabels")).toContainEqual(["addLabels", "octo/app", 5, ["agent:proposed"]]);
+  });
+
+  test("REQ-001-61 a revision without Mockups drops the section; an unchanged Result publishes nothing", async () => {
+    const id = await planner.startPass("octo/app", "/c", [item(5)], none);
+    save(id, "a.png");
+    const withMockups = [entry(5, { mockups: [{ path: "mockups/a.png", caption: "A" }] })];
+    finishTurn(id, withMockups);
+    await planner.sync(id);
+    store.patchSession(id, { state: "idle", needsSync: true });
+    await planner.sync(id); // same Result again
+    expect(worktrees.published).toHaveLength(1);
+
+    finishTurn(id, [entry(5, { approach: "Revised" })]);
+    await planner.sync(id);
+    const edited = bodyOf(gh.of("updateComment").at(-1));
+    expect(edited).toContain("Revised");
+    expect(edited).not.toContain("### Mockups");
   });
 });
