@@ -9,6 +9,7 @@ import type { EventKind } from "../store.ts";
 import {
   Count,
   Empty,
+  Footer,
   Heading,
   Icon,
   type IconName,
@@ -17,6 +18,7 @@ import {
   Link,
   plural,
   renderPage,
+  TONE_BG,
   TONE_TEXT,
 } from "./ui.tsx";
 import type {
@@ -46,18 +48,20 @@ const checksText = (p: PullView): { text: string; tone: Tone; icon: IconName } =
   }
 };
 
-/** Checks, mergeability and Feedback rounds of an issue's PR. */
+/**
+ * Checks, mergeability and Feedback rounds of an issue's PR. REQ-003-17: the tone colours the icon
+ * only; conflicts are neutral, since the Coordinator starts a Feedback round for them (REQ-001-28).
+ */
 function PrDetails({ p }: { p: PullView }) {
   const c = checksText(p);
-  const [merge, tone]: [string, Tone] =
-    p.mergeable === true ? ["mergeable", "ok"] : p.mergeable === false ? ["conflicts", "bad"] : ["mergeable?", "muted"];
+  const merge = p.mergeable === true ? "mergeable" : p.mergeable === false ? "conflicts" : "mergeable?";
   return (
     <>
-      <span className={`inline-flex items-center gap-[3px] ${TONE_TEXT[c.tone]}`}>
-        <Icon name={c.icon} className="size-[13px] align-[-2px]" />
+      <span className="inline-flex items-center gap-[3px] text-white/70">
+        <Icon name={c.icon} className={`size-[13px] align-[-2px] ${TONE_TEXT[c.tone]}`} />
         {c.text}
       </span>
-      <span className={TONE_TEXT[tone]}>{merge}</span>
+      <span className="text-white/70">{merge}</span>
       <span className="text-muted">
         rounds {p.feedbackRounds}/{p.maxFeedbackRounds}
       </span>
@@ -88,8 +92,8 @@ function ReadyPr({ p }: { p: PullView }) {
             <span className={fact}>
               <Icon name="pr" className="size-[13px]" />#{p.number}
             </span>
-            <span className={`${fact} ${TONE_TEXT[c.tone]}`}>
-              <Icon name="shield" className="size-[13px]" />
+            <span className={fact}>
+              <Icon name="shield" className={`size-[13px] ${TONE_TEXT[c.tone]}`} />
               {c.text}
             </span>
           </span>
@@ -137,7 +141,8 @@ function Summary({ v }: { v: DashboardView }) {
         <ul className="mt-[22px] flex flex-wrap gap-x-7 gap-y-2 text-[13px] text-muted">
           <SummaryCount n={s.working} label="working" tone="acc" />
           <SummaryCount n={s.needYou} label="need you" tone="warn" />
-          <SummaryCount n={s.stuck} label="stuck" tone="bad" />
+          {/* REQ-003-17: stuck counts blocked issues too, so it is not red; failures are red in the Pipeline and Recent. */}
+          <SummaryCount n={s.stuck} label="stuck" tone="muted" />
           <SummaryCount n={s.queued} label="queued" tone="muted" />
         </ul>
       </div>
@@ -228,7 +233,7 @@ const ROLE_ICONS: Record<string, IconName> = { Planner: "compass", Implementer: 
 
 /** REQ-003-01: a card per session: what it is doing, the bar under its head, its issues and its names. */
 function Session({ s }: { s: SessionView }) {
-  const tone = { running: "text-acc-hi", idle: "text-white/45", gone: "text-bad" }[s.state];
+  const tone = { running: "text-acc-hi", idle: "text-white/45", gone: "text-fg" }[s.state];
   const bar = {
     running: "flowing w-full",
     idle: `bg-white/35 ${width(s.idleShare ?? 0)}`,
@@ -250,7 +255,12 @@ function Session({ s }: { s: SessionView }) {
             </>
           )}
           {s.state === "idle" && `idle ${s.idleFor ?? ""} of ${s.idleTimeout}`}
-          {s.state === "gone" && "window gone"}
+          {s.state === "gone" && (
+            <>
+              <span className="size-1.5 rounded-full bg-bad" />
+              window gone
+            </>
+          )}
         </span>
       </div>
       <div className="mt-2.5 h-0.5 overflow-hidden rounded-xs bg-white/7">
@@ -371,7 +381,7 @@ const WORK: Record<WorkKind, { label: string; icon: IconName }> = {
 
 type StepKind = "next" | "later" | "blocked";
 
-/** One step on the pipe: a diamond node, the number and what it is; the first is "next", blocked ones are red. */
+/** One step on the pipe: a diamond node, the number and what it is; the first is "next", blocked ones are muted (REQ-003-17). */
 function Step({
   n,
   kind,
@@ -386,8 +396,8 @@ function Step({
   why: [IconName, ReactNode];
 }) {
   const first = kind === "next";
-  const bad = kind === "blocked";
-  const accent = first ? "text-acc-hi" : bad ? "text-bad" : "text-white/55";
+  const blocked = kind === "blocked";
+  const accent = first ? "text-acc-hi" : blocked ? "text-muted" : "text-white/55";
   return (
     <li
       className="step group relative pl-8 sm:max-w-80 sm:flex-[1_0_220px] sm:snap-start sm:pt-8 sm:pr-6 sm:pl-0 sm:last:max-w-none sm:last:grow-2"
@@ -397,8 +407,8 @@ function Step({
         className={`absolute top-px left-0 size-3.5 rotate-45 rounded-[3px] border-2 transition-[scale,box-shadow] duration-450 ease-calm group-hover:scale-135 group-hover:shadow-[0_0_14px_rgb(124_114_255/0.8)] ${
           first
             ? "border-acc bg-acc shadow-[0_0_16px_rgb(124_114_255/0.85)]"
-            : bad
-              ? "border-bad/80 bg-ink"
+            : blocked
+              ? "border-white/30 bg-ink"
               : "border-acc/60 bg-ink"
         }`}
       />
@@ -417,7 +427,7 @@ function Step({
           </b>
         </div>
         <div className="mt-1 text-[13px] text-white/55 wrap-anywhere">{sub}</div>
-        <div className={`mt-1.5 flex items-start gap-1.5 text-[12px] ${bad ? "text-bad" : "text-white/40"}`}>
+        <div className="mt-1.5 flex items-start gap-1.5 text-[12px] text-white/40">
           <Icon name={why[0]} className="mt-px size-[13px]" />
           <span>{why[1]}</span>
         </div>
@@ -427,8 +437,8 @@ function Step({
           next
         </span>
       )}
-      {bad && (
-        <span className="mt-1.5 inline-block font-semibold text-[10px] text-bad uppercase leading-none tracking-widest">
+      {blocked && (
+        <span className="mt-1.5 inline-block font-semibold text-[10px] text-muted uppercase leading-none tracking-widest">
           blocked
         </span>
       )}
@@ -514,7 +524,10 @@ const Item = ({ i }: { i: IssueView }) => (
           {i.repo}#{i.number}
         </span>
       </div>
-      <p className={`mt-1 text-[12px] ${TONE_TEXT[i.tone]}`}>{i.status}</p>
+      <p className="mt-1 flex items-baseline gap-1.5 text-[12px] text-white/70">
+        <span className={`size-1.5 flex-none -translate-y-px rounded-full ${TONE_BG[i.tone]}`} aria-hidden="true" />
+        {i.status}
+      </p>
       {i.pr && (
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12px]">
           <Link href={i.pr.url}>PR #{i.pr.number}</Link>
@@ -584,10 +597,13 @@ function Pipeline({ v }: { v: DashboardView }) {
   );
 }
 
-/** The Overview: Summary, Capacity, Working now next to Recent, then Up next and the Pipeline in the band. */
+/**
+ * The Overview: Summary, Capacity, Working now next to Recent, then Up next, the Pipeline and the
+ * footer in the band, which grows to the bottom of a short page (#100).
+ */
 export const Overview = ({ v }: { v: DashboardView }) => (
   <Layout v={v} page="overview">
-    <main>
+    <main className="flex grow flex-col">
       <div className="wrap mt-9">
         <Summary v={v} />
       </div>
@@ -596,11 +612,12 @@ export const Overview = ({ v }: { v: DashboardView }) => (
         <Working v={v} />
         <Recent v={v} />
       </div>
-      <div className="band mt-4 py-24">
+      <div className="band mt-4 flex grow flex-col pt-24">
         <div className="wrap grid gap-16">
           <UpNext v={v} />
           <Pipeline v={v} />
         </div>
+        <Footer className="mt-auto pt-16" />
       </div>
     </main>
   </Layout>

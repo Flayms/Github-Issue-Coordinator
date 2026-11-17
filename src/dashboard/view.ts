@@ -25,11 +25,11 @@ export const COLUMNS: { title: string; phases: IssueState[] }[] = [
 /** How many Events Recent shows (REQ-003-16). */
 export const RECENT_SHOWN = 15;
 
-/** REQ-003-16: success `ok`, neutral `muted`, attention `warn` (the Owner's move or a hold-up), failure `bad`. */
+/** REQ-003-16 / REQ-003-17: success `ok`, neutral `muted`, attention `warn` (the Owner's move only), failure `bad`. */
 const EVENT_TONES: Record<EventKind, Tone> = {
   assessed: "warn",
   approved: "muted",
-  blocked: "warn",
+  blocked: "muted",
   unblocked: "muted",
   "pr-opened": "ok",
   "review-passed": "ok",
@@ -43,8 +43,8 @@ const NEED_YOU: IssueState[] = ["proposed", "needs-refinement", "wontfix-propose
 const STUCK: IssueState[] = ["failed", "blocked"];
 
 /**
- * Colour by meaning: `acc` an agent is on it, `ok` ready to merge, `warn` the Owner's move,
- * `bad` blocked or failed, `muted` waiting for the Coordinator.
+ * Colour by meaning (REQ-003-17): `acc` an agent is on it, `ok` ready to merge, `warn` only the
+ * Owner's move, `bad` only a failure, `muted` waiting or blocked.
  */
 export type Tone = "acc" | "ok" | "warn" | "bad" | "muted";
 
@@ -400,7 +400,7 @@ function describe(phase: IssueState, ready: boolean, blockedBy: number[]): { sta
     case "approved":
       return { status: "Waits for an Implementer", tone: "muted" };
     case "blocked":
-      return { status: `Blocked by ${blockedBy.map((n) => `#${n}`).join(", ") || "an open issue"}`, tone: "bad" };
+      return { status: `Blocked by ${blockedBy.map((n) => `#${n}`).join(", ") || "an open issue"}`, tone: "muted" };
     case "in-progress":
       return { status: "The Implementer is building it", tone: "acc" };
     case "pr-open":
@@ -410,7 +410,7 @@ function describe(phase: IssueState, ready: boolean, blockedBy: number[]): { sta
     case "reviewed":
       return ready
         ? { status: "Ready: merge the PR", tone: "ok" }
-        : { status: "Reviewed; the PR has conflicts or pending checks", tone: "warn" };
+        : { status: "Reviewed; the PR has conflicts or pending checks", tone: "muted" };
     case "failed":
       return { status: "The Coordinator gave up; see its comment", tone: "bad" };
   }

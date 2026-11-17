@@ -4,10 +4,13 @@
  * backdrop and the few effects that utilities can't say clearly (pseudo-elements, gradients that
  * move, the dashed pipe).
  *
- * Colour carries meaning: indigo = an agent is on it, running, next; green = ready, mergeable,
- * passing; amber = needs the Owner; red = conflicts, blocked, failed. Divided rows instead of boxes;
- * the only glass panel is "Ready to merge"; a full-width frosted band holds Up next and the
- * Pipeline. Follows the v3 mockup of #41 (#87). Fonts are served from this origin (REQ-003-09).
+ * Colour carries meaning (REQ-003-17): indigo = an agent is on it, running, next; green = ready,
+ * mergeable, passing; amber = only the Owner's move; red = only a failure. Waiting and blocked are
+ * neutral. Amber and red are softened for the dark background (#102), and a status colours its dot
+ * or icon while its text stays neutral. Divided rows instead of boxes; the only glass panel is
+ * "Ready to merge"; a full-width frosted band holds Up next, the Pipeline and the footer, down to
+ * the bottom of the page (#100). Follows the v3 mockup of #41 (#87). Fonts are served from this
+ * origin (REQ-003-09).
  */
 @import "tailwindcss" source(none);
 @source "./*.tsx";
@@ -43,8 +46,8 @@
   --color-acc-hi: #a49dff;
   --color-acc-lo: #3b3480;
   --color-ok: #3fd38e;
-  --color-warn: #f2b035;
-  --color-bad: #ef6262;
+  --color-warn: #d9b26a;
+  --color-bad: #e07a7a;
 
   --font-display: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
   --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -116,7 +119,7 @@
   }
 
   body {
-    min-height: 100vh;
+    min-height: 100dvh;
     color: var(--color-fg);
     font-size: 15px;
     line-height: 1.5;
@@ -176,6 +179,8 @@
 @layer components {
   /* The page column. */
   .wrap {
+    /* Full width also as an item of the body's flex column, where auto margins would shrink it. */
+    width: 100%;
     max-width: 1200px;
     margin-inline: auto;
     padding-inline: max(16px, env(safe-area-inset-left));
@@ -268,8 +273,9 @@
   }
 
   /*
-   * The frosted band around Up next and the Pipeline: full width, darker and blurred, its top and
-   * bottom faded out by a mask instead of hard borders; a thin violet line runs above the first heading.
+   * The frosted band around Up next, the Pipeline and the footer: full width, darker and blurred, its
+   * top faded in by a mask instead of a hard border; it has no bottom fade, since it runs to the bottom
+   * of the page (#100). A thin violet line runs above the first heading.
    */
   .band {
     position: relative;
@@ -284,8 +290,8 @@
     background: linear-gradient(180deg, rgb(12 13 24 / 0.62), rgb(8 9 17 / 0.7));
     -webkit-backdrop-filter: blur(22px) saturate(130%);
     backdrop-filter: blur(22px) saturate(130%);
-    -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 72px, #000 calc(100% - 72px), transparent 100%);
-    mask-image: linear-gradient(180deg, transparent 0, #000 72px, #000 calc(100% - 72px), transparent 100%);
+    -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 72px);
+    mask-image: linear-gradient(180deg, transparent 0, #000 72px);
   }
   .band::after {
     content: "";

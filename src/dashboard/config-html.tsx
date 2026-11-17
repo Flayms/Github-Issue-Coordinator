@@ -3,7 +3,7 @@
  * the server (REQ-003-19). It renders only the allow-listed `SettingsView`, so no secret reaches it.
  */
 import { isLoopback } from "../config.ts";
-import { Count, Empty, Icon, Label, Layout, plural, renderPage } from "./ui.tsx";
+import { Count, Empty, Footer, Icon, Label, Layout, plural, renderPage } from "./ui.tsx";
 import type { DashboardView, RoleView, SettingsView } from "./view.ts";
 
 const Fact = ({ ok, children }: { ok: boolean; children: string }) => (
@@ -184,6 +184,7 @@ export function ConfigPage({ v }: { v: DashboardView }) {
           <Repos s={s} />
         </div>
       </main>
+      <Footer />
     </Layout>
   );
 }

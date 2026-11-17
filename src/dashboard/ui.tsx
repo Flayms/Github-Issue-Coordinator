@@ -56,6 +56,15 @@ export function Icon({ name, className = "size-4" }: { name: IconName; className
   );
 }
 
+/** The colour of each tone's dot (REQ-003-17: the tone marks a dot or an icon, the text stays neutral). */
+export const TONE_BG: Record<Tone, string> = {
+  acc: "bg-acc-hi",
+  ok: "bg-ok",
+  warn: "bg-warn",
+  bad: "bg-bad",
+  muted: "bg-muted",
+};
+
 /** The text colour of each tone (see `Tone`). */
 export const TONE_TEXT: Record<Tone, string> = {
   acc: "text-acc-hi",
@@ -123,11 +132,22 @@ const Ring = () => (
 
 /** The page frame shared by the Overview and the Config page: header with tabs, countdown and alerts. */
 export function Layout({ v, page, children }: { v: DashboardView; page: "overview" | "config"; children: ReactNode }) {
-  const alerts: { icon: IconName; text: string }[] = [
+  // REQ-003-17: a failed poll is red, the usage-limit pause only waits; the text stays neutral.
+  const alerts: { icon: IconName; tone: Tone; text: string }[] = [
     ...(v.pausedUntil
-      ? [{ icon: "pause" as const, text: `Usage limit: new work pauses until ${v.pausedUntil}.` }]
+      ? [
+          {
+            icon: "pause" as const,
+            tone: "muted" as const,
+            text: `Usage limit: new work pauses until ${v.pausedUntil}.`,
+          },
+        ]
       : []),
-    ...v.errors.map((e) => ({ icon: "alert" as const, text: `${e.repo}: polling failed: ${e.error}` })),
+    ...v.errors.map((e) => ({
+      icon: "alert" as const,
+      tone: "bad" as const,
+      text: `${e.repo}: polling failed: ${e.error}`,
+    })),
   ];
   return (
     <html lang="en">
@@ -144,7 +164,8 @@ export function Layout({ v, page, children }: { v: DashboardView; page: "overvie
         <link rel="stylesheet" href={assetUrl("dashboard.css")} />
         <script src={assetUrl("dashboard.js")} defer />
       </head>
-      <body>
+      {/* A column, so the Overview's band can grow to the bottom of a short page (#100). */}
+      <body className="flex flex-col">
         {/* biome-ignore lint/a11y/noAriaHiddenOnFocusable: a canvas without tabindex is not focusable; the background is decoration */}
         <canvas id="bg" aria-hidden="true" />
         <header className="wrap flex flex-wrap items-center gap-x-5 gap-y-3 pt-3 pb-1.5 sm:pt-[18px]">
@@ -191,9 +212,9 @@ export function Layout({ v, page, children }: { v: DashboardView; page: "overvie
               {alerts.map((a) => (
                 <li
                   key={a.text}
-                  className="flex items-start gap-2 border-bad/25 border-t py-2.5 text-bad wrap-anywhere last:border-b"
+                  className="flex items-start gap-2 border-line-2 border-t py-2.5 text-fg wrap-anywhere last:border-b"
                 >
-                  <Icon name={a.icon} />
+                  <Icon name={a.icon} className={`size-4 ${TONE_TEXT[a.tone]}`} />
                   <span>{a.text}</span>
                 </li>
               ))}
@@ -201,13 +222,17 @@ export function Layout({ v, page, children }: { v: DashboardView; page: "overvie
           )}
         </div>
         {children}
-        <footer className="wrap mt-12 pt-5 pb-8 text-[12px] text-faint">
-          Read-only: this page changes nothing. Approve, give feedback and merge on GitHub.
-        </footer>
       </body>
     </html>
   );
 }
+
+/** The note at the bottom of each page; the Overview puts it inside its band (#100). */
+export const Footer = ({ className = "mt-12 pt-5" }: { className?: string }) => (
+  <footer className={`wrap pb-8 text-[12px] text-faint ${className}`}>
+    Read-only: this page changes nothing. Approve, give feedback and merge on GitHub.
+  </footer>
+);
 
 /** A whole page as HTML. */
 export const renderPage = (page: ReactElement): string => `<!doctype html>\n${renderToStaticMarkup(page)}\n`;
