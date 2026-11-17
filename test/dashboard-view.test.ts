@@ -105,6 +105,8 @@ describe("dashboard view", () => {
         state: "running",
         startedAt: "2026-11-15T09:00:00.000Z",
         idleFor: null,
+        idleTimeout: "30 min",
+        idleShare: null,
         name: "#5 Fix login · Implementer · app",
         model: "sonnet",
       },
@@ -118,10 +120,38 @@ describe("dashboard view", () => {
         state: "idle",
         startedAt: "2026-11-15T09:00:00.000Z",
         idleFor: "30 min",
+        idleTimeout: "30 min",
+        idleShare: 100,
         name: "Planner · #6, #7 · app",
         model: "opus",
       },
     ]);
+  });
+
+  test("REQ-003-01 an idle session shows how long it has been idle out of idleTimeoutMin, as text and as a bar", () => {
+    const idleSince = (min: number) => new Date(NOW.getTime() - min * 60_000).toISOString();
+    const v = dashboardView(
+      snapshot({
+        sessions: [
+          session({ id: 1, role: "planner", issues: [5], state: "idle", lastActivityAt: idleSince(6) }),
+          session({ id: 2, role: "planner", issues: [6], state: "idle", lastActivityAt: idleSince(4) }),
+          session({ id: 3, role: "planner", issues: [7], state: "idle", lastActivityAt: idleSince(45) }),
+          session({ id: 4, role: "reviewer", issues: [8], live: false }),
+        ],
+      }),
+      parseConfig({ ...config, limits: { ...config.limits, idleTimeoutMin: 30 } }),
+      NOW,
+    );
+    expect(v.sessions.map((s) => [s.idleFor, s.idleTimeout, s.idleShare])).toEqual([
+      ["6 min", "30 min", 20],
+      ["4 min", "30 min", 10],
+      ["45 min", "30 min", 100],
+      [null, "30 min", null],
+    ]);
+    const html = renderDashboard(v);
+    expect(html).toContain("idle 6 min of 30 min");
+    expect(html).toMatch(/class="a-bar"><span class="fill w20">/);
+    expect(html).toMatch(/class="a-bar"><span class="fill w100">/);
   });
 
   test("REQ-003-01 shows the model the session reported, else the configured one", () => {
@@ -325,13 +355,28 @@ describe("dashboard view", () => {
       NOW,
     );
     expect(v.queue).toEqual([
-      { key: "octo/app PR #70 feedback", status: "starts now", waiting: false },
-      { key: "octo/app#5 wake", status: "waits: its session is busy (the Owner may be chatting)", waiting: true },
-      { key: "octo/app#5 implement", status: "waits: maxWorktrees (3) reached", waiting: true },
-      { key: "octo/app#6 implement", status: "waits: all Implementer Slots (1) in use", waiting: true },
-      { key: "octo/lib plan", status: "waits: maxRunning (1) reached", waiting: true },
-      { key: "octo/lib plan 2", status: "waits: maxLiveSessions (2) reached", waiting: true },
-      { key: "octo/lib plan 3", status: "waits: usage-limit pause until 2026-11-15 11:00 UTC", waiting: true },
+      { key: "octo/app PR #70 feedback", kind: "feedback", status: "starts now", waiting: false },
+      {
+        key: "octo/app#5 wake",
+        kind: "wake",
+        status: "waits: its session is busy (the Owner may be chatting)",
+        waiting: true,
+      },
+      { key: "octo/app#5 implement", kind: "implement", status: "waits: maxWorktrees (3) reached", waiting: true },
+      {
+        key: "octo/app#6 implement",
+        kind: "implement",
+        status: "waits: all Implementer Slots (1) in use",
+        waiting: true,
+      },
+      { key: "octo/lib plan", kind: "plan", status: "waits: maxRunning (1) reached", waiting: true },
+      { key: "octo/lib plan 2", kind: "plan", status: "waits: maxLiveSessions (2) reached", waiting: true },
+      {
+        key: "octo/lib plan 3",
+        kind: "plan",
+        status: "waits: usage-limit pause until 2026-11-15 11:00 UTC",
+        waiting: true,
+      },
     ]);
     expect(v.blocked).toEqual([
       {

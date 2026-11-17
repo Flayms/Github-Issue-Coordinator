@@ -7,7 +7,7 @@ import type { RepoSnapshot, TickSnapshot } from "../coordinator.ts";
 import type { ChecksState } from "../github/client.ts";
 import { ROLE_NAMES } from "../note.ts";
 import { remoteControlName } from "../runner.ts";
-import type { WaitReason } from "../scheduler.ts";
+import type { WaitReason, WorkKind } from "../scheduler.ts";
 import { type IssueState, issueState } from "../state.ts";
 import type { EventKind } from "../store.ts";
 
@@ -62,6 +62,10 @@ export interface SessionView {
   state: "running" | "idle" | "gone";
   startedAt: string | null;
   idleFor: string | null;
+  /** `limits.idleTimeoutMin`, after which an idle session is closed (REQ-003-01). */
+  idleTimeout: string;
+  /** Idle time out of the idle timeout in percent, rounded to 10 for the bar; null unless idle. */
+  idleShare: number | null;
   /** The Remote Control name, as shown in the Claude app (REQ-001-33). */
   name: string;
   /** The model the session reported (REQ-001-29), else the configured one. */
@@ -110,6 +114,7 @@ export interface MeterView {
 
 export interface QueueView {
   key: string;
+  kind: WorkKind;
   status: string;
   waiting: boolean;
 }
@@ -211,6 +216,8 @@ export function dashboardView(
   const title = (repo: string, n: number) =>
     repos.find((r) => r.repo === repo)?.issues.find((i) => i.number === n)?.title;
 
+  const idleTimeoutMs = config.limits.idleTimeoutMin * 60_000;
+  const idle = (s: { live: boolean; state: string }) => s.live && s.state !== "running";
   const sessions: SessionView[] = (snap?.sessions ?? []).map((s) => ({
     role: ROLE_NAMES[s.role],
     repo: s.repo,
@@ -221,7 +228,9 @@ export function dashboardView(
     })),
     state: s.live ? (s.state === "running" ? "running" : "idle") : "gone",
     startedAt: s.startedAt,
-    idleFor: s.live && s.state !== "running" ? formatDuration(since(s.lastActivityAt)) : null,
+    idleFor: idle(s) ? formatDuration(since(s.lastActivityAt)) : null,
+    idleTimeout: formatDuration(idleTimeoutMs),
+    idleShare: idle(s) ? Math.min(100, Math.round((since(s.lastActivityAt) / idleTimeoutMs) * 10) * 10) : null,
     name: remoteControlName(s),
     model: s.modelId ?? configuredModel(config, s.repo, s.role),
   }));
@@ -296,6 +305,7 @@ export function dashboardView(
 
   const queue = (snap?.queue ?? []).map((q) => ({
     key: q.work.key,
+    kind: q.work.kind,
     status: q.wait ? `waits: ${waitText(q.wait, config.limits)}` : "starts now",
     waiting: q.wait !== undefined,
   }));
