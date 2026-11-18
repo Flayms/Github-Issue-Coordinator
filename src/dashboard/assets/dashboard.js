@@ -5,6 +5,13 @@
  * Its only request is a GET of the page's own URL.
  */
 (() => {
+  // REQ-003-34: the Timings picker shows a pick right away; without the script its "Show" button does.
+  // One listener for the whole page, so a form a refresh replaced works too.
+  document.addEventListener("change", (e) => {
+    const form = e.target instanceof Element ? e.target.closest("form[data-autosubmit]") : null;
+    if (form) form.requestSubmit();
+  });
+
   // REQ-003-01: copy the Remote Control name. The clipboard needs a secure context (HTTPS or localhost).
   // One listener for the whole page, so buttons a refresh adds work too.
   const canCopy = Boolean(navigator.clipboard && window.isSecureContext);

@@ -318,7 +318,7 @@ describe("deriveActions", () => {
   });
   type Pull = NonNullable<Snapshot["pulls"]> extends ReadonlyMap<number, infer P> ? P : never;
 
-  test("REQ-001-14 a Worktree is cleaned up once GitHub reports its PR merged or closed", () => {
+  test("REQ-001-14 / REQ-003-33 a Worktree is cleaned up once GitHub reports its PR merged or closed, saying which", () => {
     const worktrees = [
       ...wt(null, { issues: [5, 6], prNumber: 9, worktreePath: "/wt/5" }),
       ...wt(null, { issues: [7], prNumber: 10, worktreePath: "/wt/7" }),
@@ -336,8 +336,8 @@ describe("deriveActions", () => {
       }),
     );
     expect(actions).toEqual([
-      { type: "cleanup", repo: "octo/app", issues: [5, 6], prNumber: 9, worktreePath: "/wt/5" },
-      { type: "cleanup", repo: "octo/app", issues: [7], prNumber: 10, worktreePath: "/wt/7" },
+      { type: "cleanup", repo: "octo/app", issues: [5, 6], prNumber: 9, worktreePath: "/wt/5", merged: true },
+      { type: "cleanup", repo: "octo/app", issues: [7], prNumber: 10, worktreePath: "/wt/7", merged: false },
     ]);
   });
 

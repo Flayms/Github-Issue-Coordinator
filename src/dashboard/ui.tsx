@@ -130,8 +130,10 @@ const Ring = () => (
   </svg>
 );
 
-/** The page frame shared by the Overview and the Config page: header with tabs, countdown and alerts. */
-export function Layout({ v, page, children }: { v: DashboardView; page: "overview" | "config"; children: ReactNode }) {
+const TITLES = { overview: "Coordinator", config: "Config · Coordinator", timings: "Timings · Coordinator" };
+
+/** The page frame shared by the pages: header with tabs, countdown and alerts. */
+export function Layout({ v, page, children }: { v: DashboardView; page: keyof typeof TITLES; children: ReactNode }) {
   // REQ-003-17: a failed poll is red, the usage-limit pause only waits; the text stays neutral.
   const alerts: { icon: IconName; tone: Tone; text: string }[] = [
     ...(v.pausedUntil
@@ -160,7 +162,7 @@ export function Layout({ v, page, children }: { v: DashboardView; page: "overvie
         <meta name="referrer" content="no-referrer" />
         <meta name="color-scheme" content="dark" />
         <meta name="theme-color" content="#05060B" />
-        <title>{page === "config" ? "Config · Coordinator" : "Coordinator"}</title>
+        <title>{TITLES[page]}</title>
         <link rel="stylesheet" href={assetUrl("dashboard.css")} />
         <script src={assetUrl("dashboard.js")} defer />
         <script src={assetUrl("meters.js")} defer />
@@ -180,6 +182,9 @@ export function Layout({ v, page, children }: { v: DashboardView; page: "overvie
             </Tab>
             <Tab href="/config" current={page === "config"}>
               Config
+            </Tab>
+            <Tab href="/timings" current={page === "timings"}>
+              Timings
             </Tab>
           </nav>
           <div className="flex w-full items-center justify-between gap-3.5 text-[12px] text-muted sm:ml-auto sm:w-auto sm:justify-start">
