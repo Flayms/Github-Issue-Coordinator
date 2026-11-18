@@ -347,12 +347,18 @@ describe("dashboard GitHub sign-in", () => {
     expect((await fetch(`${url}/auth/logout`)).status).toBe(405);
   });
 
-  test("REQ-003-29 the token still works as a Bearer header next to the sign-in, also before it is set up", async () => {
+  test("REQ-003-29 the token still works next to the sign-in (Bearer, ?token= and its cookie), also before it is set up", async () => {
     for (const opts of [{ token: TOKEN }, { token: TOKEN, githubLogin: {}, login: undefined }]) {
       const { url } = start(opts);
       const res = await fetch(`${url}/`, { headers: { authorization: `Bearer ${TOKEN}` } });
       expect(res.status).toBe(200);
       expect(await res.text()).toContain("Fix login");
+      const viaQuery = await fetch(`${url}/?token=${TOKEN}`, { redirect: "manual" });
+      expect(viaQuery.status).toBe(303);
+      const tokenCookie = cookieValue(viaQuery.headers.get("set-cookie") ?? "", "coordinator_dashboard");
+      expect(tokenCookie).toBe(TOKEN);
+      const browser = await fetch(`${url}/config`, { headers: { cookie: `coordinator_dashboard=${tokenCookie}` } });
+      expect(browser.status).toBe(200);
       const wrong = await fetch(`${url}/`, { redirect: "manual", headers: { authorization: "Bearer wrong" } });
       expect(wrong.status).not.toBe(200);
     }
