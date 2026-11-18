@@ -217,6 +217,8 @@ async function main() {
       "--hide-scrollbars",
       "--use-angle=swiftshader",
       "--enable-unsafe-swiftshader",
+      // Its GPU compositing draws seams across frosted panels (docs/known-pitfalls.md).
+      "--disable-gpu-compositing",
       "--remote-debugging-port=0",
       `--user-data-dir=${profile}`,
       "about:blank",

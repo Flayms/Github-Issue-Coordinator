@@ -234,10 +234,16 @@ describe("Reviewer run", () => {
     expect(store.issue("octo/app", 5).pendingFeedback).toContain("1. **medium** `src/a.ts:3`");
   });
 
-  test("REQ-001-31 a Review without findings marks the PR ready for review", async () => {
+  test("REQ-001-31 / REQ-001-64 a Review without findings leaves marking the PR ready to its checks", async () => {
     const id = await reviewer.start("octo/app", 9, [item(5)], "h1");
     finish(id, []);
     await reviewer.sync(id);
+    expect(gh.of("setDraft")).toEqual([]);
+    expect(gh.of("addAssignees")).toEqual([]);
+  });
+
+  test("REQ-001-31 marking a PR ready takes it out of draft", async () => {
+    await reviewer.markReady("octo/app", 9);
     expect(gh.of("setDraft")).toEqual([["setDraft", 9, false]]);
   });
 
@@ -248,10 +254,8 @@ describe("Reviewer run", () => {
     expect(gh.of("setDraft")).toEqual([]);
   });
 
-  test("REQ-001-52 a Review without findings assigns the Owner to the PR after it leaves draft", async () => {
-    const id = await reviewer.start("octo/app", 9, [item(5)], "h1");
-    finish(id, []);
-    await reviewer.sync(id);
+  test("REQ-001-52 a PR marked ready gets the Owner as assignee after it leaves draft", async () => {
+    await reviewer.markReady("octo/app", 9);
     expect(gh.of("addAssignees")).toEqual([["addAssignees", 9, ["octo"]]]);
     expect(gh.calls.findIndex((c) => c[0] === "setDraft")).toBeLessThan(
       gh.calls.findIndex((c) => c[0] === "addAssignees"),
@@ -267,13 +271,10 @@ describe("Reviewer run", () => {
 
   test("REQ-001-52 a refused assignment is logged; the PR is still ready and nothing fails", async () => {
     gh.rejectAssignees = true;
-    const id = await reviewer.start("octo/app", 9, [item(5)], "h1");
-    finish(id, []);
-    await reviewer.sync(id);
+    await reviewer.markReady("octo/app", 9);
     expect(gh.of("setDraft")).toEqual([["setDraft", 9, false]]);
     expect(gh.calls.flatMap((c) => (c[0] === "addLabels" ? (c[2] as string[]) : []))).not.toContain("agent:failed");
     expect(logs.some((m) => m.includes("PR #9") && m.includes("Resource not accessible by integration"))).toBe(true);
-    expect(runner.closed).toEqual([id]);
   });
 
   test("REQ-001-36 a re-review's context holds the earlier findings and the Implementer's answers", async () => {

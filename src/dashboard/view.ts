@@ -38,9 +38,17 @@ const EVENT_TONES: Record<EventKind, Tone> = {
   failed: "bad",
 };
 
-/** Phases where the Owner's move is next (REQ-003-11). */
-const NEED_YOU: IssueState[] = ["proposed", "needs-refinement", "wontfix-proposed", "reviewed"];
-const STUCK: IssueState[] = ["failed", "blocked"];
+/**
+ * REQ-003-32: the groups of Your move in their order, each with the phase of its issues (ready PRs
+ * come from the merge filter instead) and the hint every row of the group shows.
+ */
+const MOVES: { kind: MoveKind; title: string; phase?: IssueState; hint: string }[] = [
+  { kind: "merge", title: "Merge PRs", hint: "Reviewed: merge it" },
+  { kind: "failed", title: "Failed", phase: "failed", hint: "The Coordinator gave up; see its comment" },
+  { kind: "questions", title: "Answer questions", phase: "needs-refinement", hint: "The Planner has questions" },
+  { kind: "approve", title: "Approve plans", phase: "proposed", hint: "Assessment ready: approve or reply" },
+  { kind: "close", title: "Close?", phase: "wontfix-proposed", hint: "The Planner proposes not to do it" },
+];
 
 /**
  * Colour by meaning (REQ-003-17): `acc` an agent is on it, `ok` ready to merge, `warn` only the
@@ -100,12 +108,36 @@ export interface ColumnView {
   issues: IssueView[];
 }
 
+/** REQ-003-11: the headline's count and the three counts under it. */
 export interface SummaryView {
-  ready: number;
-  working: number;
+  /** Every item of Your move (REQ-003-32). */
   needYou: number;
-  stuck: number;
+  /** Running sessions. */
+  working: number;
+  /** Queued work that waits for a slot. */
   queued: number;
+  /** Blocked issues. */
+  blocked: number;
+}
+
+export type MoveKind = "merge" | "failed" | "questions" | "approve" | "close";
+
+/** A row of Your move: an agent PR to merge or an issue, linked to GitHub (REQ-003-32). */
+export interface MoveItem extends IssueLink {
+  repo: string;
+  /** `PR #70` or `#5`. */
+  label: string;
+  /** A ready PR's checks, `checks passed` or `no checks`, shown at every width; null for an issue. */
+  checks: string | null;
+  /** What the Owner is to do, shown on wider screens. */
+  hint: string;
+}
+
+/** A group of Your move; only groups with items are listed. */
+export interface MoveGroup {
+  kind: MoveKind;
+  title: string;
+  items: MoveItem[];
 }
 
 export interface MeterView {
@@ -173,7 +205,8 @@ export interface DashboardView {
   pausedUntil: string | null;
   errors: { repo: string; error: string }[];
   sessions: SessionView[];
-  readyToMerge: PullView[];
+  /** Everything that needs the Owner, grouped (REQ-003-32). */
+  yourMove: MoveGroup[];
   summary: SummaryView;
   capacity: MeterView[];
   queue: QueueView[];
@@ -258,7 +291,7 @@ export function dashboardView(
       maxFeedbackRounds: config.limits.maxFeedbackRounds,
     }));
 
-  // REQ-003-03: every issue of the PR reviewed, checks passed (or none), and GitHub can merge it.
+  // REQ-003-32 (was REQ-003-03): every issue of the PR reviewed, checks passed (or none), and GitHub can merge it.
   const readyToMerge = repos.flatMap((r) =>
     pullsOf(r).filter((p) => {
       const issues = p.issues.map((n) => r.issues.find((i) => i.number === n));
@@ -347,12 +380,38 @@ export function dashboardView(
     { label: "Worktrees", used: repos.reduce((n, r) => n + r.worktrees, 0), limit: config.limits.maxWorktrees },
   ];
 
+  const yourMove: MoveGroup[] = MOVES.map(({ kind, title, phase, hint }) => ({
+    kind,
+    title,
+    items:
+      phase === undefined
+        ? readyToMerge.map((p) => ({
+            repo: p.repo,
+            number: p.number,
+            title: p.title,
+            url: p.url,
+            label: `PR #${p.number}`,
+            checks: p.checks === "none" ? "no checks" : "checks passed",
+            hint,
+          }))
+        : issues
+            .filter((i) => i.phase === phase)
+            .map((i) => ({
+              repo: i.repo,
+              number: i.number,
+              title: i.title,
+              url: i.url,
+              label: `#${i.number}`,
+              checks: null,
+              hint,
+            })),
+  })).filter((g) => g.items.length > 0);
+
   const summary: SummaryView = {
-    ready: readyToMerge.length,
+    needYou: yourMove.reduce((n, g) => n + g.items.length, 0),
     working: running.length,
-    needYou: issues.filter((i) => NEED_YOU.includes(i.phase)).length,
-    stuck: issues.filter((i) => STUCK.includes(i.phase)).length,
     queued: queue.filter((q) => q.waiting).length,
+    blocked: blocked.length,
   };
 
   return {
@@ -362,7 +421,7 @@ export function dashboardView(
       snap?.pausedUntil && Date.parse(snap.pausedUntil) > now.getTime() ? formatTime(snap.pausedUntil) : null,
     errors: repos.flatMap((r) => (r.error ? [{ repo: r.repo, error: r.error }] : [])),
     sessions,
-    readyToMerge,
+    yourMove,
     summary,
     capacity,
     queue,
