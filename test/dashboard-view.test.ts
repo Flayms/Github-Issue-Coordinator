@@ -534,7 +534,8 @@ describe("dashboard view", () => {
       title: "Fix login",
       url: "https://github.com/octo/app/pull/70",
       label: "PR #70",
-      hint: "Reviewed, no checks",
+      checks: "no checks",
+      hint: "Reviewed: merge it",
     });
     expect(v.yourMove[1]?.items[0]).toEqual({
       repo: "octo/app",
@@ -542,10 +543,11 @@ describe("dashboard view", () => {
       title: "Broken thing",
       url: "https://github.com/octo/app/issues/5",
       label: "#5",
+      checks: null,
       hint: "The Coordinator gave up; see its comment",
     });
     expect(v.yourMove.map((g) => g.items[0]?.hint)).toEqual([
-      "Reviewed, no checks",
+      "Reviewed: merge it",
       "The Coordinator gave up; see its comment",
       "The Planner has questions",
       "Assessment ready: approve or reply",

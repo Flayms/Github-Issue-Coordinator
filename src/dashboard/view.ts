@@ -43,7 +43,7 @@ const EVENT_TONES: Record<EventKind, Tone> = {
  * come from the merge filter instead) and the hint every row of the group shows.
  */
 const MOVES: { kind: MoveKind; title: string; phase?: IssueState; hint: string }[] = [
-  { kind: "merge", title: "Merge PRs", hint: "Reviewed" },
+  { kind: "merge", title: "Merge PRs", hint: "Reviewed: merge it" },
   { kind: "failed", title: "Failed", phase: "failed", hint: "The Coordinator gave up; see its comment" },
   { kind: "questions", title: "Answer questions", phase: "needs-refinement", hint: "The Planner has questions" },
   { kind: "approve", title: "Approve plans", phase: "proposed", hint: "Assessment ready: approve or reply" },
@@ -127,6 +127,8 @@ export interface MoveItem extends IssueLink {
   repo: string;
   /** `PR #70` or `#5`. */
   label: string;
+  /** A ready PR's checks, `checks passed` or `no checks`, shown at every width; null for an issue. */
+  checks: string | null;
   /** What the Owner is to do, shown on wider screens. */
   hint: string;
 }
@@ -389,11 +391,20 @@ export function dashboardView(
             title: p.title,
             url: p.url,
             label: `PR #${p.number}`,
-            hint: `${hint}, ${p.checks === "none" ? "no checks" : "checks passed"}`,
+            checks: p.checks === "none" ? "no checks" : "checks passed",
+            hint,
           }))
         : issues
             .filter((i) => i.phase === phase)
-            .map((i) => ({ repo: i.repo, number: i.number, title: i.title, url: i.url, label: `#${i.number}`, hint })),
+            .map((i) => ({
+              repo: i.repo,
+              number: i.number,
+              title: i.title,
+              url: i.url,
+              label: `#${i.number}`,
+              checks: null,
+              hint,
+            })),
   })).filter((g) => g.items.length > 0);
 
   const summary: SummaryView = {

@@ -74,7 +74,8 @@ function PrDetails({ p }: { p: PullView }) {
 /**
  * A row of Your move (REQ-003-32), the hover of the ready PRs (#87): the green accent line grows in
  * at the left edge, a green wash, the text nudges, and the grey arrow circle turns green. From sm on
- * the row lines up with its group's name; on a phone it isn't indented and the hint is hidden.
+ * the row lines up with its group's name; on a phone it isn't indented and the hint is hidden, but a
+ * ready PR keeps its checks fact.
  */
 const MoveRow = ({ m }: { m: MoveItem }) => (
   <li>
@@ -88,7 +89,14 @@ const MoveRow = ({ m }: { m: MoveItem }) => (
           {m.title}
         </span>
         <span className="mt-1 text-[13px] text-white/50 wrap-anywhere">
-          {m.repo} · {m.label}
+          {m.repo} · <span className="whitespace-nowrap">{m.label}</span>
+          {m.checks && (
+            <span className="whitespace-nowrap">
+              {" · "}
+              <Icon name="shield" className="mr-1 size-[13px] text-ok" />
+              {m.checks}
+            </span>
+          )}
           <span className="hidden sm:inline"> · {m.hint}</span>
         </span>
       </span>

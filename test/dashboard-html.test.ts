@@ -251,12 +251,31 @@ describe("dashboard html", () => {
     expect(summary).toMatch(/data-move="approve"[\s\S]*?<h3[^>]*>[\s\S]*?Approve plans[\s\S]*?>1<[\s\S]*?<\/h3>/);
     const pr = summary.slice(summary.indexOf('href="https://github.com/octo/app/pull/70"'));
     expect(pr).toMatch(
-      /^[^>]*>[\s\S]*?Fix the login form[\s\S]*?octo\/app[\s\S]*?PR #70[\s\S]*?Reviewed, checks passed/,
+      /^[^>]*>[\s\S]*?Fix the login form[\s\S]*?octo\/app[\s\S]*?PR #70[\s\S]*?checks passed[\s\S]*?Reviewed: merge it/,
     );
     expect(summary).toContain('href="https://github.com/octo/app/issues/6"');
     expect(summary).toContain("Assessment ready: approve or reply");
     // On a phone the hint is hidden and rows are not indented; from sm on they line up with the group name.
-    expect(summary).toMatch(/<span class="hidden sm:inline"> · Reviewed, checks passed<\/span>/);
+    expect(summary).toMatch(/<span class="hidden sm:inline"> · Assessment ready: approve or reply<\/span>/);
+  });
+
+  test("REQ-003-32 a ready PR keeps its checks fact at every width, with a green shield; only the hint hides on a phone", () => {
+    const summary = summaryOf(overview());
+    const row = summary.slice(
+      summary.indexOf('href="https://github.com/octo/app/pull/70"'),
+      summary.indexOf("</a>", summary.indexOf('href="https://github.com/octo/app/pull/70"')),
+    );
+    // The checks fact is not inside the hidden hint, and its shield is green (REQ-003-17).
+    const fact = row.match(
+      /<span class="([^"]*)">( · )?<svg class="([^"]*)"[^>]*><path[^>]*><\/path><\/svg>checks passed<\/span>/,
+    );
+    expect(fact).not.toBeNull();
+    expect(fact?.[1]?.split(" ")).not.toContain("hidden");
+    expect(fact?.[3]?.split(" ")).toContain("text-ok");
+    expect(row).toContain('<span class="hidden sm:inline"> · Reviewed: merge it</span>');
+    // Issue rows have no checks fact.
+    const issue = summary.slice(summary.indexOf('href="https://github.com/octo/app/issues/6"'));
+    expect(issue.slice(0, issue.indexOf("</a>"))).not.toContain("checks");
   });
 
   test("REQ-003-32 every row has the ready-PR hover: the green accent line, a green wash, a nudge and the arrow turning green", () => {
