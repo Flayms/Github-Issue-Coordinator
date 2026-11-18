@@ -20,7 +20,7 @@ The Coordinator reads it with `gh auth token` and picks up a new one within 5 mi
 
 ## 2. Each managed repository
 
-- **Ruleset** (Settings → Rules → Rulesets → New branch ruleset): target the default branch, empty bypass list, rules **Restrict deletions**, **Block force pushes**, **Require a pull request before merging** (0 approvals). This keeps pushes off the default branch; merging is left to you by the prompts. Optional, if the repository has CI: add **Require status checks to pass** with its check (for this repository: `check` from `.github/workflows/ci.yml`).
+- **Ruleset** (Settings → Rules → Rulesets → New branch ruleset): target the default branch, empty bypass list, rules **Restrict deletions**, **Block force pushes**, **Require a pull request before merging** (0 approvals). This keeps pushes off the default branch; agents never merge, and the Coordinator merges only with `autoMerge` on (step 3). Optional, if the repository has CI: add **Require status checks to pass** with its check (for this repository: `check` from `.github/workflows/ci.yml`).
 - **Old review workflow:** disable any GitHub Actions workflow that reviews PRs with Claude; the Reviewer replaces it.
 
 ## 3. Configure
@@ -30,7 +30,9 @@ Copy `config.example.ts` to `config.ts` and fill in:
 - `owner`: your login and numeric id (`gh api users/<login> --jq .id`).
 - `roles`: a model per Role (`sonnet`, `opus`, …), optionally an effort.
 - `repos`: each managed repository, with its `setup` command (e.g. `bun install`) for new Worktrees.
-- Optional: `stateDir`, `limits`, `accounts`, `dashboard`, `github.commitAuthor` (see `config.example.ts`).
+- Optional: `stateDir`, `limits`, `autoMerge`, `accounts`, `dashboard`, `github.commitAuthor` (see `config.example.ts`).
+
+**Auto-merge (optional):** `autoMerge: "risk-evaluated"` (recommended) lets the Coordinator squash-merge reviewed PRs the Reviewer rated low risk; `"all"` merges every reviewed PR whose checks passed; a repository's own `autoMerge` wins. The PAT's **Contents** and **Pull requests** write permissions already allow it. The ruleset from step 2 allows it as long as it requires 0 approvals: a ruleset or branch protection that requires an approving review (or anything else the PAT can't satisfy) makes GitHub refuse the merge, and the PR is then left ready for you with GitHub's reason in a comment.
 
 **More than one subscription (optional):** when one hits its usage limit, the Coordinator goes on with the next ([spec 004](specs/004-accounts/spec.md)). Log in to each extra one in its own folder (`CLAUDE_CONFIG_DIR=/root/.claude-spare claude`, then `/login`) and list them in `accounts`. A session shows up in the Claude app only under the account it runs on.
 

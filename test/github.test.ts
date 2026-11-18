@@ -393,6 +393,27 @@ describe("GitHub client", () => {
     await expect(gh.setDraft("octo/app", 9, false)).rejects.toThrow("Resource not accessible by integration");
   });
 
+  test("REQ-001-66 squash-merges a PR pinned to the reviewed head commit", async () => {
+    const { gh, requests } = client({ "PUT /repos/octo/app/pulls/9/merge": { body: { merged: true, sha: "m1" } } });
+    await gh.mergePull("octo/app", 9, { sha: "abc", method: "squash" });
+    const call = apiRequests(requests).find((r) => r.url.pathname === "/repos/octo/app/pulls/9/merge");
+    expect(call?.method).toBe("PUT");
+    expect(call?.body).toEqual({ sha: "abc", merge_method: "squash" });
+  });
+
+  test("REQ-001-66 a refused merge throws with GitHub's reason", async () => {
+    for (const [status, message] of [
+      [405, "Pull Request is not mergeable"],
+      [409, "Head branch was modified. Review and try the merge again."],
+    ] as const) {
+      const { gh } = client({ "PUT /repos/octo/app/pulls/9/merge": { status, body: { message } } });
+      const error = await gh.mergePull("octo/app", 9, { sha: "abc", method: "squash" }).catch((e) => e);
+      expect(error).toBeInstanceOf(GitHubError);
+      expect((error as GitHubError).status).toBe(status);
+      expect((error as GitHubError).message).toContain(message);
+    }
+  });
+
   test("REQ-001-52 adds the given users as assignees of an issue or PR", async () => {
     const { gh, requests } = client({ "POST /repos/octo/app/issues/9/assignees": { body: {} } });
     await gh.addAssignees("octo/app", 9, ["octo"]);

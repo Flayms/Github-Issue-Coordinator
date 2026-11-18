@@ -55,6 +55,12 @@ class FakeGitHub {
       throw new GitHubError(403, "POST", "/assignees", "Resource not accessible by integration");
     this.calls.push(["addAssignees", issue, assignees]);
   }
+  /** Makes the merge call fail like GitHub would, e.g. 405 for branch protection (REQ-001-66). */
+  mergeError: Error | null = null;
+  async mergePull(_r: string, pr: number, o: { sha: string; method: "squash" }) {
+    if (this.mergeError) throw this.mergeError;
+    this.calls.push(["mergePull", pr, o]);
+  }
   async createReview(_r: string, pr: number, review: { commitId: string; body: string; comments: ReviewComment[] }) {
     if (this.rejectInline && review.comments.length)
       throw new GitHubError(422, "POST", "/reviews", "Line could not be resolved");
@@ -77,6 +83,11 @@ class FakeWorktrees {
   }
   head() {
     return "h1";
+  }
+  /** Files the PR head changes against the default branch (REQ-001-65 workflow guard). */
+  files: string[] = ["src/a.ts"];
+  changedFiles() {
+    return this.files;
   }
   remove(path: string) {
     this.removed.push(path);
@@ -144,8 +155,11 @@ const finding = (severity: "high" | "medium" = "high", line = 3, body = "Crashes
   severity,
   body,
 });
-const finish = (id: number, findings: unknown[]) => {
-  writeFileSync(join(runner.sessionDir(id), "result.json"), JSON.stringify({ summary: "Looks mostly fine", findings }));
+const finish = (id: number, findings: unknown[], risk = { risk: "medium", riskReason: "Touches the label flow" }) => {
+  writeFileSync(
+    join(runner.sessionDir(id), "result.json"),
+    JSON.stringify({ summary: "Looks mostly fine", findings, ...risk }),
+  );
   store.patchSession(id, { state: "idle", needsSync: true });
 };
 
@@ -357,5 +371,57 @@ describe("REQ-001-54 an agent PR shows its state", () => {
     store.patchSession(id, { state: "idle", needsSync: true, resultFailures: 3 });
     await reviewer.sync(id);
     for (const n of [5, 6, 9]) expect(gh.agentLabels(n)).toEqual(["agent:failed"]);
+  });
+});
+
+describe("REQ-002-16 / REQ-001-65 / REQ-001-66 Risk tier and auto-merge", () => {
+  test("REQ-002-16 the Review shows the Risk tier and its reason, and the tier is kept for the reviewed head", async () => {
+    const id = await reviewer.start("octo/app", 9, [item(5), item(6)], "h1");
+    finish(id, [], { risk: "low", riskReason: "Docs only" });
+    await reviewer.sync(id);
+    const [, , review] = gh.of("createReview")[0] as [string, number, { body: string }];
+    expect(review.body).toContain("**Risk tier:** low: Docs only");
+    for (const n of [5, 6]) expect(store.issue("octo/app", n).reviewRisk).toBe("low");
+  });
+
+  test("REQ-001-65 a head that changes .github/workflows/ is rated high whatever the Reviewer said, and the Review says why", async () => {
+    wt.files = ["README.md", ".github/workflows/ci.yml"];
+    const id = await reviewer.start("octo/app", 9, [item(5)], "h1");
+    finish(id, [], { risk: "low", riskReason: "Small CI tweak" });
+    await reviewer.sync(id);
+    const [, , review] = gh.of("createReview")[0] as [string, number, { body: string }];
+    expect(review.body).toContain("**Risk tier:** high (the Reviewer said low: Small CI tweak)");
+    expect(review.body).toContain(".github/workflows/");
+    expect(store.issue("octo/app", 5).reviewRisk).toBe("high");
+  });
+
+  test("REQ-001-66 an auto-merge takes the PR out of draft, squash-merges the reviewed head and says why", async () => {
+    expect(await reviewer.autoMerge("octo/app", 9, "h2", { mode: "risk-evaluated", risk: "low" })).toBe(true);
+    expect(gh.calls.filter((c) => c[0] === "setDraft" || c[0] === "mergePull")).toEqual([
+      ["setDraft", 9, false],
+      ["mergePull", 9, { sha: "h2", method: "squash" }],
+    ]);
+    const [, pr, body] = gh.of("createComment")[0] as [string, number, string];
+    expect(pr).toBe(9);
+    expect(body).toStartWith("> [!Note]\n> 🤖 Coordinator writing on behalf of octo");
+    expect(body).toContain("`risk-evaluated`");
+    expect(body).toContain("**low**");
+    expect(gh.of("addAssignees")).toEqual([]);
+  });
+
+  test("REQ-001-66 a merge GitHub refuses leaves the PR ready for the Owner, assigned, with the reason quoted", async () => {
+    for (const [status, detail] of [
+      [405, "Repository rule violations found"],
+      [409, "Head branch was modified. Review and try the merge again."],
+    ] as const) {
+      gh.calls = [];
+      gh.mergeError = new GitHubError(status, "PUT", "/repos/octo/app/pulls/9/merge", detail);
+      expect(await reviewer.autoMerge("octo/app", 9, "h2", { mode: "all", risk: "high" })).toBe(false);
+      expect(gh.of("setDraft")).toEqual([["setDraft", 9, false]]);
+      expect(gh.of("addAssignees")).toEqual([["addAssignees", 9, ["octo"]]]);
+      const body = gh.of("createComment")[0]?.[2] as string;
+      expect(body).toContain(detail);
+      expect(body).toContain("`all`");
+    }
   });
 });

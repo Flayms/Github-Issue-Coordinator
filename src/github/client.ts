@@ -302,6 +302,14 @@ export class GitHubClient {
     await this.request(repo, "POST", `/repos/${repo}/issues/${issue}/assignees`, { assignees });
   }
 
+  /**
+   * REQ-001-66: merges a PR, pinned to `sha` so a head pushed after the Review makes GitHub refuse (409).
+   * Branch protection or a draft makes it refuse too (405); every refusal throws a GitHubError with GitHub's reason.
+   */
+  async mergePull(repo: string, pr: number, o: { sha: string; method: "squash" }): Promise<void> {
+    await this.request(repo, "PUT", `/repos/${repo}/pulls/${pr}/merge`, { sha: o.sha, merge_method: o.method });
+  }
+
   async updatePull(repo: string, pr: number, patch: { title?: string; body?: string }): Promise<void> {
     await this.request(repo, "PATCH", `/repos/${repo}/pulls/${pr}`, patch);
   }

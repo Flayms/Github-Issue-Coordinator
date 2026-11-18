@@ -2,7 +2,16 @@
  * Dashboard view model (spec 003): turns the last tick's snapshot and the config into what the page
  * shows. Pure, so every rule is unit-tested; src/dashboard/html.tsx renders it.
  */
-import { type Config, githubLoginOf, type Limits, ROLES, type Role, roleSettings } from "../config.ts";
+import {
+  type AutoMergeMode,
+  autoMergeMode,
+  type Config,
+  githubLoginOf,
+  type Limits,
+  ROLES,
+  type Role,
+  roleSettings,
+} from "../config.ts";
 import type { RepoSnapshot, TickSnapshot } from "../coordinator.ts";
 import type { ChecksState } from "../github/client.ts";
 import { ROLE_NAMES } from "../note.ts";
@@ -34,6 +43,8 @@ const EVENT_TONES: Record<EventKind, Tone> = {
   "pr-opened": "ok",
   "review-passed": "ok",
   "review-findings": "muted",
+  "auto-merged": "ok",
+  "merge-refused": "warn",
   "feedback-round": "muted",
   failed: "bad",
 };
@@ -176,6 +187,8 @@ export interface SettingsView {
   repos: {
     name: string;
     setup: string | null;
+    /** The effective auto-merge mode (REQ-001-65). */
+    autoMerge: AutoMergeMode;
     /** Effective settings per Role. */
     roles: RoleView[];
     /** The Roles this repository overrides, with their effective settings. */
@@ -520,6 +533,7 @@ function settingsView(config: Config, snapshot: RepoSnapshot[]): SettingsView {
       return {
         name: r.name,
         setup: r.setup ?? null,
+        autoMerge: autoMergeMode(config, r.name),
         roles: ROLES.map((role) => roleView(role, roleSettings(config, r.name, role))),
         overrides: ROLES.filter((role) => r.roles?.[role] !== undefined).map((role) =>
           roleView(role, roleSettings(config, r.name, role)),

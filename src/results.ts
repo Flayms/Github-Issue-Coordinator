@@ -63,6 +63,10 @@ const implementerSchema = z.strictObject({
     ),
 });
 
+/** REQ-002-16: how risky the Reviewer rates the change; in `risk-evaluated` mode only `low` is auto-merged (REQ-001-65). */
+export const RISK_TIERS = ["low", "medium", "high"] as const;
+export type RiskTier = (typeof RISK_TIERS)[number];
+
 const reviewerSchema = z.strictObject({
   summary: z.string().min(1),
   findings: z.array(
@@ -73,6 +77,13 @@ const reviewerSchema = z.strictObject({
       body: z.string().min(1),
     }),
   ),
+  risk: z.enum(RISK_TIERS).describe("The change's Risk tier, by the criteria in your prompt"),
+  riskReason: z
+    .string()
+    .trim()
+    .min(1)
+    .regex(/^[^\n]*$/, "must be one line")
+    .describe("One line on why the change has this Risk tier"),
 });
 
 export const RESULT_SCHEMAS = {
