@@ -220,6 +220,65 @@ describe("dashboard html", () => {
     expect(capacity).toContain('aria-label="Worktrees: 1 of 3"');
   });
 
+  describe("REQ-003-24 liquid glass meters", () => {
+    /** The markup of one meter, rendered on its own in Capacity. */
+    const meter = (used: number, limit: number) => {
+      const html = renderDashboard({ ...dashboardView(snap, config, NOW), capacity: [{ label: "Live", used, limit }] });
+      return html.slice(html.indexOf('role="meter"'), html.indexOf("</li>", html.indexOf('role="meter"')));
+    };
+    const liquid = (html: string) => html.match(/<span class="liquid ([^"]*)"/)?.[1];
+    const slots = (html: string) => html.match(/<span class="slots[^"]*">((?:<i><\/i>)*)<\/span>/)?.[1]?.length;
+
+    test("the liquid fills used out of the limit inside a glass tube, with Slot marks etched in up to 12", () => {
+      const live = meter(4, 5);
+      expect(live).toMatch(/<span class="tube [^"]*grid-cols-5[^"]*">/);
+      expect(liquid(live)).toBe("col-span-4");
+      expect(slots(live)).toBe("<i></i>".length * 5);
+      expect(live).toContain('aria-valuemin="0" aria-valuemax="5" aria-valuenow="4" aria-label="Live: 4 of 5"');
+    });
+
+    test("an empty meter has no liquid, a full one fills the whole tube", () => {
+      expect(meter(0, 3)).toContain('class="tube ');
+      expect(liquid(meter(0, 3))).toBeUndefined();
+      expect(liquid(meter(3, 3))).toBe("col-span-3");
+      expect(liquid(meter(5, 3))).toBe("col-span-3");
+      expect(liquid(meter(12, 12))).toBe("col-span-12");
+    });
+
+    test("above 12 Slots the tube has no Slot marks and the liquid fills to the nearest tenth", () => {
+      const big = meter(7, 20);
+      expect(big).toMatch(/<span class="tube [^"]*grid-cols-10[^"]*">/);
+      expect(liquid(big)).toBe("col-span-4");
+      expect(big).not.toContain('class="slots');
+      expect(liquid(meter(20, 20))).toBe("col-span-10");
+    });
+
+    test("only light moves inside the liquid, slowly (loops of 10 s or more), and it is still for reduced motion", () => {
+      const css = asset("dashboard.css");
+      const rules = [...css.matchAll(/\.liquid(?:::?[a-z-]+)? \{([^}]*)\}/g)].map((m) => m[1] ?? "");
+      const animations = rules.flatMap((r) => [...r.matchAll(/animation: ([^;]+);/g)].map((m) => m[1] ?? ""));
+      expect(animations.length).toBeGreaterThanOrEqual(2);
+      for (const value of animations) {
+        // An animation may come from a theme variable (`var(--animate-glide)`).
+        const a = value.replace(
+          /^var\((--[\w-]+)\)$/,
+          (_, v: string) => css.match(new RegExp(`${v}: ([^;]+);`))?.[1] ?? value,
+        );
+        const seconds = Number(a.match(/([\d.]+)s\b/)?.[1]);
+        expect(seconds).toBeGreaterThanOrEqual(10);
+        // Light glides via transform only: no surface or width moves.
+        const name = a.split(" ")[0];
+        const frames = css.match(new RegExp(`@keyframes ${name} \\{([\\s\\S]*?)\\n\\s*\\}`))?.[1] ?? "";
+        expect(frames).toContain("transform");
+        expect(frames).not.toMatch(/width|height|background-position/);
+      }
+      expect(css).not.toContain(".gauge");
+      expect(css).not.toContain("@keyframes flow");
+      const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
+      expect(reduced).toMatch(/:after \{[^}]*animation: none/);
+    });
+  });
+
   test("REQ-003-01 each session shows its model and its Remote Control name, with a copy button only for scripts", () => {
     const html = overview();
     expect(html).toContain("claude-sonnet-5-5");
