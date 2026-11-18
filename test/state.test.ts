@@ -298,6 +298,7 @@ describe("deriveActions", () => {
       feedbackRounds: 0,
       pendingFeedback: null,
       failedChecksSha: null,
+      readySha: null,
       conflictSha: null,
       headSha: null,
       headSeenAt: null,
@@ -377,18 +378,26 @@ describe("deriveActions", () => {
     }
   });
 
-  test("REQ-001-10 no Review while checks are pending or failed, or when the head was already reviewed", () => {
+  test("REQ-001-10 a Review runs right away, whether the head's checks are pending, passed or failed", () => {
     const items = [issue(5, ["agent:pr-open"]), pr(9)];
-    for (const [checks, reviewed] of [
-      ["pending", null],
-      ["failure", null],
-      ["success", "h1"],
-    ] as const) {
-      const actions = deriveActions(
-        snap({ items, worktrees: wt(reviewed), pulls: new Map([[9, pullOf("h1", checks)]]) }),
-      );
-      expect(actions.filter((a) => a.type === "review")).toEqual([]);
+    for (const checks of ["pending", "failure", "success"] as const) {
+      const actions = deriveActions(snap({ items, worktrees: wt(), pulls: new Map([[9, pullOf("h1", checks)]]) }));
+      expect(actions).toEqual([{ type: "review", repo: "octo/app", pr: 9, issues: [5], headSha: "h1" }]);
     }
+  });
+
+  test("REQ-001-10 a head without checks right after the push is reviewed without waiting for the grace period", () => {
+    const pulls = new Map([[9, pullOf("h1", "none", { headSeenAt: NOW_ISO })]]);
+    const actions = deriveActions(
+      snap({ items: [issue(5, ["agent:pr-open"]), pr(9)], worktrees: wt(), pulls, checksGraceSeconds: 120 }),
+    );
+    expect(actions).toEqual([expect.objectContaining({ type: "review", headSha: "h1" })]);
+  });
+
+  test("REQ-001-10 no Review when the head was already reviewed", () => {
+    const items = [issue(5, ["agent:pr-open"]), pr(9)];
+    const actions = deriveActions(snap({ items, worktrees: wt("h1"), pulls: new Map([[9, pullOf("h1", "success")]]) }));
+    expect(actions.filter((a) => a.type === "review")).toEqual([]);
   });
 
   test("REQ-001-10 an idle Implementer session (kept for Feedback rounds) does not hold back the Review", () => {
@@ -447,7 +456,7 @@ describe("deriveActions", () => {
   });
 
   test("REQ-001-13 failing checks start a counted Feedback round with their output, once per head", () => {
-    const actions = deriveActions(snap({ items: prItems(), worktrees: wt(), pulls: failing }));
+    const actions = deriveActions(snap({ items: prItems(), worktrees: wt("h2"), pulls: failing }));
     expect(actions).toEqual([
       expect.objectContaining({
         type: "feedback",
@@ -458,8 +467,94 @@ describe("deriveActions", () => {
       }),
     ]);
     expect(
-      deriveActions(snap({ items: prItems(), worktrees: wt(null, { failedChecksSha: "h2" }), pulls: failing })),
+      deriveActions(snap({ items: prItems(), worktrees: wt("h2", { failedChecksSha: "h2" }), pulls: failing })),
     ).toEqual([]);
+  });
+
+  describe("REQ-001-64 checks and findings share one Feedback round", () => {
+    test("failing checks of a head that is still to be reviewed wait for its Review instead of starting a round", () => {
+      const actions = deriveActions(snap({ items: prItems(), worktrees: wt(), pulls: failing }));
+      expect(actions).toEqual([{ type: "review", repo: "octo/app", pr: 9, issues: [5], headSha: "h2" }]);
+    });
+
+    test("failing checks start no round while the head's Review runs", () => {
+      const actions = deriveActions(
+        snap({
+          items: [issue(5, ["agent:reviewing"]), pr(9)],
+          worktrees: wt(),
+          pulls: failing,
+          sessions: [session({ role: "reviewer", issues: [5] })],
+          liveSessionIds: new Set([1]),
+        }),
+      );
+      expect(actions).toEqual([]);
+    });
+
+    test("once the Review is posted, its findings and the failing checks go to one round, counted once", () => {
+      const actions = deriveActions(
+        snap({ items: prItems(), worktrees: wt("h2", { pendingFeedback: "Review findings: crash" }), pulls: failing }),
+      );
+      expect(actions).toEqual([
+        expect.objectContaining({
+          type: "feedback",
+          counted: true,
+          causes: ["findings", "checks"],
+          checksFailed: true,
+          text: expect.stringMatching(/^Review findings: crash\n\nFailing checks on h2:\n\n- test: 2 failed$/),
+        }),
+      ]);
+      expect(actions.filter((a) => a.type === "feedback")).toHaveLength(1);
+    });
+
+    test("checks that fail after a Review without findings start a checks round", () => {
+      const actions = deriveActions(
+        snap({ items: [issue(5, ["agent:reviewed"]), pr(9)], worktrees: wt("h2"), pulls: failing }),
+      );
+      expect(actions).toEqual([expect.objectContaining({ type: "feedback", causes: ["checks"], counted: true })]);
+    });
+  });
+
+  describe("REQ-001-31 / REQ-001-64 a PR leaves draft once its head has a Review without findings and passing checks", () => {
+    const reviewed = (
+      checks: ChecksState,
+      extra: Partial<Pull> = {},
+      w: Partial<WorktreeRecord> = {},
+      label = "agent:reviewed",
+    ) =>
+      deriveActions(
+        snap({
+          items: [issue(5, [label]), pr(9)],
+          worktrees: wt("h2", w),
+          pulls: new Map([[9, pullOf("h2", checks, { draft: true, ...extra })]]),
+          checksGraceSeconds: 120,
+        }),
+      );
+
+    test("a draft whose reviewed head's checks passed is marked ready", () => {
+      expect(reviewed("success")).toEqual([{ type: "ready", repo: "octo/app", pr: 9, issues: [5], headSha: "h2" }]);
+    });
+
+    test("no checks count as passed once the grace period since the head appeared is over", () => {
+      expect(reviewed("none", { headSeenAt: "2026-11-11T11:59:00.000Z" })).toEqual([]);
+      expect(reviewed("none", { headSeenAt: "2026-11-11T11:58:00.000Z" })).toEqual([
+        expect.objectContaining({ type: "ready", headSha: "h2" }),
+      ]);
+    });
+
+    test("not while its checks are pending or failed", () => {
+      expect(reviewed("pending")).toEqual([]);
+      expect(reviewed("failure", { failed: ["lint"] }).filter((a) => a.type === "ready")).toEqual([]);
+    });
+
+    test("only once per head, only for a draft, and not for a head whose findings were declined", () => {
+      expect(reviewed("success", {}, { readySha: "h2" })).toEqual([]); // e.g. the Owner turned it back into a draft
+      expect(reviewed("success", { draft: false })).toEqual([]);
+      expect(reviewed("success", {}, {}, "agent:pr-open")).toEqual([]); // REQ-001-31: waits for the Owner
+    });
+
+    test("not while a round is due on the PR", () => {
+      expect(reviewed("success", {}, { pendingFeedback: "x" }).filter((a) => a.type === "ready")).toEqual([]);
+    });
   });
 
   const conflicting = new Map([[9, pullOf("h2", "none", { mergeable: false, baseRef: "main" })]]);
@@ -542,20 +637,6 @@ describe("deriveActions", () => {
     expect(actions).toEqual([
       expect.objectContaining({ type: "fail", pr: 9, headSha: "h2", checksFailed: true, conflicted: true }),
     ]);
-  });
-
-  test("REQ-001-10 no checks count as passed only once the grace period since the head appeared is over", () => {
-    const at = (headSeenAt: string) =>
-      deriveActions(
-        snap({
-          items: prItems(),
-          worktrees: wt(),
-          pulls: new Map([[9, pullOf("h2", "none", { headSeenAt })]]),
-          checksGraceSeconds: 120,
-        }),
-      ).filter((a) => a.type === "review");
-    expect(at("2026-11-11T11:59:00.000Z")).toEqual([]);
-    expect(at("2026-11-11T11:58:00.000Z")).toEqual([expect.objectContaining({ type: "review", headSha: "h2" })]);
   });
 
   test("REQ-001-31 after a round that declined the findings without new commits, the reviewed head waits for the Owner", () => {
@@ -845,6 +926,7 @@ describe("agent PRs without a Worktree on record", () => {
     feedbackRounds: 0,
     pendingFeedback: null,
     failedChecksSha: null,
+    readySha: null,
     conflictSha: null,
     headSha: null,
     headSeenAt: null,

@@ -1,8 +1,8 @@
 /**
  * Reviewer run (REQ-001-10): a fresh read-only session on a checkout of the PR head; its findings
  * are posted as one COMMENT review. The session is closed right after (REQ-001-23). Every finding
- * is kept for a Feedback round (REQ-001-11); without findings the PR leaves draft (REQ-001-31) and the
- * Owner is assigned to it (REQ-001-52).
+ * is kept for a Feedback round (REQ-001-11). A head without findings leaves draft once its checks passed
+ * (REQ-001-31, REQ-001-64), and the Owner is assigned to the PR then (REQ-001-52).
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -136,12 +136,8 @@ export class Reviewer {
       });
     }
     const label = findings.length ? "agent:in-progress" : "agent:reviewed";
+    // REQ-001-64: the PR leaves draft in a later Tick, once the head's checks passed (markReady).
     await setPrPhase(this.d.gh, s.repo, { issues: s.issues, pr }, label, ["agent:reviewing"]);
-    if (!findings.length) {
-      // REQ-001-31: only a reviewed head without findings leaves draft.
-      await this.d.gh.setDraft(s.repo, pr, false);
-      await this.assignOwner(s.repo, pr);
-    }
     this.event({
       repo: s.repo,
       kind: findings.length ? "review-findings" : "review-passed",
@@ -149,7 +145,7 @@ export class Reviewer {
       pr,
       text: findings.length
         ? `Review of PR #${pr}: ${findings.length === 1 ? "1 finding" : `${findings.length} findings`}`
-        : `Review of PR #${pr}: no findings, ready for the Owner`,
+        : `Review of PR #${pr}: no findings`,
     });
     this.finish(sessionId, checkout);
   }
@@ -157,6 +153,12 @@ export class Reviewer {
   /** REQ-003-15: after the Review is on GitHub; a store error is only logged. */
   private event(e: Parameters<typeof recordEvent>[2]) {
     recordEvent(this.d.store, this.d.log ?? defaultLog, e);
+  }
+
+  /** REQ-001-31: a reviewed head without findings whose checks passed leaves draft; REQ-001-52: the Owner is assigned. */
+  async markReady(repo: string, pr: number): Promise<void> {
+    await this.d.gh.setDraft(repo, pr, false);
+    await this.assignOwner(repo, pr);
   }
 
   /** REQ-001-52: best effort; a refused assignment is logged and never fails the Review. */

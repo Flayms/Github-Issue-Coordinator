@@ -222,6 +222,7 @@ describe("store", () => {
         feedbackRounds: 0,
         pendingFeedback: null,
         failedChecksSha: null,
+        readySha: null,
         conflictSha: null,
         headSha: null,
         headSeenAt: null,
@@ -234,6 +235,7 @@ describe("store", () => {
         feedbackRounds: 0,
         pendingFeedback: null,
         failedChecksSha: null,
+        readySha: null,
         conflictSha: null,
         headSha: null,
         headSeenAt: null,
@@ -259,6 +261,9 @@ describe("store", () => {
       // REQ-001-38: and the running automatic round.
       s.updateIssue("octo/app", 5, { autoRound: '{"headSha":"h1","causes":["checks"]}' });
       expect(s.issue("octo/app", 5).autoRound).toBe('{"headSha":"h1","causes":["checks"]}');
+      // REQ-001-64: and the head marked ready.
+      s.updateIssue("octo/app", 5, { readySha: "h1" });
+      expect(s.issue("octo/app", 5).readySha).toBe("h1");
       s.close();
     } finally {
       rmSync(dir, { recursive: true });
@@ -331,6 +336,7 @@ describe("store", () => {
       pendingFeedback: null,
       lastHandledReviewId: 0,
       failedChecksSha: null,
+      readySha: null,
       conflictSha: null,
       headSha: null,
       headSeenAt: null,
