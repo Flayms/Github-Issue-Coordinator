@@ -475,6 +475,30 @@ describe("store", () => {
       }
     });
 
+    test("REQ-003-33 a session's time goes to the step that began last, whatever the rounds of the other phases", () => {
+      const c = clock(0);
+      const s = new Store(":memory:", c.now);
+      // Two Implementer runs (building round 2), then a Feedback round (review round 1) of the same Role.
+      for (const at of [0, 20]) {
+        c.at(at);
+        s.beginStep("octo/app", 5, { phase: "building", role: "implementer" });
+        const run = s.createSession({ repo: "octo/app", role: "implementer", kind: "issue", issues: [5] });
+        c.at(at + 10);
+        s.setState(run, "closed");
+      }
+      c.at(40);
+      s.beginStep("octo/app", 5, { phase: "review", role: "implementer" });
+      s.createSession({ repo: "octo/app", role: "implementer", kind: "issue", issues: [5] });
+      expect(pick(s).at(-1)).toEqual({
+        phase: "review",
+        kind: "agent",
+        role: "implementer",
+        round: 1,
+        start: time(40),
+        end: null,
+      });
+    });
+
     test("REQ-003-33 a start tried again stays the same round; the next step is a new round that starts where the last ended", () => {
       const c = clock(10);
       const s = new Store(":memory:", c.now);

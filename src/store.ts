@@ -686,13 +686,16 @@ export class Store {
     }
   }
 
-  /** The issue's latest step (its queued interval), optionally of one Role and phase. */
+  /**
+   * The issue's step (its queued interval) that began last, optionally of one Role and phase. A step begins when its
+   * wait ends, also when a retried start extends it; rounds count per phase, so they don't order steps across phases.
+   */
   private latestStep(repo: string, issue: number, o: { role: Role; phase?: TimingPhase }): TimingRow | undefined {
     return (
       this.db
         .query<TimingRow, [string, number, string, string | null]>(
           `SELECT * FROM timings WHERE repo = ? AND issue = ? AND kind = 'queued' AND role = ?
-           AND (?4 IS NULL OR phase = ?4) ORDER BY round DESC, id DESC LIMIT 1`,
+           AND (?4 IS NULL OR phase = ?4) ORDER BY end_at DESC, id DESC LIMIT 1`,
         )
         .get(repo, issue, o.role, o.phase ?? null) ?? undefined
     );
