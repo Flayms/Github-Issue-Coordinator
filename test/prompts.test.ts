@@ -125,6 +125,26 @@ describe("prompts (REQ-002)", () => {
     ]);
   });
 
+  test("REQ-002-16 the Reviewer prompt rates a Risk tier with criteria, high for sensitive areas, and a one-line reason", () => {
+    expectAll(prompt("reviewer"), [
+      /Risk tier/,
+      /`low`/,
+      /`medium`/,
+      /`high`/,
+      /riskReason/,
+      /auto-merge/i,
+      /security/i,
+      /token/i,
+      /GitHub writes/i,
+      /workflows/i,
+      /deploy/i,
+      /config schema/i,
+      /migration/i,
+      /deleted tests|deletes tests|tests deleted/i,
+      /when in doubt/i,
+    ]);
+  });
+
   test("REQ-002-09 the Reviewer prompt reports only findings worth fixing, without blocking or low severity", () => {
     const text = prompt("reviewer");
     expectAll(text, [

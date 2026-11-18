@@ -599,6 +599,8 @@ const EVENT_ICONS: Record<EventKind, IconName> = {
   "pr-opened": "pr",
   "review-passed": "merge",
   "review-findings": "alert",
+  "auto-merged": "merge",
+  "merge-refused": "alert",
   "feedback-round": "loop",
   failed: "cross",
 };

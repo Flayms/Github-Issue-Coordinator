@@ -106,6 +106,12 @@ class FakeGitHub {
   async addAssignees(_r: string, issue: number, assignees: string[]) {
     this.calls.push(["addAssignees", issue, assignees]);
   }
+  /** A merge GitHub refuses, e.g. branch protection (REQ-001-66). */
+  mergeError: Error | null = null;
+  async mergePull(_r: string, pr: number, o: { sha: string; method: string }) {
+    if (this.mergeError) throw this.mergeError;
+    this.calls.push(["mergePull", pr, o.sha, o.method]);
+  }
   heads = new Map<number, string>();
   checkState: "none" | "pending" | "success" | "failure" = "success";
   mergeable: boolean | null = true;
@@ -188,6 +194,9 @@ class FakeWorktrees {
   headSha = "h1";
   head() {
     return this.headSha;
+  }
+  changedFiles() {
+    return ["src/a.ts"];
   }
 }
 
@@ -756,6 +765,8 @@ describe("reconcile loop", () => {
       JSON.stringify({
         summary: "Crashes",
         findings: [{ path: "a.ts", line: 1, severity: "medium", body: "crash" }],
+        risk: "medium",
+        riskReason: "r",
       }),
     );
     store.patchSession(1, { state: "idle", needsSync: true });
@@ -773,7 +784,10 @@ describe("reconcile loop", () => {
     await coordinator.tick();
     expect(runner.started).toHaveLength(1);
 
-    writeFileSync(join(runner.sessionDir(1), "result.json"), JSON.stringify({ summary: "Good", findings: [] }));
+    writeFileSync(
+      join(runner.sessionDir(1), "result.json"),
+      JSON.stringify({ summary: "Good", findings: [], risk: "medium", riskReason: "r" }),
+    );
     store.patchSession(1, { state: "idle", needsSync: true });
     await coordinator.tick();
     expect(gh.calls).toContainEqual(["createReview", 70, "h1"]);
@@ -793,6 +807,81 @@ describe("reconcile loop", () => {
     expect(runner.started).toHaveLength(1);
   });
 
+  describe("REQ-001-65 / REQ-001-66 auto-merge", () => {
+    const events = () => store.events().map((e) => [e.kind, e.issues, e.pr, e.text]);
+    /** A Coordinator in the given auto-merge mode, whose PR #70 got a Review without findings at the given tier. */
+    const reviewedAt = async (autoMerge: string, risk: string) => {
+      coordinator = new Coordinator({
+        config: parseConfig({ ...config, autoMerge, dashboard: false }),
+        store,
+        gh,
+        runner,
+        worktrees,
+        clones: { mainClone: async (repo: string) => `/clones/${repo}` },
+        now: () => now,
+        log: (m) => logs.push(m),
+      });
+      gh.items = [item(5, ["agent:pr-open"]), item(70, [], { isPullRequest: true, author: { login: "bot", id: 1 } })];
+      store.updateIssue("octo/app", 5, { worktreePath: "/wt/5", prNumber: 70 });
+      gh.checkState = "pending";
+      await coordinator.tick();
+      writeFileSync(
+        join(runner.sessionDir(1), "result.json"),
+        JSON.stringify({ summary: "Good", findings: [], risk, riskReason: "Docs only" }),
+      );
+      store.patchSession(1, { state: "idle", needsSync: true });
+      await coordinator.tick();
+      gh.calls = [];
+    };
+
+    test("risk-evaluated squash-merges a low-risk PR once its checks pass, says why, and cleans up once GitHub reports it merged", async () => {
+      await reviewedAt("risk-evaluated", "low");
+      await coordinator.tick();
+      expect(gh.calls.filter((c) => c[0] === "mergePull")).toEqual([]); // checks pending
+      gh.checkState = "success";
+      await coordinator.tick();
+      expect(gh.calls.filter((c) => c[0] === "mergePull")).toEqual([["mergePull", 70, "h1", "squash"]]);
+      expect(
+        gh.calls.some((c) => c[0] === "createComment" && c[1] === 70 && String(c[2]).includes("risk-evaluated")),
+      ).toBe(true);
+      expect(events()[0]).toEqual(["auto-merged", [5], 70, "PR #70 auto-merged (risk-evaluated, Risk tier low)"]);
+      await coordinator.tick();
+      expect(gh.calls.filter((c) => c[0] === "mergePull")).toHaveLength(1); // once per head
+      gh.pullStates.set(70, "merged");
+      await coordinator.tick();
+      expect(store.issue("octo/app", 5).worktreePath).toBeNull(); // REQ-001-14
+    });
+
+    test("risk-evaluated leaves a medium-risk PR to the Owner, as off does", async () => {
+      await reviewedAt("risk-evaluated", "medium");
+      gh.checkState = "success";
+      await coordinator.tick();
+      expect(gh.calls.filter((c) => ["setDraft", "addAssignees", "mergePull"].includes(c[0] as string))).toEqual([
+        ["setDraft", 70, false],
+        ["addAssignees", 70, ["octo"]],
+      ]);
+    });
+
+    test("a merge GitHub refuses leaves the PR ready for the Owner and records why, once", async () => {
+      await reviewedAt("all", "high");
+      gh.checkState = "success";
+      gh.mergeError = new Error(
+        "GitHub PUT /repos/octo/app/pulls/70/merge failed with 405: Repository rule violations",
+      );
+      await coordinator.tick();
+      expect(gh.calls).toContainEqual(["addAssignees", 70, ["octo"]]);
+      expect(events()[0]).toEqual([
+        "merge-refused",
+        [5],
+        70,
+        "PR #70 not auto-merged: GitHub refused (all, Risk tier high); it is ready for the Owner",
+      ]);
+      gh.drafts.set(70, false);
+      await coordinator.tick();
+      expect(events().filter((e) => e[0] === "merge-refused")).toHaveLength(1);
+    });
+  });
+
   test("REQ-001-64 failing checks of an unreviewed head wait for its Review, then share one round with the findings", async () => {
     const impl = prOpen({ reviewedHeadSha: null });
     gh.checkState = "failure";
@@ -803,7 +892,7 @@ describe("reconcile loop", () => {
     const finding = { path: "a.ts", line: 1, severity: "medium", body: "crash" };
     writeFileSync(
       join(runner.sessionDir(reviewId), "result.json"),
-      JSON.stringify({ summary: "S", findings: [finding] }),
+      JSON.stringify({ summary: "S", findings: [finding], risk: "medium", riskReason: "r" }),
     );
     store.patchSession(reviewId, { state: "idle", needsSync: true });
     await coordinator.tick();
@@ -841,7 +930,7 @@ describe("reconcile loop", () => {
     const finding = { path: "a.ts", line: 1, severity: "medium", body: "No test for empty input" };
     writeFileSync(
       join(runner.sessionDir(reviewId), "result.json"),
-      JSON.stringify({ summary: "S", findings: [finding] }),
+      JSON.stringify({ summary: "S", findings: [finding], risk: "medium", riskReason: "r" }),
     );
     store.patchSession(reviewId, { state: "idle", needsSync: true });
     await coordinator.tick();
@@ -884,7 +973,12 @@ describe("reconcile loop", () => {
     expect(runner.started.at(-1)?.role).toBe("reviewer");
     writeFileSync(
       join(runner.sessionDir(reviewId), "result.json"),
-      JSON.stringify({ summary: "S", findings: [{ path: "a.ts", line: 1, severity: "high", body: "crash" }] }),
+      JSON.stringify({
+        summary: "S",
+        findings: [{ path: "a.ts", line: 1, severity: "high", body: "crash" }],
+        risk: "medium",
+        riskReason: "r",
+      }),
     );
     store.patchSession(reviewId, { state: "idle", needsSync: true });
     // A restart closed the Implementer's window before its round could start.
@@ -916,7 +1010,10 @@ describe("reconcile loop", () => {
     await coordinator.tick(); // Review starts
     same("agent:reviewing");
     const review = (id: number, findings: unknown[]) => {
-      writeFileSync(join(runner.sessionDir(id), "result.json"), JSON.stringify({ summary: "S", findings }));
+      writeFileSync(
+        join(runner.sessionDir(id), "result.json"),
+        JSON.stringify({ summary: "S", findings, risk: "medium", riskReason: "r" }),
+      );
       store.patchSession(id, { state: "idle", needsSync: true });
     };
     review(impl + 1, [{ path: "a.ts", line: 1, severity: "high", body: "crash" }]);
@@ -1593,7 +1690,10 @@ describe("reconcile loop", () => {
       gh.items = [item(5, ["agent:pr-open"]), item(70, [], { isPullRequest: true, author: { login: "bot", id: 1 } })];
       store.updateIssue("octo/app", 5, { worktreePath: "/wt/5", prNumber: 70 });
       await coordinator.tick();
-      writeFileSync(join(runner.sessionDir(1), "result.json"), JSON.stringify({ summary: "S", findings }));
+      writeFileSync(
+        join(runner.sessionDir(1), "result.json"),
+        JSON.stringify({ summary: "S", findings, risk: "medium", riskReason: "r" }),
+      );
       store.patchSession(1, { state: "idle", needsSync: true });
       await coordinator.tick();
     };
@@ -1729,7 +1829,12 @@ describe("reconcile loop", () => {
     await coordinator.tick(); // checks done
     expect(runner.started.at(-1)).toMatchObject({ role: "reviewer" });
     at(177);
-    turnEnds(review, { summary: "S", findings: [{ path: "a.ts", line: 1, severity: "high", body: "crash" }] });
+    turnEnds(review, {
+      summary: "S",
+      findings: [{ path: "a.ts", line: 1, severity: "high", body: "crash" }],
+      risk: "medium",
+      riskReason: "r",
+    });
     await coordinator.tick(); // the findings start the Feedback round in the same Tick
     expect(runner.resumed.at(-1)?.[0]).toBe(impl);
 
@@ -1748,7 +1853,7 @@ describe("reconcile loop", () => {
     const reReview = runner.started.length;
     expect(runner.started.at(-1)).toMatchObject({ role: "reviewer" });
     at(208);
-    turnEnds(reReview, { summary: "Good", findings: [] });
+    turnEnds(reReview, { summary: "Good", findings: [], risk: "medium", riskReason: "r" });
     await coordinator.tick();
 
     gh.items = gh.items.filter((i) => i.number !== 70 && i.number !== 5);

@@ -4,6 +4,7 @@
  */
 import { Database } from "bun:sqlite";
 import type { Role } from "./config.ts";
+import type { RiskTier } from "./results.ts";
 
 export type SessionState = "running" | "idle" | "closed";
 
@@ -59,6 +60,8 @@ export interface WorktreeRecord {
   readySha: string | null;
   /** Head commit whose merge conflicts already triggered a Feedback round (REQ-001-28). */
   conflictSha: string | null;
+  /** Risk tier of the Review of `reviewedHeadSha` (REQ-002-16), for auto-merge (REQ-001-65). */
+  reviewRisk: RiskTier | null;
   /** The PR head commit last seen, and when it was first seen, for the checks grace period (REQ-001-64). */
   headSha: string | null;
   headSeenAt: string | null;
@@ -93,6 +96,8 @@ export interface IssueRecord {
   readySha: string | null;
   /** Head commit whose merge conflicts already triggered a Feedback round (REQ-001-28). */
   conflictSha: string | null;
+  /** Risk tier of the Review of `reviewedHeadSha` (REQ-002-16), for auto-merge (REQ-001-65). */
+  reviewRisk: RiskTier | null;
   /** The PR head commit last seen, and when it was first seen (REQ-001-64 grace period). */
   headSha: string | null;
   headSeenAt: string | null;
@@ -119,6 +124,8 @@ export type EventKind =
   | "pr-opened"
   | "review-passed"
   | "review-findings"
+  | "auto-merged"
+  | "merge-refused"
   | "feedback-round"
   | "failed";
 
@@ -207,6 +214,7 @@ CREATE TABLE IF NOT EXISTS issues (
   last_handled_review_id INTEGER NOT NULL DEFAULT 0,
   failed_checks_sha TEXT,
   ready_sha TEXT,
+  review_risk TEXT,
   conflict_sha TEXT,
   head_sha TEXT,
   head_seen_at TEXT,
@@ -351,6 +359,7 @@ const ISSUE_COLUMNS = {
   failedChecksSha: "failed_checks_sha",
   readySha: "ready_sha",
   conflictSha: "conflict_sha",
+  reviewRisk: "review_risk",
   headSha: "head_sha",
   headSeenAt: "head_seen_at",
   inFeedbackRound: "in_feedback_round",
@@ -388,6 +397,7 @@ export class Store {
         auto_round: "TEXT",
         screenshots: "TEXT",
         ready_sha: "TEXT",
+        review_risk: "TEXT",
       },
       sessions: { model_id: "TEXT", title: "TEXT", started_at: "TEXT", account: "TEXT" },
     };
@@ -530,6 +540,7 @@ export class Store {
       failedChecksSha: null,
       readySha: null,
       conflictSha: null,
+      reviewRisk: null,
       headSha: null,
       headSeenAt: null,
       inFeedbackRound: 0,
@@ -586,6 +597,7 @@ export class Store {
           failedChecksSha: r.failedChecksSha,
           readySha: r.readySha,
           conflictSha: r.conflictSha,
+          reviewRisk: r.reviewRisk,
           headSha: r.headSha,
           headSeenAt: r.headSeenAt,
         });

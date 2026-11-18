@@ -16,6 +16,14 @@ export type Effort = (typeof EFFORTS)[number];
 
 const positiveInt = z.number().int().positive();
 
+/**
+ * REQ-001-65: what the Coordinator merges itself once a PR passed the gates to leave draft (REQ-001-31). `off`: nothing,
+ * the Owner merges; `risk-evaluated`: PRs whose Review rated the Risk tier `low`; `all`: every such PR.
+ */
+export const AUTO_MERGE_MODES = ["off", "risk-evaluated", "all"] as const;
+export type AutoMergeMode = (typeof AUTO_MERGE_MODES)[number];
+const autoMergeSchema = z.enum(AUTO_MERGE_MODES);
+
 const roleSchema = z.strictObject({
   model: z.string().min(1),
   effort: z.enum(EFFORTS).optional(),
@@ -31,6 +39,8 @@ const repoSchema = z.strictObject({
     .strictObject({ planner: roleOverrideSchema, implementer: roleOverrideSchema, reviewer: roleOverrideSchema })
     .partial()
     .optional(),
+  /** Overrides the global `autoMerge` for this repository (REQ-001-65). */
+  autoMerge: autoMergeSchema.optional(),
 });
 
 const limitsSchema = z
@@ -113,6 +123,8 @@ const configSchema = z
     checksGraceSeconds: z.number().int().nonnegative().default(120),
     /** Store, session files and clones; relative paths are resolved against the working directory. */
     stateDir: z.string().min(1).default(".coordinator"),
+    /** REQ-001-65: off by default, so an update never starts merging on its own. */
+    autoMerge: autoMergeSchema.default("off"),
     limits: limitsSchema.prefault({}),
     roles: z.strictObject({ planner: roleSchema, implementer: roleSchema, reviewer: roleSchema }),
     repos: z.array(repoSchema).min(1),
@@ -199,9 +211,17 @@ export async function loadConfig(path: string): Promise<Config> {
   return parseConfig(raw, source);
 }
 
-/** Model and effort for a Role in a repository; the repository's override wins (REQ-001-22). */
-export function roleSettings(config: Config, repo: string, role: Role): RoleSettings {
+const repoOf = (config: Config, repo: string) => {
   const r = config.repos.find((x) => x.name.toLowerCase() === repo.toLowerCase());
   if (!r) throw new Error(`repository ${repo} is not configured`);
-  return { ...config.roles[role], ...r.roles?.[role] };
+  return r;
+};
+
+/** The auto-merge mode of a repository; the repository's own value wins (REQ-001-65). */
+export const autoMergeMode = (config: Config, repo: string): AutoMergeMode =>
+  repoOf(config, repo).autoMerge ?? config.autoMerge;
+
+/** Model and effort for a Role in a repository; the repository's override wins (REQ-001-22). */
+export function roleSettings(config: Config, repo: string, role: Role): RoleSettings {
+  return { ...config.roles[role], ...repoOf(config, repo).roles?.[role] };
 }

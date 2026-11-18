@@ -148,6 +148,10 @@ function Repo({ r }: { r: SettingsView["repos"][number] }) {
       <dl className="grid grid-cols-[auto_1fr] gap-x-3.5 gap-y-1.5 text-[13px]">
         <dt className="text-faint">Setup</dt>
         <dd className="min-w-0 wrap-anywhere">{r.setup ? <code className="font-mono">{r.setup}</code> : "–"}</dd>
+        <dt className="text-faint">Auto-merge</dt>
+        <dd className="min-w-0">
+          <code className="font-mono">{r.autoMerge}</code>
+        </dd>
       </dl>
     </li>
   );

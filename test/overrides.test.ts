@@ -86,7 +86,7 @@ describe("Settings overrides", () => {
   test("REQ-003-36 a file that isn't valid, or sets a key that can't be changed, is refused with the reason", () => {
     const load = (o: unknown) => issuesOf(() => new LiveConfig(setup(o).input, "config.ts"));
     expect(load("{not json")[0]).toStartWith("(root): not JSON");
-    for (const key of ["accounts", "owner", "github", "dashboard", "stateDir"])
+    for (const key of ["accounts", "owner", "github", "dashboard", "stateDir", "autoMerge"])
       expect(load({ [key]: [] })).toContain(`(root): Unrecognized key: "${key}"`);
     // Repositories can't be added or replaced, only their Roles' settings changed.
     expect(load({ repos: [{ name: "evil/repo" }] })).not.toEqual([]);

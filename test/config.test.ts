@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ConfigError, loadConfig, parseConfig, roleSettings } from "../src/config.ts";
+import { autoMergeMode, ConfigError, loadConfig, parseConfig, roleSettings } from "../src/config.ts";
 
 const valid = () => ({
   owner: { login: "octo", id: 42 },
@@ -174,6 +174,26 @@ describe("config", () => {
     expect(roleSettings(c, "octo/app", "reviewer")).toEqual({ model: "opus", effort: "max" });
     expect(roleSettings(c, "OCTO/app", "implementer")).toEqual({ model: "sonnet" });
     expect(() => roleSettings(c, "octo/other", "planner")).toThrow("not configured");
+  });
+
+  test("REQ-001-65 autoMerge is off by default, set globally, and a repository's own value wins", () => {
+    expect(autoMergeMode(parseConfig(valid()), "octo/app")).toBe("off");
+    const c = parseConfig({
+      ...valid(),
+      autoMerge: "risk-evaluated",
+      repos: [{ name: "octo/app", autoMerge: "all" }, { name: "octo/lib" }, { name: "octo/web", autoMerge: "off" }],
+    });
+    expect(autoMergeMode(c, "OCTO/app")).toBe("all");
+    expect(autoMergeMode(c, "octo/lib")).toBe("risk-evaluated");
+    expect(autoMergeMode(c, "octo/web")).toBe("off");
+    expect(() => autoMergeMode(c, "octo/other")).toThrow("not configured");
+  });
+
+  test("REQ-001-65 rejects an unknown autoMerge mode, globally and per repository", () => {
+    expect(issuesOf({ ...valid(), autoMerge: "risk" })).toEqual([expect.stringContaining("autoMerge")]);
+    expect(issuesOf({ ...valid(), repos: [{ name: "octo/app", autoMerge: true }] })).toEqual([
+      expect.stringContaining("repos.0.autoMerge"),
+    ]);
   });
 
   test("loads and validates a config module's default export", async () => {

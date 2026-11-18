@@ -224,6 +224,7 @@ describe("store", () => {
         failedChecksSha: null,
         readySha: null,
         conflictSha: null,
+        reviewRisk: null,
         headSha: null,
         headSeenAt: null,
       },
@@ -237,6 +238,7 @@ describe("store", () => {
         failedChecksSha: null,
         readySha: null,
         conflictSha: null,
+        reviewRisk: null,
         headSha: null,
         headSeenAt: null,
       },
@@ -264,6 +266,9 @@ describe("store", () => {
       // REQ-001-64: and the head marked ready.
       s.updateIssue("octo/app", 5, { readySha: "h1" });
       expect(s.issue("octo/app", 5).readySha).toBe("h1");
+      // REQ-002-16: and the reviewed head's Risk tier, which the Worktree record carries.
+      s.updateIssue("octo/app", 5, { reviewRisk: "low" });
+      expect(s.worktrees("octo/app")[0]?.reviewRisk).toBe("low");
       s.close();
     } finally {
       rmSync(dir, { recursive: true });
@@ -338,6 +343,7 @@ describe("store", () => {
       failedChecksSha: null,
       readySha: null,
       conflictSha: null,
+      reviewRisk: null,
       headSha: null,
       headSeenAt: null,
       inFeedbackRound: 0,
