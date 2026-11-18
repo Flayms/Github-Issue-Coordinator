@@ -22,6 +22,8 @@ describe("Result validation", () => {
     const review = {
       summary: "S",
       findings: [{ path: "a.ts", line: 3, severity: "high", body: "Bug" }],
+      risk: "medium",
+      riskReason: "Changes the label flow",
     };
     expect(validateResult("reviewer", JSON.stringify(review), [9]).ok).toBe(true);
   });
@@ -90,10 +92,27 @@ describe("Result validation", () => {
 
   test("REQ-002-09 a Reviewer finding has severity high or medium and no blocking field", () => {
     const review = (f: Record<string, unknown>) =>
-      JSON.stringify({ summary: "S", findings: [{ path: "a.ts", line: 3, severity: "medium", body: "Bug", ...f }] });
+      JSON.stringify({
+        summary: "S",
+        findings: [{ path: "a.ts", line: 3, severity: "medium", body: "Bug", ...f }],
+        risk: "low",
+        riskReason: "Docs only",
+      });
     expect(validateResult("reviewer", review({}), [9]).ok).toBe(true);
     expect(validateResult("reviewer", review({ severity: "low" }), [9]).ok).toBe(false);
     expect(validateResult("reviewer", review({ blocking: true }), [9]).ok).toBe(false);
+  });
+
+  test("REQ-002-16 a Review names its Risk tier, low, medium or high, with a one-line reason", () => {
+    const review = (r: Record<string, unknown>) => JSON.stringify({ summary: "S", findings: [], ...r });
+    for (const risk of ["low", "medium", "high"])
+      expect(validateResult("reviewer", review({ risk, riskReason: "Why" }), [9]).ok).toBe(true);
+    expect(validateResult("reviewer", review({ riskReason: "Why" }), [9]).ok).toBe(false);
+    expect(validateResult("reviewer", review({ risk: "low" }), [9]).ok).toBe(false);
+    expect(validateResult("reviewer", review({ risk: "none", riskReason: "Why" }), [9]).ok).toBe(false);
+    expect(validateResult("reviewer", review({ risk: "low", riskReason: "  " }), [9]).ok).toBe(false);
+    expect(validateResult("reviewer", review({ risk: "low", riskReason: "One\nTwo" }), [9]).ok).toBe(false);
+    expect(resultInstructions("reviewer", "/r.json")).toContain("riskReason");
   });
 
   test("REQ-001-35 in a Feedback round with Review findings, the Implementer must answer each one", () => {

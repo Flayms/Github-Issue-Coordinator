@@ -2,9 +2,10 @@
  * State derivation: from a repository's labels and the store, work out what should happen next.
  * Pure, so every rule is unit-tested; the scheduler (T5) decides when actions run.
  */
-import type { Role } from "./config.ts";
+import type { AutoMergeMode, Role } from "./config.ts";
 import type { Actor, ChecksState, Comment, Item, OpenPull, PullStatus } from "./github/client.ts";
 import { type AgentLabel, isAgentLabel } from "./labels.ts";
+import type { RiskTier } from "./results.ts";
 import type { IssueRecord, SessionRecord, WorktreeRecord } from "./store.ts";
 
 export type { OpenPull };
@@ -73,6 +74,8 @@ export interface Snapshot {
   maxFeedbackRounds?: number;
   /** How long after a head appeared "no checks" still means CI may not have registered yet (REQ-001-64). */
   checksGraceSeconds?: number;
+  /** What the Coordinator merges itself instead of marking it ready (REQ-001-65); absent means `off`. */
+  autoMerge?: AutoMergeMode;
 }
 
 export interface PullState {
@@ -132,6 +135,16 @@ export type Action =
   | { type: "review"; repo: string; pr: number; issues: number[]; headSha: string }
   /** REQ-001-31 / REQ-001-64: a reviewed head without findings whose checks passed leaves draft. */
   | { type: "ready"; repo: string; pr: number; issues: number[]; headSha: string }
+  /** REQ-001-65 / REQ-001-66: instead of `ready`, when the auto-merge mode allows the reviewed head's Risk tier. */
+  | {
+      type: "merge";
+      repo: string;
+      pr: number;
+      issues: number[];
+      headSha: string;
+      mode: Exclude<AutoMergeMode, "off">;
+      risk: RiskTier | null;
+    }
   | { type: "implement"; repo: string; issues: number[]; approvedAt: string }
   /** `merged`: the Owner merged the PR, which ends their time on it (REQ-003-33); else it was closed. */
   | { type: "cleanup"; repo: string; issues: number[]; prNumber: number; worktreePath: string; merged: boolean }
@@ -437,7 +450,14 @@ export function deriveActions(s: Snapshot): Action[] {
     if (!w.issues.every((n) => issueState(s.items.find((i) => i.number === n)?.labels ?? []) === "reviewed")) continue;
     const passed =
       pull.checks === "success" || (pull.checks === "none" && now - Date.parse(pull.headSeenAt) >= graceMs);
-    if (passed) actions.push({ type: "ready", repo: s.repo, pr: w.prNumber, issues: w.issues, headSha: pull.headSha });
+    if (!passed) continue;
+    const done = { repo: s.repo, pr: w.prNumber, issues: w.issues, headSha: pull.headSha };
+    // REQ-001-65: `risk-evaluated` merges only a head the Review rated `low`. REQ-001-66: only once GitHub says it
+    // can be merged; a known conflict whose round already ran goes to the Owner, as in `off`.
+    const mode = s.autoMerge ?? "off";
+    if (mode === "off" || (mode === "risk-evaluated" && w.reviewRisk !== "low") || pull.mergeable === false)
+      actions.push({ type: "ready", ...done });
+    else if (pull.mergeable === true) actions.push({ type: "merge", ...done, mode, risk: w.reviewRisk });
   }
 
   // REQ-001-14: a Worktree whose PR GitHub reports as merged or closed is cleaned up. Missing from the

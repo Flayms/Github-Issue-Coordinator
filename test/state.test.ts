@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ChecksState, Item } from "../src/github/client.ts";
-import { deriveActions, issueState, type OpenPull, type Snapshot } from "../src/state.ts";
+import { type Action, deriveActions, issueState, type OpenPull, type Snapshot } from "../src/state.ts";
 import type { SessionRecord, WorktreeRecord } from "../src/store.ts";
 
 const OWNER = { login: "octo", id: 42 };
@@ -300,6 +300,7 @@ describe("deriveActions", () => {
       failedChecksSha: null,
       readySha: null,
       conflictSha: null,
+      reviewRisk: null,
       headSha: null,
       headSeenAt: null,
       ...extra,
@@ -554,6 +555,89 @@ describe("deriveActions", () => {
 
     test("not while a round is due on the PR", () => {
       expect(reviewed("success", {}, { pendingFeedback: "x" }).filter((a) => a.type === "ready")).toEqual([]);
+    });
+  });
+
+  describe("REQ-001-65 auto-merge mode: a PR that would leave draft is merged when the mode allows its Risk tier", () => {
+    const at = (
+      autoMerge: Snapshot["autoMerge"],
+      reviewRisk: WorktreeRecord["reviewRisk"],
+      o: {
+        checks?: ChecksState;
+        pull?: Partial<Pull>;
+        w?: Partial<WorktreeRecord>;
+        label?: string;
+        s?: Partial<Snapshot>;
+      } = {},
+    ) =>
+      deriveActions(
+        snap({
+          items: [issue(5, [o.label ?? "agent:reviewed"]), pr(9)],
+          worktrees: wt("h2", { reviewRisk, ...o.w }),
+          pulls: new Map([[9, pullOf("h2", o.checks ?? "success", { draft: true, ...o.pull })]]),
+          checksGraceSeconds: 120,
+          autoMerge,
+          ...o.s,
+        }),
+      );
+    const ready: Action = { type: "ready", repo: "octo/app", pr: 9, issues: [5], headSha: "h2" };
+    const merge = (mode: "risk-evaluated" | "all", risk: WorktreeRecord["reviewRisk"]): Action => ({
+      type: "merge",
+      repo: "octo/app",
+      pr: 9,
+      issues: [5],
+      headSha: "h2",
+      mode,
+      risk,
+    });
+
+    test("off (and no mode at all) marks every tier ready for the Owner, as before", () => {
+      for (const risk of ["low", "medium", "high", null] as const) {
+        expect(at("off", risk)).toEqual([ready]);
+        expect(at(undefined, risk)).toEqual([ready]);
+      }
+    });
+
+    test("risk-evaluated merges a low tier only; medium, high or no tier on record go to the Owner", () => {
+      expect(at("risk-evaluated", "low")).toEqual([merge("risk-evaluated", "low")]);
+      for (const risk of ["medium", "high", null] as const) expect(at("risk-evaluated", risk)).toEqual([ready]);
+    });
+
+    test("all merges every tier", () => {
+      for (const risk of ["low", "medium", "high", null] as const)
+        expect(at("all", risk)).toEqual([merge("all", risk)]);
+    });
+
+    test("all never skips a gate: findings, declined findings, a failed issue, pending or failed checks, the grace period", () => {
+      const merges = (actions: ReturnType<typeof at>) =>
+        actions.filter((a) => a.type === "merge" || a.type === "ready");
+      expect(merges(at("all", "low", { w: { pendingFeedback: "1. fix" } }))).toEqual([]);
+      expect(merges(at("all", "low", { label: "agent:pr-open" }))).toEqual([]); // findings declined
+      expect(merges(at("all", "low", { label: "agent:failed" }))).toEqual([]);
+      expect(merges(at("all", "low", { checks: "pending" }))).toEqual([]);
+      expect(merges(at("all", "low", { checks: "failure", pull: { failed: ["lint"] } }))).toEqual([]);
+      expect(merges(at("all", "low", { checks: "none", pull: { headSeenAt: "2026-11-11T11:59:00.000Z" } }))).toEqual(
+        [],
+      );
+      expect(merges(at("all", "low", { w: { readySha: "h2" } }))).toEqual([]); // once per head
+      expect(merges(at("all", "low", { w: { reviewedHeadSha: "h1" } }))).toEqual([]); // a newer head, not reviewed
+    });
+
+    test("all waits for a pending /agent comment or changes requested by the Owner", () => {
+      const own = { author: OWNER, createdAt: NOW_ISO, updatedAt: NOW_ISO };
+      const agent = new Map([[9, { comments: [{ id: 1, body: "/agent rename it", ...own }], changesRequested: [] }]]);
+      expect(at("all", "low", { s: { prFeedback: agent } }).map((a) => a.type)).toEqual(["feedback"]);
+      const changes = new Map([[9, { comments: [], changesRequested: [{ id: 3, body: "No" }] }]]);
+      expect(at("all", "low", { s: { prFeedback: changes } }).map((a) => a.type)).toEqual(["feedback"]);
+    });
+
+    test("a conflicted PR is never merged: a new conflict starts its round, a known one goes to the Owner", () => {
+      expect(at("all", "low", { pull: { mergeable: false } }).map((a) => a.type)).toEqual(["feedback"]);
+      expect(at("all", "low", { pull: { mergeable: false }, w: { conflictSha: "h2" } })).toEqual([ready]);
+    });
+
+    test("while GitHub is still computing whether it can be merged, it waits", () => {
+      expect(at("all", "low", { pull: { mergeable: null } })).toEqual([]);
     });
   });
 
@@ -928,6 +1012,7 @@ describe("agent PRs without a Worktree on record", () => {
     failedChecksSha: null,
     readySha: null,
     conflictSha: null,
+    reviewRisk: null,
     headSha: null,
     headSeenAt: null,
   };

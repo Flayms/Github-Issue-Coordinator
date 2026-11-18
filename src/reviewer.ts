@@ -2,18 +2,19 @@
  * Reviewer run (REQ-001-10): a fresh read-only session on a checkout of the PR head; its findings
  * are posted as one COMMENT review. The session is closed right after (REQ-001-23). Every finding
  * is kept for a Feedback round (REQ-001-11). A head without findings leaves draft once its checks passed
- * (REQ-001-31, REQ-001-64), and the Owner is assigned to the PR then (REQ-001-52).
+ * (REQ-001-31, REQ-001-64), and the Owner is assigned to the PR then (REQ-001-52), unless the auto-merge mode lets
+ * the Coordinator merge it itself (REQ-001-65, REQ-001-66). Every Review names a Risk tier (REQ-002-16).
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type Config, roleSettings } from "./config.ts";
+import { type AutoMergeMode, type Config, roleSettings } from "./config.ts";
 import { defaultLog, recordEvent, refs } from "./events.ts";
 import type { GitHubClient, Item } from "./github/client.ts";
 import { GitHubError } from "./github/http.ts";
 import { setPrPhase } from "./labels.ts";
-import { sessionNote } from "./note.ts";
+import { agentNote, sessionNote } from "./note.ts";
 import { loadPrompt, renderPrompt } from "./prompts.ts";
-import { type ReviewerResult, validateResult } from "./results.ts";
+import { type ReviewerResult, type RiskTier, validateResult } from "./results.ts";
 import type { SessionRunner } from "./runner.ts";
 import type { Store } from "./store.ts";
 import type { Worktrees } from "./worktrees.ts";
@@ -23,10 +24,28 @@ export type Finding = ReviewerResult["findings"][number];
 export interface ReviewerDeps {
   config: Config;
   store: Store;
-  gh: Pick<GitHubClient, "addLabels" | "removeLabel" | "createComment" | "createReview" | "setDraft" | "addAssignees">;
+  gh: Pick<
+    GitHubClient,
+    "addLabels" | "removeLabel" | "createComment" | "createReview" | "setDraft" | "addAssignees" | "mergePull"
+  >;
   runner: Pick<SessionRunner, "start" | "close" | "sessionDir">;
-  worktrees: Pick<Worktrees, "reviewCheckout" | "reviewPath" | "head" | "remove">;
+  worktrees: Pick<Worktrees, "reviewCheckout" | "reviewPath" | "head" | "remove" | "changedFiles">;
   log?: (message: string) => void;
+}
+
+/** REQ-001-65: CI workflows run with the repository's secrets, so a change to them is never auto-merged on a tier. */
+const WORKFLOWS = ".github/workflows/";
+
+/**
+ * REQ-002-16: the tier the Coordinator acts on, and its line in the Review. A head that changes a workflow, or whose
+ * changed files can't be listed, is `high` whatever the Reviewer said (REQ-001-65).
+ */
+function riskOf(result: ReviewerResult, files: string[] | undefined): { tier: RiskTier; line: string } {
+  const said = `${result.risk}: ${result.riskReason}`;
+  const why = files === undefined ? "its changed files could not be listed" : `it changes \`${WORKFLOWS}\``;
+  if (result.risk === "high" || (files !== undefined && !files.some((f) => f.startsWith(WORKFLOWS))))
+    return { tier: result.risk, line: `**Risk tier:** ${said}` };
+  return { tier: "high", line: `**Risk tier:** high (the Reviewer said ${said}): ${why}, so it is never auto-merged.` };
 }
 
 export const renderFinding = (f: Finding): string => `**${f.severity}** \`${f.path}:${f.line}\`: ${f.body}`;
@@ -110,7 +129,12 @@ export class Reviewer {
 
     const result = check.value as ReviewerResult;
     const sha = this.d.worktrees.head(checkout);
-    const body = `${note}\n\n## Review\n\n${result.summary}`;
+    let files: string[] | undefined;
+    try {
+      files = this.d.worktrees.changedFiles(checkout);
+    } catch {}
+    const risk = riskOf(result, files);
+    const body = `${note}\n\n## Review\n\n${result.summary}\n\n${risk.line}`;
     const comments = result.findings.map((f) => ({
       path: f.path,
       line: f.line,
@@ -131,6 +155,7 @@ export class Reviewer {
     for (const n of s.issues) {
       this.d.store.updateIssue(s.repo, n, {
         reviewedHeadSha: sha,
+        reviewRisk: risk.tier,
         pendingFeedback: findings.length ? feedbackText(findings) : null,
         reviewFindings: findings.length ? JSON.stringify(findings) : null,
       });
@@ -159,6 +184,41 @@ export class Reviewer {
   async markReady(repo: string, pr: number): Promise<void> {
     await this.d.gh.setDraft(repo, pr, false);
     await this.assignOwner(repo, pr);
+  }
+
+  /**
+   * REQ-001-66: merges a PR whose head passed the gates to leave draft (REQ-001-31) and that the auto-merge mode allows,
+   * squashed and pinned to that head. GitHub can't merge a draft, so it leaves draft first. A refused merge (branch
+   * protection, a required review, a newer head) leaves the PR ready for the Owner, assigned, with the reason quoted.
+   * Returns whether it merged.
+   */
+  async autoMerge(
+    repo: string,
+    pr: number,
+    headSha: string,
+    why: { mode: Exclude<AutoMergeMode, "off">; risk: RiskTier | null },
+  ): Promise<boolean> {
+    await this.d.gh.setDraft(repo, pr, false);
+    const note = agentNote({ owner: this.d.config.owner.login });
+    const reason = `auto-merge mode \`${why.mode}\`, Risk tier **${why.risk ?? "unknown"}**`;
+    try {
+      await this.d.gh.mergePull(repo, pr, { sha: headSha, method: "squash" });
+    } catch (e) {
+      await this.assignOwner(repo, pr);
+      const message = e instanceof Error ? e.message : String(e);
+      await this.d.gh.createComment(
+        repo,
+        pr,
+        `${note}\n\nThe Coordinator tried to merge \`${headSha.slice(0, 7)}\` (${reason}), but GitHub refused:\n\n> ${message}\n\nIt is ready for review: please merge it yourself.`,
+      );
+      return false;
+    }
+    await this.d.gh.createComment(
+      repo,
+      pr,
+      `${note}\n\nMerged \`${headSha.slice(0, 7)}\` (squash) without waiting for the Owner: ${reason}. Its Review had no findings and its checks passed.`,
+    );
+    return true;
   }
 
   /** REQ-001-52: best effort; a refused assignment is logged and never fails the Review. */

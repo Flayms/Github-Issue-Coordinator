@@ -229,6 +229,11 @@ export class Worktrees {
     return git(path, ["rev-parse", "HEAD"]);
   }
 
+  /** Files the head changes against the default branch, e.g. for the workflow guard (REQ-001-65). */
+  changedFiles(path: string): string[] {
+    return git(path, ["diff", "--name-only", "origin/HEAD...HEAD"]).split("\n").filter(Boolean);
+  }
+
   /** Commits on the branch that the default branch does not have. */
   commitsAhead(path: string): number {
     return Number(git(path, ["rev-list", "--count", "origin/HEAD..HEAD"]));

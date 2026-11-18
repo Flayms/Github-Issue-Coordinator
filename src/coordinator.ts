@@ -4,7 +4,7 @@
  * tick can start from scratch after a restart (REQ-001-16).
  */
 import { allPausedUntil } from "./accounts.ts";
-import { type Config, type Role, roleSettings } from "./config.ts";
+import { autoMergeMode, type Config, type Role, roleSettings } from "./config.ts";
 import { recordEvent, refs } from "./events.ts";
 import type { Clones } from "./git.ts";
 import type { Actor, Comment, GitHubClient, Item } from "./github/client.ts";
@@ -72,6 +72,7 @@ export interface CoordinatorDeps {
     | "updatePull"
     | "setDraft"
     | "addAssignees"
+    | "mergePull"
     | "getPull"
     | "checks"
     | "createReview"
@@ -201,6 +202,7 @@ export class Coordinator {
             openPulls: await this.d.gh.listOpenPulls(repo),
             maxFeedbackRounds: this.d.config.limits.maxFeedbackRounds,
             checksGraceSeconds: this.d.config.checksGraceSeconds,
+            autoMerge: autoMergeMode(this.d.config, repo),
           });
           for (const a of actions) await this.handle(a, view, queue, jobs);
           this.queueUsageLimited(repo, queue, jobs);
@@ -551,6 +553,18 @@ export class Coordinator {
         for (const n of a.issues) this.d.store.updateIssue(a.repo, n, { readySha: a.headSha });
         this.log(`${a.repo}: PR #${a.pr} is ready for review at ${a.headSha.slice(0, 7)}`);
         return;
+      case "merge": {
+        // REQ-001-66: recorded like `ready`, so a refused merge isn't retried for this head and the Owner merges it.
+        const merged = await this.reviewer.autoMerge(a.repo, a.pr, a.headSha, { mode: a.mode, risk: a.risk });
+        for (const n of a.issues) this.d.store.updateIssue(a.repo, n, { readySha: a.headSha });
+        const why = `${a.mode}, Risk tier ${a.risk ?? "unknown"}`;
+        const text = merged
+          ? `PR #${a.pr} auto-merged (${why})`
+          : `PR #${a.pr} not auto-merged: GitHub refused (${why}); it is ready for the Owner`;
+        this.log(`${a.repo}: ${text} at ${a.headSha.slice(0, 7)}`);
+        this.event(a.repo, merged ? "auto-merged" : "merge-refused", a.issues, a.pr, text);
+        return;
+      }
       case "cleanup":
         // REQ-003-33: the merge ends the Owner's time on the reviewed PR.
         if (a.merged)

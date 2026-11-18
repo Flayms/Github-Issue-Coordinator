@@ -427,6 +427,18 @@ describe("dashboard view", () => {
     ]);
   });
 
+  test("REQ-001-65 / REQ-003-05 shows each repository's effective auto-merge mode", () => {
+    const c = parseConfig({
+      ...config,
+      autoMerge: "risk-evaluated",
+      repos: [{ name: "octo/app", autoMerge: "off" }, { name: "octo/lib" }],
+    });
+    expect(dashboardView(snapshot(), c, NOW).settings.repos.map((r) => [r.name, r.autoMerge])).toEqual([
+      ["octo/app", "off"],
+      ["octo/lib", "risk-evaluated"],
+    ]);
+  });
+
   test("REQ-003-05 shows the effective settings per Role and repository, without secrets", () => {
     const v = dashboardView(snapshot(), config, NOW);
     expect(v.settings.pollIntervalSec).toBe(45);
@@ -435,6 +447,7 @@ describe("dashboard view", () => {
       {
         name: "octo/app",
         setup: "bun install",
+        autoMerge: "off",
         roles: [
           { role: "Planner", model: "opus", effort: "high" },
           { role: "Implementer", model: "sonnet", effort: null },
@@ -720,6 +733,8 @@ describe("dashboard view", () => {
       "pr-opened",
       "review-passed",
       "review-findings",
+      "auto-merged",
+      "merge-refused",
       "feedback-round",
       "failed",
     ] as const;
@@ -732,6 +747,8 @@ describe("dashboard view", () => {
       "pr-opened": "ok",
       "review-passed": "ok",
       "review-findings": "muted",
+      "auto-merged": "ok", // REQ-001-66
+      "merge-refused": "warn", // REQ-001-66: the Owner merges it
       "feedback-round": "muted",
       failed: "bad",
     });
