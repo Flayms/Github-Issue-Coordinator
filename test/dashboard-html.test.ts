@@ -572,6 +572,15 @@ describe("dashboard html", () => {
       expect(js).toMatch(/\.hidden = /);
     });
 
+    test("a comet shown after a page grows measures its track once visible (review of #122)", () => {
+      // A hidden comet measures 0 high; measured before it is shown, the thumb sat above the track.
+      const js = asset("dashboard.js");
+      const layout = js.slice(js.indexOf("const layout = () =>"), js.indexOf("const draw = () =>"));
+      expect(layout).toContain("comet.hidden = ");
+      expect(layout).toContain("comet.clientHeight");
+      expect(layout.indexOf("comet.hidden = ")).toBeLessThan(layout.indexOf("comet.clientHeight"));
+    });
+
     test("scrolling up, the drop turns round but stays on the bar's end", () => {
       // Turning the whole head about its top edge would lift it off the bar; only the drop inside turns.
       const up = rule('.comet[data-dir="up"] .comet-head');

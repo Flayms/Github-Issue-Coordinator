@@ -110,9 +110,10 @@
     let thumbH = 0;
     let trackH = 0;
     const layout = () => {
-      trackH = comet.clientHeight;
       const max = scrollMax();
+      // Shown first: a hidden comet measures 0 high.
       comet.hidden = max < 1;
+      trackH = comet.clientHeight;
       thumbH = Math.max(36, Math.round((trackH * window.innerHeight) / (max + window.innerHeight)));
       thumb.style.height = `${thumbH}px`;
     };
