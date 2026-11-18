@@ -168,6 +168,20 @@ The Owner wants to see at a glance, also on a phone, what the Coordinator is doi
 - **And** Recent and Next share one row style (an icon, a line of text, a muted line under it), and Next is a vertical list, so the page has no horizontal scroll at 360px
 - **And** the frosted band below Activity holds only the Pipeline and the footer
 
+### REQ-003-21 README screenshots
+
+- **Given** a fixed mock Tick snapshot (made-up repositories, issues, PRs, sessions and Events; nothing from this repository's issues), a mock config and a fixed clock
+- **When** `bun run screenshots` runs on a host with Chrome or Chromium
+- **Then** it renders the Overview at desktop and phone width and the Config page at desktop width into `docs/images/`
+- **And** the README shows them next to its description of the dashboard
+
+### REQ-003-22 Screenshots stay current
+
+- **Given** the committed screenshots record a fingerprint of what they were made from: both pages rendered from the mock data, plus every dashboard asset (stylesheet, script, fonts)
+- **When** `bun test` runs after a change to the pages' markup or the assets
+- **Then** a test fails and names `bun run screenshots` as the fix, and regenerating the screenshots makes it pass
+- **And** `bun test` needs no browser
+
 ## Out of scope
 
 - Write actions (approve, retry, merge, edit settings). Approval stays on GitHub, where the Owner's identity is checked.
@@ -209,4 +223,6 @@ The Owner wants to see at a glance, also on a phone, what the Coordinator is doi
 | REQ-003-17 | `dashboard view > REQ-003-02 / REQ-003-17 says in words what is happening …` (tone per Pipeline status), `… REQ-003-16 / REQ-003-17 gives each kind of Event a tone …`; `dashboard html > REQ-003-17 red marks only failures, the attention tone only the Owner's move, and status text stays neutral`; contrast and the look: screenshots on the PR (#102)                                                                                                                                                                                             | pass                                                                                                               |
 | REQ-003-19 | `dashboard html > REQ-003-19 the stylesheet is built from its Tailwind source and has a rule for every class the pages use`; every other `dashboard html` / `dashboard view` / `dashboard server` test renders the React components                                                                                                                                                                                                                                                                                                                     | pass                                                                                                               |
 | REQ-003-20 | `dashboard html > REQ-003-20 Activity: one header with the counts, Recent, Now and Next as one timeline, stacked Now, Next, Recent on a phone`, `… REQ-003-11 / REQ-003-12 / REQ-003-20 / REQ-003-02 the Overview shows its sections in order` (Activity holds the three parts, the band only the Pipeline and footer); no horizontal scroll at 360px measured in Chrome, desktop and phone screenshots on the PR (#104)                                                                                                                                | pass                                                                                                               |
+| REQ-003-21 | `dashboard screenshots > REQ-003-21 the README shows every screenshot, and each is a committed PNG`, `… REQ-003-21 the pages are rendered from made-up data only …`; the images themselves: looked at after `bun run screenshots`, attached to the PR (#77)                                                                                                                                                                                                                                                                                             | pass                                                                                                               |
+| REQ-003-22 | `dashboard screenshots > REQ-003-22 the fingerprint is stable for the same input and changes with the HTML or an asset`, `… REQ-003-22 the committed screenshots were made from the current dashboard …` (seen failing after a change to `styles.css` and to `html.tsx`, passing after `bun run screenshots`)                                                                                                                                                                                                                                           | pass                                                                                                               |
 | Acceptance | #72: desktop, phone and Config screenshots from fixture data before and after the React migration look the same; manual: open it on a phone over Tailscale and on desktop, compare with the mockup in #41, screenshots on the PR; without a `dashboard` block, an SSH tunnel to `127.0.0.1:8080` loads the page                                                                                                                                                                                                                                         | #87: desktop and phone screenshots from fixture data match the mockup; on a real phone and the hover effects: open |

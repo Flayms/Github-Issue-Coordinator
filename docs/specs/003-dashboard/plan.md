@@ -62,3 +62,12 @@ React and Tailwind (#72):
 - [x] Spec: REQ-003-01, 04, 16 amended; REQ-003-20 added
 - [x] View: running sessions first, `closesIn` for idle ones (REQ-003-01)
 - [x] Markup: Activity with Recent, Now, Next; Next as a list in Recent's row style; the band holds only the Pipeline (REQ-003-16, REQ-003-20)
+
+### README screenshots (#77)
+
+Approach: `scripts/dashboard-screenshots.ts` renders both pages from `test/fixtures/dashboard-mock.ts` (fictional `acme/*` repositories, fixed clock), serves exactly that HTML with the dashboard's assets on a random loopback port and shoots it with headless Chrome over the DevTools Protocol (no Playwright dependency; full-page for desktop). The images can't be compared byte for byte (the WebGL background moves), so the stale check hashes the inputs instead: the rendered pages plus every asset, written to `docs/images/dashboard-screenshots.sha256`. No CI job regenerates them (a bot commit per dashboard change would be noise).
+
+- [x] Spec: REQ-003-21, REQ-003-22
+- [x] Mock data and the script, `bun run screenshots` (REQ-003-21)
+- [x] Fingerprint and the stale check in `bun test` (REQ-003-22)
+- [x] README, AGENTS.md
