@@ -129,7 +129,7 @@ export interface MoveItem extends IssueLink {
   label: string;
   /** A ready PR's checks, `checks passed` or `no checks`, shown at every width; null for an issue. */
   checks: string | null;
-  /** What the Owner is to do, shown on wider screens. */
+  /** What the Owner is to do; the Overview no longer shows it, the group name says it (#139). */
   hint: string;
 }
 
