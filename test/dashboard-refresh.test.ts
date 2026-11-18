@@ -8,7 +8,10 @@ import { parseConfig } from "../src/config.ts";
 import type { TickSnapshot } from "../src/coordinator.ts";
 import { asset } from "../src/dashboard/assets.ts";
 import { renderDashboard } from "../src/dashboard/html.tsx";
+import { timingsView } from "../src/dashboard/timings.ts";
+import { renderTimings } from "../src/dashboard/timings-html.tsx";
 import { dashboardView } from "../src/dashboard/view.ts";
+import { MOCK_NOW, MOCK_TIMING_SOURCE } from "./fixtures/dashboard-mock.ts";
 
 const config = parseConfig({
   owner: { login: "octo", id: 42 },
@@ -189,5 +192,24 @@ describe("dashboard refresh", () => {
     w.document.dispatchEvent(new w.Event("visibilitychange"));
     await until(() => (doc.body.textContent ?? "").includes("new event 1"));
     expect(server.requests).toHaveLength(1);
+  });
+
+  test('REQ-003-33 picking an issue or ticking "Include your time" on the Timings page shows it right away', () => {
+    const html = renderTimings(
+      dashboardView(snap("t"), config, NOW),
+      timingsView({ source: MOCK_TIMING_SOURCE, pick: null, includeOwner: false, now: MOCK_NOW }),
+    );
+    const { doc } = open(html, { answers: [], requests: [] });
+    const form = doc.querySelector("form[data-autosubmit]") as unknown as { requestSubmit: () => void } | null;
+    expect(form).not.toBeNull();
+    let submitted = 0;
+    if (form) form.requestSubmit = () => submitted++;
+    const change = (selector: string) =>
+      doc
+        .querySelector(selector)
+        ?.dispatchEvent(new (doc.defaultView as unknown as Window).Event("change", { bubbles: true }));
+    change('select[name="issue"]');
+    change('input[name="owner"]');
+    expect(submitted).toBe(2);
   });
 });

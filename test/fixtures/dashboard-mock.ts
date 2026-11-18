@@ -3,9 +3,9 @@
  * issues, PRs, sessions and Events, and a fixed clock, so the images never show this project's own
  * issues and render the same on every run.
  */
-import { parseConfig } from "../../src/config.ts";
+import { parseConfig, type Role } from "../../src/config.ts";
 import type { RepoSnapshot, TickSnapshot } from "../../src/coordinator.ts";
-import type { SessionRecord } from "../../src/store.ts";
+import type { SessionRecord, TimedIssue, Timing, TimingKind, TimingPhase } from "../../src/store.ts";
 
 export const MOCK_NOW = new Date("2026-11-18T14:30:00Z");
 
@@ -321,4 +321,52 @@ export const MOCK_SNAPSHOT: TickSnapshot = {
       text: "Review of PR #48: 2 findings",
     },
   ],
+};
+
+/**
+ * Timings of one reviewed issue for the Timings page (REQ-003-33), after the mockup in #125: a revision, one
+ * Feedback round and a re-review. Steps that started at once have a zero wait, which the page leaves out.
+ */
+const timeline: [TimingPhase, TimingKind, Role | null, number, number][] = [
+  ["planning", "queued", "planner", 1, 14],
+  ["planning", "agent", "planner", 1, 9],
+  ["planning", "owner", null, 1, 95],
+  ["planning", "queued", "planner", 2, 0],
+  ["planning", "agent", "planner", 2, 6],
+  ["planning", "owner", null, 2, 40],
+  ["building", "queued", "implementer", 1, 22],
+  ["building", "agent", "implementer", 1, 48],
+  ["review", "checks", null, 1, 7],
+  ["review", "queued", "reviewer", 1, 0],
+  ["review", "agent", "reviewer", 1, 12],
+  ["review", "queued", "implementer", 1, 0],
+  ["review", "agent", "implementer", 1, 17],
+  ["review", "checks", null, 2, 6],
+  ["review", "queued", "reviewer", 2, 0],
+  ["review", "agent", "reviewer", 2, 8],
+];
+
+const TIMED = { repo: "acme/payments-api", issue: 41, title: "Retry webhooks with exponential backoff" };
+
+export const MOCK_TIMINGS: Timing[] = (() => {
+  let minutesAgo = 20 + timeline.reduce((sum, t) => sum + t[4], 0);
+  return timeline.map(([phase, kind, role, round, minutes]) => {
+    const start = at(minutesAgo);
+    minutesAgo -= minutes;
+    const end = at(minutesAgo);
+    return { ...TIMED, phase, kind, role, round, start, end, sessionId: kind === "agent" ? 100 + round : null };
+  });
+})();
+
+export const MOCK_TIMED_ISSUES: TimedIssue[] = [
+  { ...TIMED, lastAt: at(20) },
+  { repo: "acme/storefront", issue: 221, title: "Add a dark mode toggle to the header", lastAt: at(25) },
+  { repo: "acme/storefront", issue: 229, title: "Search suggestions are slow on mobile", lastAt: at(90) },
+].sort((a, b) => b.lastAt.localeCompare(a.lastAt));
+
+/** The Timings source the page reads (REQ-003-33): only #41 has intervals here; it is the newest. */
+export const MOCK_TIMING_SOURCE = {
+  timedIssues: () => MOCK_TIMED_ISSUES,
+  timings: (repo: string, issue: number) =>
+    repo === TIMED.repo && issue === TIMED.issue ? MOCK_TIMINGS : ([] as Timing[]),
 };

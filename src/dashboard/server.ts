@@ -1,6 +1,7 @@
 /**
- * Read-only dashboard server (spec 003), inside the Coordinator process. It serves only the last
- * tick's snapshot: no store writes, and no GitHub calls besides the sign-in's (REQ-003-07, REQ-003-08).
+ * Read-only dashboard server (spec 003), inside the Coordinator process. It serves the last tick's
+ * snapshot, and the Timings page the recorded Timings (REQ-003-33): no store writes, and no GitHub
+ * calls besides the sign-in's (REQ-003-07, REQ-003-08).
  */
 import { readFileSync } from "node:fs";
 import type { Config } from "../config.ts";
@@ -24,7 +25,9 @@ import {
 } from "./auth.ts";
 import { renderConfig } from "./config-html.tsx";
 import { renderDashboard } from "./html.tsx";
-import { dashboardView } from "./view.ts";
+import { type TimingSource, timingsView } from "./timings.ts";
+import { renderTimings } from "./timings-html.tsx";
+import { type DashboardView, dashboardView } from "./view.ts";
 
 const COOKIE = "coordinator_dashboard";
 const COOKIE_MAX_AGE_SEC = 365 * 24 * 3600;
@@ -52,6 +55,8 @@ export interface DashboardDeps {
   /** For the sign-in's two GitHub requests; the global fetch by default. */
   fetch?: Fetch;
   snapshot: () => TickSnapshot | undefined;
+  /** The recorded Timings for the Timings page, read only (REQ-003-33); the store in the Coordinator. */
+  timings?: TimingSource;
   log: (message: string) => void;
   now?: () => Date;
 }
@@ -142,7 +147,7 @@ async function handle(req: Request, d: DashboardDeps): Promise<Response> {
     const page = PAGES.get(url.pathname);
     if (!page) return respond(404, "Not found");
     const view = dashboardView(d.snapshot(), d.config, now, { repo: url.searchParams.get("repo") });
-    return respond(200, page(view), { "content-type": "text/html; charset=utf-8" });
+    return respond(200, page(view, url, d, now), { "content-type": "text/html; charset=utf-8" });
   } catch (e) {
     d.log(`dashboard: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}`);
     return respond(500, "Internal error");
@@ -218,10 +223,25 @@ const escapeHtml = (s: string) =>
 const secure = (req: Request, url: URL) =>
   url.protocol === "https:" || req.headers.get("x-forwarded-proto") === "https" ? "; Secure" : "";
 
-/** The pages: the Overview and the Config page (REQ-003-05); both are plain GET links. */
-const PAGES = new Map([
+const NO_TIMINGS: TimingSource = { timedIssues: () => [], timings: () => [] };
+
+/** The pages: the Overview, the Config page (REQ-003-05) and the Timings page (REQ-003-33); all plain GET links. */
+const PAGES = new Map<string, (view: DashboardView, url: URL, d: DashboardDeps, now: Date) => string>([
   ["/", renderDashboard],
   ["/config", renderConfig],
+  [
+    "/timings",
+    (view, url, d, now) =>
+      renderTimings(
+        view,
+        timingsView({
+          source: d.timings ?? NO_TIMINGS,
+          pick: url.searchParams.get("issue"),
+          includeOwner: url.searchParams.get("owner") === "1",
+          now,
+        }),
+      ),
+  ],
 ]);
 
 const unauthorized = (login = false) =>

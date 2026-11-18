@@ -14,8 +14,10 @@ import { dirname, join } from "node:path";
 import { ASSET_NAMES, asset } from "../src/dashboard/assets.ts";
 import { renderConfig } from "../src/dashboard/config-html.tsx";
 import { renderDashboard } from "../src/dashboard/html.tsx";
+import { timingsView } from "../src/dashboard/timings.ts";
+import { renderTimings } from "../src/dashboard/timings-html.tsx";
 import { dashboardView } from "../src/dashboard/view.ts";
-import { MOCK_CONFIG, MOCK_NOW, MOCK_SNAPSHOT } from "../test/fixtures/dashboard-mock.ts";
+import { MOCK_CONFIG, MOCK_NOW, MOCK_SNAPSHOT, MOCK_TIMING_SOURCE } from "../test/fixtures/dashboard-mock.ts";
 
 const ROOT = join(import.meta.dir, "..");
 
@@ -26,7 +28,7 @@ export interface Screenshot {
   /** Relative to the repository; the README links it. */
   file: string;
   /** Dashboard path. */
-  page: "/" | "/config";
+  page: "/" | "/config" | "/timings";
   width: number;
   /** The viewport height; with `fullPage`, the shot grows to the height of the page. */
   height: number;
@@ -63,12 +65,22 @@ export const SCREENSHOTS: readonly Screenshot[] = [
     mobile: false,
     fullPage: true,
   },
+  {
+    file: "docs/images/dashboard-timings.png",
+    page: "/timings",
+    width: 1280,
+    height: 720,
+    scale: 1,
+    mobile: false,
+    fullPage: true,
+  },
 ];
 
-/** The Overview and the Config page as the server renders them from the mock data. */
+/** The Overview, the Config page and the Timings page as the server renders them from the mock data. */
 export function mockPages(): string[] {
   const view = dashboardView(MOCK_SNAPSHOT, MOCK_CONFIG, MOCK_NOW);
-  return [renderDashboard(view), renderConfig(view)];
+  const timings = timingsView({ source: MOCK_TIMING_SOURCE, pick: null, includeOwner: false, now: MOCK_NOW });
+  return [renderDashboard(view), renderConfig(view), renderTimings(view, timings)];
 }
 
 /** A hash of the pages and the assets, each length-prefixed so moving bytes between them changes it. */
@@ -189,10 +201,11 @@ async function shoot(cdp: Cdp, base: string, s: Screenshot): Promise<Uint8Array>
 }
 
 async function main() {
-  const [overview = "", config = ""] = mockPages();
+  const [overview = "", config = "", timings = ""] = mockPages();
   const pages = new Map([
     ["/", overview],
     ["/config", config],
+    ["/timings", timings],
   ]);
   const server = Bun.serve({
     hostname: "127.0.0.1",

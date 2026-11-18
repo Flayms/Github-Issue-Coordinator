@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { type ConfigInput, parseConfig } from "../src/config.ts";
 import type { TickSnapshot } from "../src/coordinator.ts";
 import { type DashboardServer, loadDashboardToken, startDashboard } from "../src/dashboard/server.ts";
+import type { TimingSource } from "../src/dashboard/timings.ts";
+import { Store } from "../src/store.ts";
 
 const base: ConfigInput = {
   owner: { login: "octo", id: 42 },
@@ -36,7 +38,12 @@ afterEach(() => {
   servers = [];
 });
 
-const start = (opts: { dashboard?: ConfigInput["dashboard"]; token?: string; snapshot?: () => TickSnapshot }) => {
+const start = (opts: {
+  dashboard?: ConfigInput["dashboard"];
+  token?: string;
+  snapshot?: () => TickSnapshot;
+  timings?: TimingSource;
+}) => {
   const logs: string[] = [];
   const calls = { snapshot: 0 };
   // These tests are about the token; the GitHub sign-in (on by default) has its own tests below.
@@ -51,6 +58,7 @@ const start = (opts: { dashboard?: ConfigInput["dashboard"]; token?: string; sna
     },
     log: (m) => logs.push(m),
     now: () => new Date("2026-11-15T10:01:00Z"),
+    timings: opts.timings,
   });
   if (server) servers.push(server);
   return { server, logs, calls, url: server ? `http://127.0.0.1:${server.port}` : "" };
@@ -206,6 +214,40 @@ describe("dashboard server", () => {
     const html = await res.text();
     expect(html).toContain("Polling 1 repository every 60 s");
     expect(html).not.toContain("Fix login");
+  });
+
+  test("REQ-003-33 serves the Timings page at /timings from the store, behind the same token as the Overview", async () => {
+    const store = new Store(":memory:", () => new Date("2026-11-15T10:00:00Z"));
+    try {
+      store.beginStep("octo/app", 5, {
+        phase: "planning",
+        role: "planner",
+        title: "Fix login",
+        queuedAt: "2026-11-15T09:46:00Z",
+      });
+      store.beginStep("octo/app", 6, { phase: "planning", role: "planner", queuedAt: "2026-11-15T09:00:00Z" });
+      const { url } = start({ dashboard: { port: 0, tokenPath: "/x" }, token: TOKEN, timings: store });
+      expect((await fetch(`${url}/timings`)).status).toBe(401);
+      const auth = { headers: { authorization: `Bearer ${TOKEN}` } };
+      const res = await fetch(`${url}/timings?issue=${encodeURIComponent("octo/app#5")}&owner=1`, auth);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8");
+      const html = await res.text();
+      expect(html).toContain("Waited for the Planner");
+      expect(html).toContain(">14 min<");
+      expect(html).toContain("end to end");
+      expect(await (await fetch(`${url}/timings`, auth)).text()).toContain("octo/app#5 Fix login");
+      expect(store.timedIssues()).toHaveLength(2); // read, nothing written
+      expect(store.timings("octo/app", 5)).toHaveLength(1);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("REQ-003-33 without a Timings source the page says nothing is recorded", async () => {
+    const { url } = start({ dashboard: { port: 0 } });
+    const html = await (await fetch(`${url}/timings`)).text();
+    expect(html).toContain("No Timings recorded yet");
   });
 
   test("REQ-003-13 ?repo= narrows the Pipeline", async () => {
