@@ -55,9 +55,11 @@ export interface WorktreeRecord {
   feedbackRounds: number;
   pendingFeedback: string | null;
   failedChecksSha: string | null;
+  /** Head commit the Coordinator marked ready for review, so it does so once per head (REQ-001-64). */
+  readySha: string | null;
   /** Head commit whose merge conflicts already triggered a Feedback round (REQ-001-28). */
   conflictSha: string | null;
-  /** The PR head commit last seen, and when it was first seen, for the checks grace period (REQ-001-10). */
+  /** The PR head commit last seen, and when it was first seen, for the checks grace period (REQ-001-64). */
   headSha: string | null;
   headSeenAt: string | null;
 }
@@ -87,9 +89,11 @@ export interface IssueRecord {
   lastHandledReviewId: number;
   /** Head commit whose failed checks already triggered a Feedback round (REQ-001-13). */
   failedChecksSha: string | null;
+  /** Head commit the Coordinator marked ready for review, so it does so once per head (REQ-001-64). */
+  readySha: string | null;
   /** Head commit whose merge conflicts already triggered a Feedback round (REQ-001-28). */
   conflictSha: string | null;
-  /** The PR head commit last seen, and when it was first seen (REQ-001-10 grace period). */
+  /** The PR head commit last seen, and when it was first seen (REQ-001-64 grace period). */
   headSha: string | null;
   headSeenAt: string | null;
   /** 1 while a Feedback round runs; its next sync returns the issue to agent:pr-open. */
@@ -169,6 +173,7 @@ CREATE TABLE IF NOT EXISTS issues (
   pending_feedback TEXT,
   last_handled_review_id INTEGER NOT NULL DEFAULT 0,
   failed_checks_sha TEXT,
+  ready_sha TEXT,
   conflict_sha TEXT,
   head_sha TEXT,
   head_seen_at TEXT,
@@ -262,6 +267,7 @@ const ISSUE_COLUMNS = {
   pendingFeedback: "pending_feedback",
   lastHandledReviewId: "last_handled_review_id",
   failedChecksSha: "failed_checks_sha",
+  readySha: "ready_sha",
   conflictSha: "conflict_sha",
   headSha: "head_sha",
   headSeenAt: "head_seen_at",
@@ -299,6 +305,7 @@ export class Store {
         reply_to: "TEXT",
         auto_round: "TEXT",
         screenshots: "TEXT",
+        ready_sha: "TEXT",
       },
       sessions: { model_id: "TEXT", title: "TEXT", started_at: "TEXT", account: "TEXT" },
     };
@@ -436,6 +443,7 @@ export class Store {
       pendingFeedback: null,
       lastHandledReviewId: 0,
       failedChecksSha: null,
+      readySha: null,
       conflictSha: null,
       headSha: null,
       headSeenAt: null,
@@ -491,6 +499,7 @@ export class Store {
           feedbackRounds: r.feedbackRounds,
           pendingFeedback: r.pendingFeedback,
           failedChecksSha: r.failedChecksSha,
+          readySha: r.readySha,
           conflictSha: r.conflictSha,
           headSha: r.headSha,
           headSeenAt: r.headSeenAt,
