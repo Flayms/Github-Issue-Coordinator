@@ -611,10 +611,25 @@ describe("dashboard html", () => {
     expect(configPage()).toMatch(/<a [^>]*href="\/config"[^>]*aria-current="page"/);
   });
 
-  test("REQ-003-06 a countdown to the next reload, and a meta refresh for browsers without JavaScript", () => {
-    const html = overview();
-    expect(html).toContain('data-reload="45"');
-    expect(html).toContain('<noscript><meta http-equiv="refresh" content="45"/></noscript>');
+  test("REQ-003-06 a countdown to the next refresh, and a meta refresh for browsers without JavaScript", () => {
+    for (const html of [overview(), configPage()]) {
+      expect(html).toContain('data-reload="45"');
+      expect(html).toContain('<noscript><meta http-equiv="refresh" content="45"/></noscript>');
+    }
+  });
+
+  test("REQ-003-06 no Last tick line: the last tick's time is in the countdown's tooltip", () => {
+    for (const html of [overview(), configPage()]) {
+      expect(html).not.toMatch(/Last tick[^<"]*ago/);
+      expect(html).toMatch(/<span [^>]*data-reload="45" title="Last tick 2026-11-15 10:29 UTC · refreshes every 45 s"/);
+      expect(html.match(/Last tick/g)).toHaveLength(1);
+    }
+  });
+
+  test("REQ-003-28 a failed refresh turns the countdown red", () => {
+    const css = asset("dashboard.css");
+    expect(css).toMatch(/\[data-failed\] \{\s*color: var\(--color-bad\)/);
+    expect(css).toMatch(/\[data-failed\] \.ring-fg \{\s*stroke: var\(--color-bad\)/);
   });
 
   test("REQ-003-09 both pages load only same-origin assets and have no inline scripts or styles", () => {

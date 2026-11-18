@@ -16,7 +16,7 @@ const COOKIE_MAX_AGE_SEC = 365 * 24 * 3600;
 
 const SECURITY_HEADERS = {
   "content-security-policy":
-    "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; frame-ancestors 'none'; form-action 'none'; base-uri 'none'",
+    "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; form-action 'none'; base-uri 'none'",
   "x-content-type-options": "nosniff",
   "referrer-policy": "no-referrer",
   "cache-control": "no-store",
