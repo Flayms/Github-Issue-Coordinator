@@ -1,6 +1,6 @@
 /*
  * Dashboard script (spec 003). Optional: the page reads fully without it. It adds the countdown and
- * reload (REQ-003-06), the "Copy name" buttons (REQ-003-01), the comet scrollbar (REQ-003-23) and
+ * reload (REQ-003-06), the "Copy name" buttons (REQ-003-01), the comet scrollbar (REQ-003-27) and
  * the animated background with its parallax (REQ-003-14, REQ-003-25). It reads only the page
  * itself and makes no requests.
  */
@@ -87,7 +87,7 @@
   });
   moveGlow();
 
-  // REQ-003-23: the comet replaces the browser's scrollbar. Scrolling stays the browser's; the comet
+  // REQ-003-27: the comet replaces the browser's scrollbar. Scrolling stays the browser's; the comet
   // only reads it, plus a drag on its own thumb. It is redrawn at most once a frame and only while
   // something changes; about a second after the scroll stops it slims and dims (CSS, without .on).
   {

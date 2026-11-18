@@ -394,15 +394,50 @@ function Phase({
   );
 }
 
+/** How many items Recent, Now and Next each show before the expander, at every width (REQ-003-23). */
+const SHOWN = 5;
+
+/**
+ * REQ-003-23: the first five items of a part of Activity, the last of them fading out, and "Show N
+ * more" under them; open, the rest show in place, in the same list and row style, with "Show less"
+ * under them. A checkbox and two labels, so it needs no script; `.capped` in the stylesheet does the
+ * rest. Five or fewer: just the list.
+ */
+function Capped({ id, items, list }: { id: string; items: ReactNode[]; list: (items: ReactNode[]) => ReactNode }) {
+  const more = items.slice(SHOWN);
+  if (!more.length) return list(items);
+  const toggle = `${id}-more`;
+  const link = "cursor-pointer py-3 font-medium text-[13px] text-acc-hi hover:underline";
+  return (
+    <div className="capped">
+      <input
+        type="checkbox"
+        id={toggle}
+        className="sr-only"
+        data-capped="toggle"
+        aria-label={`Show ${more.length} more`}
+      />
+      <div data-capped="first">{list(items.slice(0, SHOWN))}</div>
+      <div data-capped="rest">{list(more)}</div>
+      <label data-capped="more" className={link} htmlFor={toggle}>
+        Show {more.length} more
+      </label>
+      <label data-capped="less" className={link} htmlFor={toggle}>
+        Show less
+      </label>
+    </div>
+  );
+}
+
 /** REQ-003-01: the open sessions, running ones first; idle ones say they wait, not that they work (#74). */
 const Now = ({ v }: { v: DashboardView }) => (
   <Phase id="now" title="Now" tag="now" current className="order-1 lg:order-none">
     {v.sessions.length ? (
-      <ul className="grid gap-x-10 gap-y-8 pt-2 sm:grid-cols-2 lg:grid-cols-1">
-        {v.sessions.map((s) => (
-          <Session key={s.name} s={s} />
-        ))}
-      </ul>
+      <Capped
+        id="now"
+        items={v.sessions.map((s) => <Session key={s.name} s={s} />)}
+        list={(items) => <ul className="grid gap-x-10 gap-y-8 pt-2 sm:grid-cols-2 lg:grid-cols-1">{items}</ul>}
+      />
     ) : (
       <Empty>No agent sessions are open.</Empty>
     )}
@@ -469,43 +504,20 @@ const Event = ({ e }: { e: EventView }) => (
   </Row>
 );
 
-/** How many Events Recent shows on a phone before the expander (REQ-003-16). */
-const RECENT_ON_PHONE = 5;
-
-/**
- * REQ-003-16: the newest Events. On a phone the first five show and the rest sit in a `<details>`,
- * which needs no script; from lg on its content always shows and its summary hides.
- */
-function Recent({ v }: { v: DashboardView }) {
-  const more = v.recent.slice(RECENT_ON_PHONE);
-  return (
-    <Phase id="recent" title="Recent" tag="done" className="order-3 lg:order-none">
-      {v.recent.length ? (
-        <>
-          <ul>
-            {v.recent.slice(0, RECENT_ON_PHONE).map((e) => (
-              <Event key={`${e.datetime} ${e.text}`} e={e} />
-            ))}
-          </ul>
-          {more.length > 0 && (
-            <details className="border-line border-t lg:details-content:[content-visibility:visible] lg:details-content:block">
-              <summary className="cursor-pointer py-3 font-medium text-[13px] text-acc-hi lg:hidden">
-                Show {more.length} more
-              </summary>
-              <ul>
-                {more.map((e) => (
-                  <Event key={`${e.datetime} ${e.text}`} e={e} />
-                ))}
-              </ul>
-            </details>
-          )}
-        </>
-      ) : (
-        <Empty>Nothing has happened yet. Events show up here once the Coordinator acts on an issue.</Empty>
-      )}
-    </Phase>
-  );
-}
+/** REQ-003-16: the newest Events, five at first and the rest behind an expander (REQ-003-23). */
+const Recent = ({ v }: { v: DashboardView }) => (
+  <Phase id="recent" title="Recent" tag="done" className="order-3 lg:order-none">
+    {v.recent.length ? (
+      <Capped
+        id="recent"
+        items={v.recent.map((e) => <Event key={`${e.datetime} ${e.text}`} e={e} />)}
+        list={(items) => <ul>{items}</ul>}
+      />
+    ) : (
+      <Empty>Nothing has happened yet. Events show up here once the Coordinator acts on an issue.</Empty>
+    )}
+  </Phase>
+);
 
 /** REQ-003-04: what each kind of queued work does, as a step's name and icon. */
 const WORK: Record<WorkKind, { label: string; icon: IconName }> = {
@@ -526,7 +538,8 @@ const StepNumber = ({ n, first }: { n: number; first: boolean }) => (
 
 /**
  * REQ-003-04: the queue in the scheduler's order, the first step marked "next", each with why it
- * waits; blocked issues come last and are muted (REQ-003-17). A plain list in the row style of Recent.
+ * waits; blocked issues come last and are muted (REQ-003-17). A plain list in the row style of Recent,
+ * five steps at first (REQ-003-23).
  */
 function Next({ v }: { v: DashboardView }) {
   const steps = [
@@ -582,7 +595,11 @@ function Next({ v }: { v: DashboardView }) {
   ];
   return (
     <Phase id="next" title="Next" tag="next" className="order-2 lg:order-none">
-      {steps.length ? <ol>{steps}</ol> : <Empty>Nothing is queued.</Empty>}
+      {steps.length ? (
+        <Capped id="next" items={steps} list={(items) => <ol>{items}</ol>} />
+      ) : (
+        <Empty>Nothing is queued.</Empty>
+      )}
     </Phase>
   );
 }

@@ -10,7 +10,7 @@
  * or icon while its text stays neutral. Divided rows instead of boxes; the only glass panel is
  * "Ready to merge"; a full-width frosted band holds the Pipeline and the footer, down to the bottom
  * of the page (#100). Recent, Now and Next sit above it, as one timeline in Activity (REQ-003-20). Follows the v3 mockup of #41 (#87). Fonts are served from this
- * origin (REQ-003-09). The script replaces the page's scrollbar with a comet (REQ-003-23).
+ * origin (REQ-003-09). The script replaces the page's scrollbar with a comet (REQ-003-27).
  */
 @import "tailwindcss" source(none);
 @source "./*.tsx";
@@ -142,7 +142,7 @@
     will-change: transform;
   }
 
-  /* REQ-003-23: the script marks the page once its comet is in place; only then is the browser's own bar hidden. */
+  /* REQ-003-27: the script marks the page once its comet is in place; only then is the browser's own bar hidden. */
   html.has-comet {
     scrollbar-width: none;
   }
@@ -430,7 +430,7 @@
   }
 
   /*
-   * REQ-003-23: the comet scrollbar the script draws over the right edge. The track lets every
+   * REQ-003-27: the comet scrollbar the script draws over the right edge. The track lets every
    * pointer through; only the thumb (a 16px wide hit area around a thin bar) catches them, to be
    * dragged. The bar flows while scrolling (.on) and slims and dims at rest. At its leading end
    * sits the head, a white-hot plasma drop pointing back along the scroll (data-dir) and stretched
@@ -622,6 +622,37 @@
     }
   }
 
+  /*
+   * REQ-003-23: a part of Activity with more than five items. Closed, the last item shown fades out
+   * downwards and "Show N more" sits under it; open (the checkbox), the rest shows in place with
+   * "Show less" under it. Plain text links, no disclosure marker, so it doesn't read as a menu.
+   */
+  .capped > [data-capped="more"] {
+    display: inline-block;
+  }
+  .capped > [data-capped="rest"],
+  .capped > [data-capped="less"] {
+    display: none;
+  }
+  .capped > :checked ~ [data-capped="rest"] {
+    display: block;
+  }
+  .capped > :checked ~ [data-capped="less"] {
+    display: inline-block;
+  }
+  .capped > :checked ~ [data-capped="more"] {
+    display: none;
+  }
+  .capped > :not(:checked) ~ [data-capped="first"] > * > :last-child {
+    -webkit-mask-image: linear-gradient(180deg, #000 0, transparent 100%);
+    mask-image: linear-gradient(180deg, #000 0, transparent 100%);
+  }
+  .capped > :focus-visible ~ label {
+    outline: 2px solid var(--color-acc);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
   /* Config page: a dashed, drifting line between the hops from the browser to the Coordinator. */
   .hops > li + li::before {
     content: "";
@@ -645,7 +676,7 @@
     /* biome-ignore lint/complexity/noImportantStyles: must win over the smooth scrolling on html */
     scroll-behavior: auto !important;
   }
-  /* REQ-003-23: the comet is a plain bar: no tail and no stretch (and, above, no flow). */
+  /* REQ-003-27: the comet is a plain bar: no tail and no stretch (and, above, no flow). */
   .comet-tail {
     display: none;
   }

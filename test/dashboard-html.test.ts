@@ -414,7 +414,59 @@ describe("dashboard html", () => {
     expect(rowClass(next)).toBe(rowClass(html.slice(html.indexOf('id="recent"'), html.indexOf('id="now"'))));
   });
 
-  test("REQ-003-16 Recent shows 5 Events on a phone and the other 10 behind an expander that needs no JavaScript", () => {
+  /**
+   * REQ-003-23: a part of Activity cut into what shows at first, what "Show N more" reveals, and the
+   * two links, in page order. Each piece is empty if missing.
+   */
+  const capped = (part: string) => {
+    const at = (m: string) => part.indexOf(`data-capped="${m}"`);
+    const piece = (from: string, to?: string) =>
+      at(from) < 0 ? "" : part.slice(at(from), to === undefined ? undefined : at(to));
+    return {
+      toggle: part.match(/<input [^>]*data-capped="toggle"[^>]*>/)?.[0] ?? "",
+      shown: piece("first", "rest"),
+      rest: piece("rest", "more"),
+      more: piece("more", "less"),
+      less: piece("less"),
+      order: ["toggle", "first", "rest", "more", "less"].map(at),
+    };
+  };
+
+  /** REQ-003-23: the expander is a checkbox and two labels, not a `<details>` disclosure. */
+  const expectExpander = (part: string, n: number) => {
+    const c = capped(part);
+    expect(part).not.toMatch(/<details|<summary/);
+    expect(c.toggle).toMatch(/^<input type="checkbox"/);
+    const id = c.toggle.match(/ id="([^"]+)"/)?.[1];
+    expect(id).toBeTruthy();
+    // "Show N more" under the first five, "Show less" under the rest once they are open.
+    expect(c.order.every((o, i) => o >= 0 && (i === 0 || o > (c.order[i - 1] ?? 0)))).toBe(true);
+    expect(c.more).toMatch(new RegExp(`^data-capped="more"[^>]*for="${id}"[^>]*>Show ${n} more</label>`));
+    expect(c.less).toMatch(new RegExp(`^data-capped="less"[^>]*for="${id}"[^>]*>Show less</label>`));
+    // Which link shows is up to `.capped`; a display utility on a link would win over it (utilities layer).
+    for (const label of [c.more, c.less])
+      expect(label.match(/class="([^"]*)"/)?.[1]).not.toMatch(
+        /(?:^|\s)(?:inline-block|block|inline|flex|inline-flex|grid|hidden)(?:\s|$)/,
+      );
+    return c;
+  };
+
+  test("REQ-003-23 the last item shown fades out until the rest is open, and the rest shows only when it is", () => {
+    // Combinators without spaces, so the selectors read the same however the stylesheet is printed.
+    const css = asset("dashboard.css").replace(/\s*([>~])\s*/g, "$1");
+    const rule = (selector: RegExp) => css.match(new RegExp(`${selector.source}[^{]*\\{[^}]*\\}`))?.[0] ?? "";
+    const q = '"?';
+    // The rest and "Show less" are hidden until the toggle is checked; then "Show more" hides.
+    expect(rule(new RegExp(`\\.capped>\\[data-capped=${q}rest${q}\\]`))).toMatch(/display:\s*none/);
+    expect(rule(new RegExp(`:checked~\\[data-capped=${q}rest${q}\\]`))).toMatch(/display:\s*block/);
+    expect(rule(new RegExp(`:checked~\\[data-capped=${q}more${q}\\]`))).toMatch(/display:\s*none/);
+    // While closed, the last item shown fades out downwards.
+    expect(rule(new RegExp(`:not\\(:checked\\)~\\[data-capped=${q}first${q}\\]>\\*>:last-child`))).toMatch(
+      /mask-image:\s*linear-gradient\([^;]*(?:transparent|#0000)/,
+    );
+  });
+
+  test('REQ-003-16 / REQ-003-23 Recent shows 5 of its 15 Events at every width and the other 10 behind "Show 10 more"', () => {
     const events = Array.from({ length: 15 }, (_, i) => ({
       at: new Date(Date.parse("2026-11-15T10:20:00.000Z") - i * 60_000).toISOString(),
       repo: "octo/app",
@@ -425,16 +477,84 @@ describe("dashboard html", () => {
     }));
     const html = renderDashboard(dashboardView({ ...snap, events }, config, NOW));
     const recent = html.slice(html.indexOf('id="recent"'), html.indexOf('id="now"'));
-    const [shown, more] = recent.split("<details");
+    const { shown, rest } = expectExpander(recent, 10);
     for (let n = 1; n <= 5; n++) expect(shown).toContain(`Event ${n} happened`);
     expect(shown).not.toContain("Event 6 happened");
-    expect(more).toMatch(/<summary [^>]*>Show 10 more<\/summary>/);
-    for (let n = 6; n <= 15; n++) expect(more).toContain(`Event ${n} happened`);
-    // From lg on there is room, so all 15 show and the expander's summary hides.
-    expect(more).toMatch(/^ class="[^"]*lg:details-content:\[content-visibility:visible\]/);
-    expect(more).toMatch(/<summary class="[^"]*lg:hidden/);
+    for (let n = 6; n <= 15; n++) expect(rest).toContain(`Event ${n} happened`);
+    // Nothing forces it open on a wide screen.
+    expect(recent).not.toMatch(/lg:details-content|lg:hidden|checked=""/);
     // With 5 or fewer Events there is nothing to expand.
-    expect(overview()).not.toContain("<details");
+    expect(overview()).not.toContain("data-capped");
+  });
+
+  test('REQ-003-23 Next shows its first 5 steps and the rest, blocked issues last, behind "Show N more"', () => {
+    const queue = Array.from({ length: 8 }, (_, i) => ({
+      work: {
+        key: `octo/app#${i + 10} implement`,
+        kind: "implement" as const,
+        role: "implementer" as const,
+        queuedAt: "t",
+      },
+      wait: { kind: "max-running" as const },
+    }));
+    const html = renderDashboard(dashboardView({ ...snap, queue }, config, NOW));
+    const next = html.slice(html.indexOf('id="next"'), html.indexOf('id="pipeline"'));
+    // 3 more steps plus the blocked issue, in the same order and row style.
+    const { shown, rest } = expectExpander(next, 4);
+    for (let n = 10; n <= 14; n++) expect(shown).toContain(`octo/app#${n} implement`);
+    expect(shown).toMatch(/data-step="next"/);
+    expect(shown).not.toContain("octo/app#15 implement");
+    const marks = order(rest, ["octo/app#15", "octo/app#16", "octo/app#17", 'data-step="blocked"']);
+    expect(marks.every((m) => m >= 0)).toBe(true);
+    expect(marks).toEqual([...marks].sort((a, b) => a - b));
+    expect(rest).not.toContain('data-step="next"');
+    // The header counts stay the totals.
+    expect(html).toContain("8 queued");
+  });
+
+  test('REQ-003-23 Now shows its first 5 sessions, running ones first, and the rest behind "Show N more"', () => {
+    const base = snap.sessions[0];
+    if (!base) throw new Error("fixture has a session");
+    const sessions = Array.from({ length: 7 }, (_, i) => ({
+      ...base,
+      id: i + 1,
+      issues: [i + 20],
+      title: `Session ${i + 1} work`,
+      state: (i < 4 ? "running" : "idle") as "running" | "idle",
+    }));
+    const html = renderDashboard(dashboardView({ ...snap, sessions }, config, NOW));
+    const now = html.slice(html.indexOf('id="now"'), html.indexOf('id="next"'));
+    const { shown, rest } = expectExpander(now, 2);
+    for (let n = 1; n <= 5; n++) expect(shown).toContain(`Session ${n} work`);
+    expect(shown).not.toContain("Session 6 work");
+    for (const n of [6, 7]) expect(rest).toContain(`Session ${n} work`);
+    // Same session style in the rest as above it.
+    const listClass = (s: string) => s.match(/<ul class="([^"]*)"/)?.[1];
+    expect(listClass(rest)).toBe(listClass(shown));
+    // Each part has its own toggle.
+    expect(capped(now).toggle).not.toBe("");
+  });
+
+  test("REQ-003-23 a part with exactly 5 items has no expander", () => {
+    const queue = Array.from({ length: 4 }, (_, i) => ({
+      work: {
+        key: `octo/app#${i + 10} implement`,
+        kind: "implement" as const,
+        role: "implementer" as const,
+        queuedAt: "t",
+      },
+    }));
+    const events = Array.from({ length: 5 }, (_, i) => ({
+      at: new Date(Date.parse("2026-11-15T10:20:00.000Z") - i * 60_000).toISOString(),
+      repo: "octo/app",
+      kind: "approved" as const,
+      issues: [i + 1],
+      pr: null,
+      text: `Event ${i + 1} happened`,
+    }));
+    // 4 queued steps + 1 blocked issue = 5 in Next; 5 Events in Recent.
+    const html = renderDashboard(dashboardView({ ...snap, queue, events }, config, NOW));
+    expect(html).not.toMatch(/data-capped|<details/);
   });
 
   test("REQ-003-04 the first step is marked next, waiting steps say why, blocked issues are marked", () => {
@@ -531,7 +651,7 @@ describe("dashboard html", () => {
     expect(js).toContain('getContext("webgl"');
   });
 
-  describe("REQ-003-23 comet scrollbar", () => {
+  describe("REQ-003-27 comet scrollbar", () => {
     const css = () => asset("dashboard.css");
     /** The declarations of a rule; `::` also matches the single colon the minifier writes. */
     const rule = (selector: string) =>
