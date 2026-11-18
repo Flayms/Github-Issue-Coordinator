@@ -1,6 +1,6 @@
 # 003 – Dashboard
 
-**Status:** Implemented
+**Status:** Approved
 
 ## Goal
 
@@ -80,7 +80,7 @@ The Owner wants to see at a glance, also on a phone, what the Coordinator is doi
 - **Given** a running dashboard
 - **When** serving a request fails (a bad request, an exception while rendering) or the server cannot be started
 - **Then** the request gets an error response and the reconcile loop keeps running
-- **And** the dashboard makes no GitHub requests of its own besides the GitHub sign-in's: the code exchange and `GET /user` (REQ-003-30), after which the user's access token is dropped; it shows the state of the last tick
+- **And** the dashboard makes no GitHub requests of its own besides the GitHub sign-in's: the code exchange and `GET /user` (REQ-003-30), after which the user's access token is dropped; it shows the state of the last tick, and the Timings page the recorded Timings (REQ-003-33)
 
 ### REQ-003-09 Untrusted text
 
@@ -269,12 +269,34 @@ The Owner wants to see at a glance, also on a phone, what the Coordinator is doi
 - **And** a configured token still works next to the sign-in, as a `Bearer` header (scripts) or the cookie set by `?token=`
 - **And** off loopback, the Coordinator refuses to start when neither a token nor the GitHub sign-in is configured (REQ-003-07)
 
+### REQ-003-32 Timings recorded
+
+- **Given** an issue the Coordinator works on
+- **When** work for it is queued and started (a Planner pass, a revision, an Implementer run, a Review, a Feedback round), an agent session on it starts or stops running, the Owner replies to or approves its Assessment, its PR's checks finish for a new head, or the Owner merges its PR
+- **Then** the store records each interval with the issue, its phase (Planning, Building, Review), its kind (queued, agent, checks, Owner), its Role, its round, its start and its end, and keeps it across a restart
+- **And** the intervals of an issue follow on from each other: waiting for the Planner starts at the issue's creation and ends when the Planner pass starts; waiting for an Implementer starts at the approval; the Owner's time starts when the turn before it ended and ends at the Owner's reply or approval (or when the merge was seen); checks start when the turn that pushed ended and end when the Coordinator sees them finished, as precise as the poll interval
+- **And** an agent interval counts only the time its session was running, not idle time; a session that stops without a hook (a crash, a closed window) has its interval closed when a Tick notices it
+- **And** a start that failed and is tried again stays the same round
+- **And** issues worked on before this was recorded are not filled in (no backfill)
+
+### REQ-003-33 Timings page
+
+- **Given** recorded Timings
+- **When** the Owner opens the Timings tab (`/timings`), next to Overview and Config, and picks an issue (a list of the issues with Timings, newest first, and a "Show" button, so it works without JavaScript; with JavaScript it shows the pick right away; without a pick the newest issue)
+- **Then** each phase is a row of segments in time order, proportional on one scale for all rows, with a label and a duration for each under the bar (e.g. "Waited for the Planner 14 min", "Planner", "Revise 1", "Checks", "Reviewer", "Feedback round 1")
+- **And** totals above the rows: the time without the Owner's, the agents' working time and the number of Revise and Feedback rounds
+- **And** the Owner's time ("Your reply", "Your approval", "Your merge") is left out of the bars and the total unless "Include your time" is ticked; then the total is "end to end"
+- **And** a running agent's segment grows until now
+- **And** an issue with nothing recorded says so, and so does the page while nothing is recorded at all
+- **And** access is the same as the Overview's (REQ-003-07); the page reads Timings from the store but writes nothing; on a phone the page has no horizontal scroll
+
 ## Out of scope
 
 - Write actions (approve, retry, merge, edit settings). Approval stays on GitHub, where the Owner's identity is checked.
 - Exposing the dashboard on the public internet. The GitHub sign-in (REQ-003-29) is the login it would need, but remote access still goes through Tailscale or an SSH tunnel (`docs/setup.md`).
 - More users than the Owner (an allow-list), and GitHub Apps' user tokens beyond what the OAuth web flow needs.
 - HTTPS in the Coordinator itself; `tailscale serve` provides it.
+- Timings across issues (a benchmark chart) and of work from before Timings were recorded (#125).
 - Full logs, tick history and transcripts. Recent Events are in scope (REQ-003-15, REQ-003-16); a "PR merged" Event is not, since the Coordinator does not act on merges.
 - PR line counts and "time since review": the Tick snapshot doesn't carry them.
 - A light theme: the design is dark only.

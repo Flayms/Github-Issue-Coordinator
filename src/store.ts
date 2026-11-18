@@ -132,6 +132,39 @@ export interface CoordinatorEvent {
 /** How many Events the store keeps (REQ-003-15). */
 export const EVENTS_KEPT = 200;
 
+/** The phase a Timing belongs to, one row each on the Timings page (REQ-003-33). */
+export type TimingPhase = "planning" | "building" | "review";
+/** What the time was spent on: waiting in the queue, an agent working, checks running, or the Owner's move (REQ-003-32). */
+export type TimingKind = "queued" | "agent" | "checks" | "owner";
+
+/** One recorded interval of an issue's history (REQ-003-32). */
+export interface Timing {
+  repo: string;
+  issue: number;
+  /** The issue's title when the interval was recorded, for the Timings page's picker. */
+  title: string | null;
+  phase: TimingPhase;
+  kind: TimingKind;
+  /** The agent's Role; null for checks and the Owner's time. */
+  role: Role | null;
+  /** 1 for the first step of its kind in the phase, 2 for the next (a revision, a Feedback round, a re-review), … */
+  round: number;
+  start: string;
+  /** Null while it lasts: an agent session still running. */
+  end: string | null;
+  /** The agent session, for agent intervals. */
+  sessionId: number | null;
+}
+
+/** An issue with recorded Timings, for the Timings page's picker (REQ-003-33). */
+export interface TimedIssue {
+  repo: string;
+  issue: number;
+  title: string | null;
+  /** The end of its latest interval (or the start of one that lasts). */
+  lastAt: string;
+}
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS sessions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -200,6 +233,21 @@ CREATE TABLE IF NOT EXISTS events (
   pr INTEGER,
   text TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS timings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  repo TEXT NOT NULL,
+  issue INTEGER NOT NULL,
+  title TEXT,
+  phase TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  role TEXT,
+  round INTEGER NOT NULL,
+  start_at TEXT NOT NULL,
+  end_at TEXT,
+  session_id INTEGER,
+  head_sha TEXT
+);
+CREATE INDEX IF NOT EXISTS timings_issue ON timings (repo, issue);
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -247,6 +295,40 @@ const toSession = (r: SessionRow): SessionRecord => ({
   startedAt: r.started_at ?? null,
   account: r.account ?? null,
 });
+
+interface TimingRow {
+  id: number;
+  repo: string;
+  issue: number;
+  title: string | null;
+  phase: TimingPhase;
+  kind: TimingKind;
+  role: Role | null;
+  round: number;
+  start_at: string;
+  end_at: string | null;
+  session_id: number | null;
+  head_sha: string | null;
+}
+
+const toTiming = (r: TimingRow): Timing => ({
+  repo: r.repo,
+  issue: r.issue,
+  title: r.title,
+  phase: r.phase,
+  kind: r.kind,
+  role: r.role,
+  round: r.round,
+  start: r.start_at,
+  end: r.end_at,
+  sessionId: r.session_id,
+});
+
+/** A time in the store's one format, so times compare as text; undefined for a missing or unreadable one. */
+const iso = (t: string | undefined): string | undefined => {
+  const ms = t === undefined ? Number.NaN : Date.parse(t);
+  return Number.isNaN(ms) ? undefined : new Date(ms).toISOString();
+};
 
 const ISSUE_COLUMNS = {
   lastHandledCommentId: "last_handled_comment_id",
@@ -337,6 +419,7 @@ export class Store {
         at: this.stamp(),
       });
     if (!row) throw new Error("failed to create session");
+    this.sessionTimings(row.id, "running");
     return row.id;
   }
 
@@ -386,6 +469,7 @@ export class Store {
 
   setState(id: number, state: SessionState): void {
     this.db.query("UPDATE sessions SET state = ?, last_activity_at = ? WHERE id = ?").run(state, this.stamp(), id);
+    this.sessionTimings(id, state);
   }
 
   /** Applies hook-side changes in one statement; `touch` also updates the last activity. */
@@ -410,6 +494,7 @@ export class Store {
     const sets = [...entries.map(([k]) => `${cols[k]} = ?`), "last_activity_at = ?"].join(", ");
     const values = entries.map(([, v]) => (typeof v === "boolean" ? Number(v) : v)) as (string | number | null)[];
     this.db.query(`UPDATE sessions SET ${sets} WHERE id = ?`).run(...values, this.stamp(), id);
+    if (patch.state !== undefined) this.sessionTimings(id, patch.state);
   }
 
   recordResume(id: number): void {
@@ -565,6 +650,206 @@ export class Store {
       )
       .all()
       .map((r) => ({ ...r, issues: JSON.parse(r.issues) }));
+  }
+
+  /**
+   * REQ-003-32: the one place agent intervals open and close. Every change of a session's state goes through the
+   * store (the runner, the hooks, the reconcile loop), so a session that starts running opens an interval for each
+   * of its issues, in the issue's current step of the session's Role, and one that stops closes them.
+   */
+  private sessionTimings(id: number, state: SessionState): void {
+    const at = this.stamp();
+    if (state !== "running") {
+      this.db.query("UPDATE timings SET end_at = ? WHERE session_id = ? AND end_at IS NULL").run(at, id);
+      return;
+    }
+    const s = this.session(id);
+    if (!s) return;
+    for (const issue of s.issues) {
+      const open = this.db
+        .query<{ id: number }, [number, number]>(
+          "SELECT id FROM timings WHERE session_id = ? AND issue = ? AND end_at IS NULL",
+        )
+        .get(id, issue);
+      const step = this.latestStep(s.repo, issue, { role: s.role });
+      if (open || !step) continue;
+      this.insertTiming({ ...step, kind: "agent", start: at, end: null, sessionId: id });
+    }
+  }
+
+  /** The issue's latest step (its queued interval), optionally of one Role and phase. */
+  private latestStep(repo: string, issue: number, o: { role: Role; phase?: TimingPhase }): TimingRow | undefined {
+    return (
+      this.db
+        .query<TimingRow, [string, number, string, string | null]>(
+          `SELECT * FROM timings WHERE repo = ? AND issue = ? AND kind = 'queued' AND role = ?
+           AND (?4 IS NULL OR phase = ?4) ORDER BY round DESC, id DESC LIMIT 1`,
+        )
+        .get(repo, issue, o.role, o.phase ?? null) ?? undefined
+    );
+  }
+
+  /** The end of the issue's latest interval (the start of one that lasts), or null without Timings. */
+  private lastEnd(repo: string, issue: number): string | null {
+    return (
+      this.db
+        .query<{ at: string | null }, [string, number]>(
+          "SELECT MAX(COALESCE(end_at, start_at)) AS at FROM timings WHERE repo = ? AND issue = ?",
+        )
+        .get(repo, issue)?.at ?? null
+    );
+  }
+
+  private latestTitle(repo: string, issue: number): string | null {
+    return (
+      this.db
+        .query<{ title: string }, [string, number]>(
+          "SELECT title FROM timings WHERE repo = ? AND issue = ? AND title IS NOT NULL ORDER BY id DESC LIMIT 1",
+        )
+        .get(repo, issue)?.title ?? null
+    );
+  }
+
+  private insertTiming(t: Omit<Timing, "title"> & { title?: string | null; headSha?: string | null }): void {
+    this.db
+      .query(
+        `INSERT INTO timings (repo, issue, title, phase, kind, role, round, start_at, end_at, session_id, head_sha)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        t.repo,
+        t.issue,
+        t.title ?? this.latestTitle(t.repo, t.issue),
+        t.phase,
+        t.kind,
+        t.role,
+        t.round,
+        t.start,
+        t.end,
+        t.sessionId,
+        t.headSha ?? null,
+      );
+  }
+
+  /**
+   * REQ-003-32: work of a Role starts on the issue. Records its wait, from `queuedAt` (or where the issue's last
+   * interval ended, never before that) until now, as a new round; the session's running time then counts toward it.
+   * A step whose agent never ran (a start that failed) is the same round tried again: its wait is extended.
+   */
+  beginStep(
+    repo: string,
+    issue: number,
+    o: { phase: TimingPhase; role: Role; title?: string | null; queuedAt?: string },
+  ): void {
+    const now = this.stamp();
+    const last = this.latestStep(repo, issue, { role: o.role, phase: o.phase });
+    const ran =
+      last &&
+      this.db
+        .query<{ id: number }, [string, number, string, string, number]>(
+          "SELECT id FROM timings WHERE repo = ? AND issue = ? AND kind = 'agent' AND phase = ? AND role = ? AND round = ? LIMIT 1",
+        )
+        .get(repo, issue, o.phase, o.role, last.round);
+    if (last && !ran) {
+      this.db
+        .query("UPDATE timings SET end_at = ?, title = COALESCE(?, title) WHERE id = ?")
+        .run(now, o.title ?? null, last.id);
+      return;
+    }
+    const lastEnd = this.lastEnd(repo, issue);
+    const queued = iso(o.queuedAt) ?? lastEnd ?? now;
+    // ISO times compare as text: the later of the queue time and the last end, but not after now.
+    const start = [[queued, lastEnd ?? queued].sort().at(-1) as string, now].sort()[0] as string;
+    this.insertTiming({
+      repo,
+      issue,
+      title: o.title,
+      phase: o.phase,
+      kind: "queued",
+      role: o.role,
+      round: (last?.round ?? 0) + 1,
+      start,
+      end: now,
+      sessionId: null,
+    });
+  }
+
+  /**
+   * REQ-003-32: the Owner's time or the checks, from where the issue's last interval ended until `end`. Nothing for
+   * an issue without Timings (no backfill) or an `end` not after that; checks once per head commit.
+   */
+  recordWait(
+    repo: string,
+    issue: number,
+    o: { phase: TimingPhase; kind: "owner" | "checks"; end: string; headSha?: string },
+  ): void {
+    const start = this.lastEnd(repo, issue);
+    const end = iso(o.end);
+    if (!start || !end || end <= start) return;
+    if (o.headSha) {
+      const seen = this.db
+        .query<{ id: number }, [string, number, string, string]>(
+          "SELECT id FROM timings WHERE repo = ? AND issue = ? AND kind = ? AND head_sha = ? LIMIT 1",
+        )
+        .get(repo, issue, o.kind, o.headSha);
+      if (seen) return;
+    }
+    const round =
+      (this.db
+        .query<{ round: number | null }, [string, number, string, string]>(
+          "SELECT MAX(round) AS round FROM timings WHERE repo = ? AND issue = ? AND phase = ? AND kind = ?",
+        )
+        .get(repo, issue, o.phase, o.kind)?.round ?? 0) + 1;
+    this.insertTiming({
+      repo,
+      issue,
+      phase: o.phase,
+      kind: o.kind,
+      role: null,
+      round,
+      start,
+      end,
+      sessionId: null,
+      headSha: o.headSha ?? null,
+    });
+  }
+
+  /** REQ-003-32: closes the agent intervals of sessions whose window is gone (a crash, a closed window) at now. */
+  closeInterruptedTimings(live: Set<number>): void {
+    const open = this.db
+      .query<{ session_id: number }, []>(
+        "SELECT DISTINCT session_id FROM timings WHERE end_at IS NULL AND session_id IS NOT NULL",
+      )
+      .all();
+    const at = this.stamp();
+    for (const { session_id } of open)
+      if (!live.has(session_id))
+        this.db.query("UPDATE timings SET end_at = ? WHERE session_id = ? AND end_at IS NULL").run(at, session_id);
+  }
+
+  hasTimings(repo: string, issue: number): boolean {
+    return this.lastEnd(repo, issue) !== null;
+  }
+
+  /** The issue's Timings in time order (REQ-003-33). */
+  timings(repo: string, issue: number): Timing[] {
+    return this.db
+      .query<TimingRow, [string, number]>("SELECT * FROM timings WHERE repo = ? AND issue = ? ORDER BY start_at, id")
+      .all(repo, issue)
+      .map(toTiming);
+  }
+
+  /** Issues with Timings, the most recently active first (REQ-003-33). */
+  timedIssues(): TimedIssue[] {
+    return this.db
+      .query<TimedIssue, []>(
+        `SELECT repo, issue,
+           (SELECT t.title FROM timings t WHERE t.repo = x.repo AND t.issue = x.issue AND t.title IS NOT NULL
+            ORDER BY t.id DESC LIMIT 1) AS title,
+           MAX(COALESCE(end_at, start_at)) AS lastAt
+         FROM timings x GROUP BY repo, issue ORDER BY lastAt DESC, repo, issue`,
+      )
+      .all();
   }
 
   private stamp(): string {

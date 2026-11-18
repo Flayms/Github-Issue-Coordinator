@@ -161,4 +161,23 @@ describe("hook", () => {
     expect(handleHook({ event: "Stop", payload: {}, store, sessionId: 999, sessionDir })).toEqual({});
     expect(existsSync(join(sessionDir, "events.jsonl"))).toBe(true);
   });
+
+  test("REQ-003-32 a turn's running time is recorded as agent time: a blocked stop keeps it running, a valid Result ends it", () => {
+    // The step the session works on, as the Coordinator records it before resuming (a Feedback round).
+    store.beginStep("octo/app", 5, { phase: "review", role: "implementer", queuedAt: now });
+    const resumed = () => store.timings("octo/app", 5).filter((t) => t.kind === "agent");
+    store.patchSession(id, { state: "idle" });
+    now = "2026-11-10T12:05:00Z";
+    store.patchSession(id, { state: "running", coordinatorPromptPending: true });
+    hook("UserPromptSubmit");
+    now = "2026-11-10T12:20:00Z";
+    hook("Stop"); // no Result yet: blocked, still running
+    expect(resumed().map((t) => t.end)).toEqual([null]);
+    writeResult(validResult);
+    now = "2026-11-10T12:30:00Z";
+    hook("Stop");
+    expect(resumed()).toMatchObject([
+      { phase: "review", round: 1, start: "2026-11-10T12:05:00.000Z", end: "2026-11-10T12:30:00.000Z" },
+    ]);
+  });
 });

@@ -24,7 +24,15 @@ import {
   issueState,
   type PullState,
 } from "./state.ts";
-import type { CoordinatorEvent, EventKind, IssueRecord, SessionRecord, Store, WorktreeRecord } from "./store.ts";
+import type {
+  CoordinatorEvent,
+  EventKind,
+  IssueRecord,
+  SessionRecord,
+  Store,
+  TimingPhase,
+  WorktreeRecord,
+} from "./store.ts";
 
 /** How long to wait after a usage limit before trying again; the reset time's format is still unknown. */
 export const USAGE_LIMIT_PAUSE_MIN = 30;
@@ -162,6 +170,8 @@ export class Coordinator {
     const pullStates = new Map<string, Map<number, PullState>>();
     let planned: Queued[] = [];
     try {
+      // REQ-003-32: agent intervals of sessions that stopped without a hook (a crash) end now.
+      this.d.store.closeInterruptedTimings(this.d.runner.liveSessionIds());
       await this.syncTurns();
       await this.failStalledStarts();
       const queue: Work[] = [];
@@ -401,6 +411,11 @@ export class Coordinator {
           });
           view.prFeedback.delete(a.pr);
           const auto = a.causes.length ? { headSha: a.headSha, causes: a.causes } : undefined;
+          for (const n of a.issues) {
+            // REQ-003-32: a round the Owner started by commenting ends their time on the PR.
+            if (!auto) this.d.store.recordWait(a.repo, n, { phase: "review", kind: "owner", end: now });
+            this.beginStep(a.repo, n, view, { phase: "review", role: "implementer" });
+          }
           const id = await this.implementer.feedbackRound(a.repo, a.pr, a.issues, a.text, auto);
           const rounds = this.d.store.issue(a.repo, a.issues[0] ?? 0).feedbackRounds;
           this.event(
@@ -452,6 +467,8 @@ export class Coordinator {
         return;
       }
       case "approve":
+        // REQ-003-32: the approval ends the Owner's time on the Assessment.
+        this.d.store.recordWait(a.repo, a.issue, { phase: "planning", kind: "owner", end: a.at });
         this.d.store.updateIssue(a.repo, a.issue, {
           approvedAt: a.at,
           approvalNotes: a.notes,
@@ -501,6 +518,8 @@ export class Coordinator {
             this.log(`${key}: waiting, maxWorktrees reached`);
             return { kind: "max-worktrees" };
           }
+          for (const n of a.issues)
+            this.beginStep(a.repo, n, view, { phase: "building", role: "implementer", queuedAt: a.approvedAt });
           try {
             const id = await this.implementer.start(a.repo, members);
             this.log(`${a.repo}: implementing ${a.issues.map((n) => `#${n}`).join(", ")} (session ${id})`);
@@ -519,12 +538,16 @@ export class Coordinator {
         const issues = a.issues.map((n) => view.items.find((i) => i.number === n)).filter((i) => i !== undefined);
         const key = `${a.repo} PR #${a.pr} review`;
         this.add(queue, jobs, { key, kind: "review", role: "reviewer", queuedAt: now }, async () => {
+          for (const n of a.issues) this.beginStep(a.repo, n, view, { phase: "review", role: "reviewer" });
           const id = await this.reviewer.start(a.repo, a.pr, issues, a.headSha);
           this.log(`${a.repo}: reviewing PR #${a.pr} at ${a.headSha.slice(0, 7)} (session ${id})`);
         });
         return;
       }
       case "cleanup":
+        // REQ-003-32: the merge ends the Owner's time on the reviewed PR.
+        if (a.merged)
+          for (const n of a.issues) this.d.store.recordWait(a.repo, n, { phase: "review", kind: "owner", end: now });
         if (await this.implementer.cleanup(a.repo, a.issues, a.worktreePath))
           this.log(`${a.repo}: PR #${a.prNumber} is closed; cleaned up ${a.issues.map((n) => `#${n}`).join(", ")}`);
         return;
@@ -571,6 +594,9 @@ export class Coordinator {
           const splitOffs = this.d.store.splitOffNumbers(a.repo);
           const issues = view.items.filter((i) => inScope(i, this.d.config.owner.id, splitOffs));
           const pulls = view.items.filter((i) => i.isPullRequest);
+          // REQ-003-32: waiting for the Planner starts at the issue's creation.
+          for (const i of assess)
+            this.beginStep(a.repo, i.number, view, { phase: "planning", role: "planner", queuedAt: i.createdAt });
           const id = await this.planner.startPass(a.repo, dir, assess, { issues, pulls });
           this.log(`${a.repo}: Planner pass over ${a.issues.map((n) => `#${n}`).join(", ")} (session ${id})`);
         });
@@ -590,6 +616,11 @@ export class Coordinator {
             const splitOffs = this.d.store.splitOffNumbers(a.repo);
             const issues = view.items.filter((i) => inScope(i, this.d.config.owner.id, splitOffs));
             const pulls = view.items.filter((i) => i.isPullRequest);
+            // REQ-003-32: the Owner's time ends with their first new comment (an edit is only seen now).
+            const replied = a.comments.map((c) => c.createdAt).filter((t) => !Number.isNaN(Date.parse(t)));
+            const ownerEnd = replied.sort((x, y) => Date.parse(x) - Date.parse(y))[0] ?? this.now().toISOString();
+            this.d.store.recordWait(a.repo, a.issue, { phase: "planning", kind: "owner", end: ownerEnd });
+            this.beginStep(a.repo, a.issue, view, { phase: "planning", role: "planner", queuedAt: ownerEnd });
             const id = await this.planner.revise(
               a.repo,
               dir,
@@ -651,6 +682,15 @@ export class Coordinator {
         continue;
       }
       const checks = await this.d.gh.checks(repo, pull.headSha);
+      // REQ-003-32: the checks of a new head, from the turn that pushed it until they are seen finished.
+      if (checks.state !== "pending")
+        for (const n of w.issues)
+          this.d.store.recordWait(repo, n, {
+            phase: "review",
+            kind: "checks",
+            end: this.now().toISOString(),
+            headSha: pull.headSha,
+          });
       let headSeenAt = w.headSeenAt;
       if (w.headSha !== pull.headSha || !headSeenAt) {
         headSeenAt = this.now().toISOString();
@@ -852,6 +892,21 @@ export class Coordinator {
     }
     this.event(repo, "failed", issues, pr ?? null, `${refs(issues)} failed: ${reason}`);
     this.log(`${repo}: ${issues.map((n) => `#${n}`).join(", ")} failed: ${reason}`);
+  }
+
+  /** REQ-003-32: work of a Role starts on the issue; a store error is only logged, it must not stop the work. */
+  private beginStep(
+    repo: string,
+    issue: number,
+    view: RepoView,
+    o: { phase: TimingPhase; role: Role; queuedAt?: string },
+  ): void {
+    try {
+      const title = view.items.find((i) => i.number === issue)?.title ?? null;
+      this.d.store.beginStep(repo, issue, { ...o, title });
+    } catch (e) {
+      this.log(`${repo}#${issue}: Timing not recorded: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   /** REQ-003-15: only after the GitHub action succeeded; a store error is only logged. */
