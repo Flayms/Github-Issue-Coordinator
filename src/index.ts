@@ -24,7 +24,7 @@ async function main() {
   mkdirSync(stateDir, { recursive: true });
   // REQ-003-07: an unusable token stops the start, before anything runs.
   const dashboardToken = loadDashboardToken(config);
-  // REQ-003-28: so does an unusable GitHub client secret; the session key is created once in the state dir.
+  // REQ-003-29: so does an unusable GitHub client secret; the session key is created once in the state dir.
   const dashboardLogin = loadDashboardLogin(config, stateDir);
   // REQ-005-02: the GitHub CLI's PAT; fails the start early if gh isn't logged in.
   const auth = new GhToken();

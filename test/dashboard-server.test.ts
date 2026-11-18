@@ -269,7 +269,7 @@ describe("dashboard server", () => {
     expect(calls.snapshot).toBe(0);
   });
 
-  test("REQ-003-09 the page loads nothing from elsewhere, runs only its own script and cannot be framed", async () => {
+  test("REQ-003-09 / REQ-003-28 the page loads nothing from elsewhere, runs only its own script, fetches only itself and cannot be framed", async () => {
     const { url } = start({ dashboard: { port: 0 } });
     for (const path of ["/", "/config", "/assets/dashboard.css", "/nope"]) {
       const res = await fetch(`${url}${path}`);
@@ -279,6 +279,18 @@ describe("dashboard server", () => {
       expect(csp).toContain("style-src 'self'");
       expect(csp).toContain("font-src 'self'");
       expect(csp).toContain("frame-ancestors 'none'");
+      // REQ-003-28: the script may fetch the page's own URL, and nothing else.
+      expect(csp).toContain("connect-src 'self';");
+      expect(csp.split(";").map((d) => d.trim().split(" ")[0])).toEqual([
+        "default-src",
+        "script-src",
+        "style-src",
+        "font-src",
+        "connect-src",
+        "frame-ancestors",
+        "form-action",
+        "base-uri",
+      ]);
       expect(csp).not.toContain("unsafe");
       expect(res.headers.get("x-content-type-options")).toBe("nosniff");
       expect(res.headers.get("referrer-policy")).toBe("no-referrer");

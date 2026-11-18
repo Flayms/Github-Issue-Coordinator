@@ -231,6 +231,13 @@
     stroke: var(--color-acc);
     transition: stroke-dashoffset 1s linear;
   }
+  /* A failed refresh (REQ-003-28): the countdown turns red until the next one succeeds. */
+  [data-failed] {
+    color: var(--color-bad);
+  }
+  [data-failed] .ring-fg {
+    stroke: var(--color-bad);
+  }
 
   /* The only glass panel; its green top edge widens on hover. */
   .panel {

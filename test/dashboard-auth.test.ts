@@ -104,7 +104,7 @@ async function signIn(url: string, path = "/", code = "good") {
 }
 
 describe("dashboard GitHub sign-in", () => {
-  test("REQ-003-28 a browser without a session is sent to GitHub with a random state, kept in a short-lived Lax cookie", async () => {
+  test("REQ-003-29 a browser without a session is sent to GitHub with a random state, kept in a short-lived Lax cookie", async () => {
     const { url, calls, gh } = start();
     const res = await fetch(`${url}/config?repo=octo%2Fapp`, { redirect: "manual" });
     expect(res.status).toBe(302);
@@ -129,7 +129,7 @@ describe("dashboard GitHub sign-in", () => {
     expect(new URL(other.headers.get("location") ?? "").searchParams.get("state")).not.toBe(state);
   });
 
-  test("REQ-003-28 a script's fetch or an asset without a session gets 401 instead of a redirect", async () => {
+  test("REQ-003-29 a script's fetch or an asset without a session gets 401 instead of a redirect", async () => {
     const { url } = start();
     for (const [path, headers] of [
       ["/", { "sec-fetch-mode": "cors" }],
@@ -141,7 +141,7 @@ describe("dashboard GitHub sign-in", () => {
     }
   });
 
-  test("REQ-003-28 / REQ-003-29 the Owner signs in, comes back to the page asked for and gets a 30-day session", async () => {
+  test("REQ-003-29 / REQ-003-30 the Owner signs in, comes back to the page asked for and gets a 30-day session", async () => {
     const { url, gh, logs } = start();
     const { callback, setCookie, session } = await signIn(url, "/config?repo=octo%2Fapp");
     expect(callback.status).toBe(200);
@@ -175,7 +175,7 @@ describe("dashboard GitHub sign-in", () => {
     expect(await page.text()).toContain("Fix login");
   });
 
-  test("REQ-003-29 another GitHub user gets 403, no session and no dashboard content", async () => {
+  test("REQ-003-30 another GitHub user gets 403, no session and no dashboard content", async () => {
     const { url, calls, logs } = start({ gh: github(7, "mallory") });
     const { callback, session } = await signIn(url);
     expect(callback.status).toBe(403);
@@ -185,7 +185,7 @@ describe("dashboard GitHub sign-in", () => {
     expect(logs.join("\n")).toContain("dashboard: refused the GitHub sign-in of mallory (7)");
   });
 
-  test("REQ-003-29 a wrong or missing state gets 400 and asks GitHub nothing", async () => {
+  test("REQ-003-30 a wrong or missing state gets 400 and asks GitHub nothing", async () => {
     const { url, gh } = start();
     const first = await fetch(`${url}/`, { redirect: "manual" });
     const stateCookie = cookieValue(first.headers.get("set-cookie") ?? "", "coordinator_oauth") ?? "";
@@ -203,7 +203,7 @@ describe("dashboard GitHub sign-in", () => {
     expect(gh.requests).toEqual([]);
   });
 
-  test("REQ-003-29 a code GitHub refuses gets 400; GitHub out of reach gets 502 and is logged", async () => {
+  test("REQ-003-30 a code GitHub refuses gets 400; GitHub out of reach gets 502 and is logged", async () => {
     const { url } = start();
     expect((await signIn(url, "/", "stale")).callback.status).toBe(400);
 
@@ -221,7 +221,7 @@ describe("dashboard GitHub sign-in", () => {
     expect(down.logs.join("\n")).toContain("ETIMEDOUT");
   });
 
-  test("REQ-003-29 a tampered, expired or foreign session cookie sends the browser to GitHub again", async () => {
+  test("REQ-003-30 a tampered, expired or foreign session cookie sends the browser to GitHub again", async () => {
     const clock = { now: new Date("2026-11-15T10:01:00Z") };
     const { url } = start({ clock });
     const { session = "" } = await signIn(url);
@@ -251,7 +251,7 @@ describe("dashboard GitHub sign-in", () => {
     expect((await ok(session)).status).toBe(302);
   });
 
-  test("REQ-003-29 the session survives a restart: the key is generated once in the state dir (0600) and reused", () => {
+  test("REQ-003-30 the session survives a restart: the key is generated once in the state dir (0600) and reused", () => {
     const dir = mkdtempSync(join(tmpdir(), "dash-auth-"));
     try {
       const secretPath = join(dir, "client-secret");
@@ -273,7 +273,7 @@ describe("dashboard GitHub sign-in", () => {
     }
   });
 
-  test("REQ-003-29 a restarted server accepts the session signed before, unless owner.id changed", async () => {
+  test("REQ-003-30 a restarted server accepts the session signed before, unless owner.id changed", async () => {
     const { url } = start();
     const { session } = await signIn(url);
     const restarted = start();
@@ -296,7 +296,7 @@ describe("dashboard GitHub sign-in", () => {
     expect(moved.status).toBe(302);
   });
 
-  test("REQ-003-28 the Coordinator refuses to start with an unreadable or empty client secret; off or not set up needs none", () => {
+  test("REQ-003-29 the Coordinator refuses to start with an unreadable or empty client secret; off or not set up needs none", () => {
     const dir = mkdtempSync(join(tmpdir(), "dash-auth-"));
     try {
       const at = (clientSecretPath: string) =>
@@ -313,7 +313,7 @@ describe("dashboard GitHub sign-in", () => {
     }
   });
 
-  test("REQ-003-28 the sign-in is on by default: until it is set up, the pages answer 503 and say how", async () => {
+  test("REQ-003-29 the sign-in is on by default: until it is set up, the pages answer 503 and say how", async () => {
     const { url, logs, calls } = start({ githubLogin: {}, login: undefined });
     const res = await fetch(`${url}/`, { redirect: "manual" });
     expect(res.status).toBe(503);
@@ -322,7 +322,7 @@ describe("dashboard GitHub sign-in", () => {
     expect(logs.join("\n")).toContain("the GitHub sign-in is not set up");
   });
 
-  test("REQ-003-30 Sign out ends the session and shows a page to sign in again; a cross-site POST is refused", async () => {
+  test("REQ-003-31 Sign out ends the session and shows a page to sign in again; a cross-site POST is refused", async () => {
     const { url } = start();
     const { session } = await signIn(url);
     const cross = await fetch(`${url}/auth/logout`, {
@@ -347,7 +347,7 @@ describe("dashboard GitHub sign-in", () => {
     expect((await fetch(`${url}/auth/logout`)).status).toBe(405);
   });
 
-  test("REQ-003-30 the token still works next to the sign-in (Bearer, ?token= and its cookie), also before it is set up", async () => {
+  test("REQ-003-31 the token still works next to the sign-in (Bearer, ?token= and its cookie), also before it is set up", async () => {
     for (const opts of [{ token: TOKEN }, { token: TOKEN, githubLogin: {}, login: undefined }]) {
       const { url } = start(opts);
       const res = await fetch(`${url}/`, { headers: { authorization: `Bearer ${TOKEN}` } });
@@ -364,7 +364,7 @@ describe("dashboard GitHub sign-in", () => {
     }
   });
 
-  test("REQ-003-29 behind HTTPS (X-Forwarded-Proto) the session cookie is Secure", async () => {
+  test("REQ-003-30 behind HTTPS (X-Forwarded-Proto) the session cookie is Secure", async () => {
     const { url } = start();
     const first = await fetch(`${url}/`, { redirect: "manual" });
     const stateCookie = cookieValue(first.headers.get("set-cookie") ?? "", "coordinator_oauth");

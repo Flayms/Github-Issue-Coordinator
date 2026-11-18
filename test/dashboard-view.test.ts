@@ -452,7 +452,7 @@ describe("dashboard view", () => {
     expect(all).not.toContain("app.pem");
   });
 
-  test("REQ-003-28 the Config page knows whether the GitHub sign-in is on, off or not set up yet", () => {
+  test("REQ-003-29 the Config page knows whether the GitHub sign-in is on, off or not set up yet", () => {
     const access = (githubLogin?: false | Record<string, string>) =>
       dashboardView(undefined, parseConfig({ ...config, dashboard: { githubLogin } }), NOW).settings.access
         ?.githubLogin;
@@ -557,25 +557,25 @@ describe("dashboard view", () => {
     expect(unknown.columns[0]?.issues.map((i) => i.number)).toEqual([1, 2]);
   });
 
-  test("REQ-003-06 shows when the last tick finished and reloads every poll interval", () => {
+  test("REQ-003-06 says in the countdown's tooltip when the last tick finished, and refreshes every poll interval", () => {
     const v = dashboardView(
       snapshot({ repos: [repo({ repo: "octo/lib", error: "GitHub down" })], pausedUntil: "2026-11-15T11:00:00.000Z" }),
       config,
       NOW,
     );
-    expect(v.lastTick).toEqual({ at: "2026-11-15 10:29 UTC", ago: "1 min ago" });
+    expect(v.lastTick).toEqual({ at: "2026-11-15 10:29 UTC" });
     expect(v.errors).toEqual([{ repo: "octo/lib", error: "GitHub down" }]);
     expect(v.pausedUntil).toBe("2026-11-15 11:00 UTC");
     const html = renderDashboard(v);
     expect(html).toContain('<meta http-equiv="refresh" content="45"/>');
-    expect(html).toContain("2026-11-15 10:29 UTC");
+    expect(html).toMatch(/data-reload="45" title="Last tick 2026-11-15 10:29 UTC · refreshes every 45 s"/);
     expect(html).toContain("GitHub down");
   });
 
-  test("REQ-003-06 before the first tick the page says so", () => {
+  test("REQ-003-06 before the first tick the countdown's tooltip says so", () => {
     const v = dashboardView(undefined, config, NOW);
     expect(v.lastTick).toBeNull();
-    expect(renderDashboard(v)).toContain("No tick has finished yet");
+    expect(renderDashboard(v)).toMatch(/data-reload="45" title="No tick has finished yet · refreshes every 45 s"/);
   });
 
   test("REQ-003-09 text from GitHub and agents is escaped", () => {

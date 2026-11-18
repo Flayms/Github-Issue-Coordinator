@@ -144,12 +144,13 @@ void main(){
     return ((h >>> 0) % 100000) / 100000;
   };
 
-  const meters = [];
-  for (const [i, tube] of [...capacity.querySelectorAll(".tube")].entries()) {
+  let meters = [];
+  /** Starts drawing the liquid of a meter that has one. */
+  const add = (tube, i) => {
     const brew = tube.querySelector("canvas.brew");
     const liquid = tube.querySelector(".liquid");
     const ctx = brew instanceof HTMLCanvasElement ? brew.getContext("2d") : null;
-    if (!ctx || !liquid) continue;
+    if (!ctx || !liquid) return;
     const m = {
       tube,
       brew,
@@ -199,8 +200,9 @@ void main(){
       },
       { passive: true },
     );
-  }
-  if (meters.length === 0) return;
+  };
+  const tubes = () => [...capacity.querySelectorAll(".tube")];
+  tubes().forEach(add);
 
   // The atlas: one strip per meter, stacked.
   let atlasH = 0;
@@ -266,7 +268,7 @@ void main(){
     }
   };
   const run = () => {
-    if (!frame && shown && !document.hidden && !reduced.matches) frame = requestAnimationFrame(draw);
+    if (!frame && meters.length && shown && !document.hidden && !reduced.matches) frame = requestAnimationFrame(draw);
   };
   const stop = () => {
     cancelAnimationFrame(frame);
@@ -289,6 +291,18 @@ void main(){
   gl.canvas.addEventListener("webglcontextlost", () => {
     stop();
     for (const m of meters) m.tube.classList.remove("gl");
+  });
+  // REQ-003-28: a refresh patched the page. A kept meter keeps its flow and is measured again; a
+  // meter whose liquid is gone stops, and one that got liquid starts.
+  document.addEventListener("dashboard:refreshed", () => {
+    meters = meters.filter((m) => {
+      const kept = m.tube.isConnected && m.brew.isConnected && m.liquid.isConnected;
+      if (!kept) m.tube.classList.remove("gl");
+      return kept;
+    });
+    for (const [i, tube] of tubes().entries()) if (!meters.some((m) => m.tube === tube)) add(tube, i);
+    layout();
+    meters.length ? run() : stop();
   });
   run();
 })();

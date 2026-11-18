@@ -122,7 +122,7 @@ const Tab = ({ href, current, children }: { href: string; current: boolean; chil
   </a>
 );
 
-/** The countdown ring next to the reload time; the script moves it (REQ-003-06). */
+/** The countdown ring next to the refresh time; the script moves it (REQ-003-06). */
 const Ring = () => (
   <svg className="size-[18px] -rotate-90" viewBox="0 0 20 20" aria-hidden="true">
     <circle className="ring-bg" cx="10" cy="10" r="8" />
@@ -186,7 +186,7 @@ export function Layout({ v, page, children }: { v: DashboardView; page: "overvie
             <span
               className="inline-flex items-center gap-1.5"
               data-reload={v.refreshSec}
-              title={`Reloads every ${v.refreshSec} s`}
+              title={`${v.lastTick ? `Last tick ${v.lastTick.at}` : "No tick has finished yet"} · refreshes every ${v.refreshSec} s`}
             >
               <Ring />
               <span className="min-w-[4ch] font-mono" data-countdown="">
@@ -197,7 +197,7 @@ export function Layout({ v, page, children }: { v: DashboardView; page: "overvie
               <Icon name="lock" />
               Read-only
             </span>
-            {/* REQ-003-30: a plain form, so it works without JavaScript; the server answers with a signed-out page. */}
+            {/* REQ-003-31: a plain form, so it works without JavaScript; the server answers with a signed-out page. */}
             {v.settings.access?.githubLogin === "on" && (
               <form method="post" action="/auth/logout">
                 <button
@@ -212,14 +212,6 @@ export function Layout({ v, page, children }: { v: DashboardView; page: "overvie
           </div>
         </header>
         <div className="wrap">
-          <p className="mt-1 flex items-center gap-1.5 text-[12px] text-faint">
-            <Icon name="clock" />
-            <span>
-              {v.lastTick
-                ? `Last tick ${v.lastTick.at} · ${v.lastTick.ago}`
-                : "No tick has finished yet; this page reloads by itself."}
-            </span>
-          </p>
           {alerts.length > 0 && (
             <ul className="mt-3">
               {alerts.map((a) => (

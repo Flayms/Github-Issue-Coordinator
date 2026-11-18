@@ -33,14 +33,14 @@ describe("config", () => {
     expect(issuesOf({ ...valid(), dashboard: true })).not.toEqual([]);
   });
 
-  test("REQ-003-30 off loopback, a dashboard needs a token unless the GitHub sign-in is on", () => {
+  test("REQ-003-31 off loopback, a dashboard needs a token unless the GitHub sign-in is on", () => {
     for (const host of ["127.0.0.1", "127.1.2.3", "localhost", "::1"])
       expect(issuesOf({ ...valid(), dashboard: { host, githubLogin: false } })).toEqual([]);
     for (const host of ["0.0.0.0", "100.64.0.1", "::", "example.com"]) {
       expect(issuesOf({ ...valid(), dashboard: { host, githubLogin: false } })).toEqual([
         "dashboard.tokenPath: required when the dashboard listens on a host other than loopback and the GitHub sign-in is off",
       ]);
-      // The sign-in is on by default; until it is set up, the dashboard answers 503 (REQ-003-28).
+      // The sign-in is on by default; until it is set up, the dashboard answers 503 (REQ-003-29).
       expect(issuesOf({ ...valid(), dashboard: { host } })).toEqual([]);
     }
     expect(
@@ -48,7 +48,7 @@ describe("config", () => {
     ).toEqual([]);
   });
 
-  test("REQ-003-28 the GitHub sign-in is on by default; it takes a client id and a secret file together, or `false`", () => {
+  test("REQ-003-29 the GitHub sign-in is on by default; it takes a client id and a secret file together, or `false`", () => {
     const login = { clientId: "Ov23liAbc", clientSecretPath: "/etc/c/github-client-secret" };
     expect(parseConfig({ ...valid(), dashboard: { githubLogin: login } }).dashboard?.githubLogin).toEqual(login);
     expect(parseConfig({ ...valid(), dashboard: { githubLogin: false } }).dashboard?.githubLogin).toBe(false);
