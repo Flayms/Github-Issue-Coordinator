@@ -740,15 +740,34 @@ describe("dashboard html", () => {
     test("scrolling up, the drop turns round but stays on the bar's end", () => {
       // Turning the whole head about its top edge would lift it off the bar; only the drop inside turns.
       const up = rule('.comet[data-dir="up"] .comet-head');
-      expect(up).toContain("top: -5px");
       expect(up).toContain("transform-origin: 50% 0");
       expect(up).not.toContain("rotate");
       expect(rule('.comet[data-dir="up"] .comet-head::before')).toContain("rotate(225deg)");
     });
 
-    test("with reduced motion the comet is a plain bar: no flow, no tail, no stretch", () => {
-      expect(reduced()).toMatch(/\.comet-tail \{[^}]*display: none/);
-      expect(reduced()).toMatch(/\.comet-head \{[^}]*--stretch: 1/);
+    test("a flip of the direction glides the head along the bar and turns the drop on the way (#126)", () => {
+      // Switching top/bottom can't be animated: the head sits at the top end and is moved by `translate`.
+      const head = rule(".comet-head");
+      expect(head).toContain("top: -5px");
+      expect(head).not.toMatch(/(^|[\s;])bottom:/);
+      expect(head).toMatch(/transition:[^;]*translate 0?\.3s/);
+      expect(rule('.comet[data-dir="up"] .comet-head')).not.toMatch(/(^|[\s;])(top|bottom):/);
+      // Scrolling down it rests at the bottom end: the thumb's height (set by the script) less the drop.
+      expect(rule('.comet[data-dir="down"] .comet-head')).toContain("translate: 0 calc(var(--thumb-h");
+      expect(asset("dashboard.js")).toMatch(/setProperty\("--thumb-h"/);
+      expect(rule(".comet-head::before")).toMatch(/transition:[^;]*transform 0?\.3s/);
+    });
+
+    test("at rest the head fades out completely and only scrolling or dragging brings it back (#126)", () => {
+      expect(rule(".comet-head")).toContain("opacity: 0;");
+      expect(rule(".comet-head")).toMatch(/transition:[^;]*opacity/);
+      expect(css()).toMatch(/\.comet\.on \.comet-head,\s*\.comet\.drag \.comet-head \{[^}]*opacity: 1/);
+      // Hovering only lights the bar, never the head.
+      expect(css()).not.toMatch(/:hover[^{]*\.comet-head/);
+    });
+
+    test("with reduced motion the comet is a plain bar: no flow, no tail, no head, no glide", () => {
+      expect(reduced()).toMatch(/\.comet-tail,\s*\.comet-head \{[^}]*display: none/);
       expect(reduced()).toContain("animation: none");
     });
   });
