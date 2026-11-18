@@ -1797,3 +1797,39 @@ describe("reconcile loop", () => {
     expect(timings()[2]).toEqual(["planning", "agent", "planner", 1, "10:40", null]);
   });
 });
+
+describe("reconcile loop with Settings overrides", () => {
+  test("REQ-003-36 settings changed after the start apply at the next tick: a lowered maxRunning, another model", async () => {
+    const raw = {
+      owner: OWNER,
+      roles: { planner: { model: "opus" }, implementer: { model: "sonnet" }, reviewer: { model: "opus" } },
+      repos: [{ name: "octo/app" }, { name: "octo/web" }],
+      limits: { maxRunning: 2, maxPlanners: 2, maxLiveSessions: 2 },
+    };
+    let current = parseConfig(raw);
+    coordinator = new Coordinator({
+      // As in src/index.ts: the live config, read on every use.
+      get config() {
+        return current;
+      },
+      store,
+      gh,
+      runner,
+      worktrees,
+      clones: { mainClone: async (repo: string) => `/clones/${repo}` },
+      now: () => now,
+      log: (m) => logs.push(m),
+    });
+    current = parseConfig({
+      ...raw,
+      limits: { ...raw.limits, maxRunning: 1 },
+      roles: { ...raw.roles, planner: { model: "haiku", effort: "low" } },
+    });
+    gh.items = [item(5)];
+    await coordinator.tick();
+    expect(runner.started.map((s) => [s.repo, s.model])).toEqual([["octo/app", { model: "haiku", effort: "low" }]]);
+    expect(coordinator.snapshot()?.queue.find((q) => q.work.key.startsWith("octo/web"))?.wait).toEqual({
+      kind: "max-running",
+    });
+  });
+});

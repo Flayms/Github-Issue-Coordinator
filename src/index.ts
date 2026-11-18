@@ -1,13 +1,13 @@
 /** Coordinator entry point: `bun start` (config from `config.ts` or `$COORDINATOR_CONFIG`). */
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { loadConfig } from "./config.ts";
 import { Coordinator } from "./coordinator.ts";
 import { loadDashboardLogin } from "./dashboard/auth.ts";
 import { loadDashboardToken, startDashboard } from "./dashboard/server.ts";
 import { Clones } from "./git.ts";
 import { GitHubClient } from "./github/client.ts";
 import { GhToken } from "./github/gh-token.ts";
+import { loadLiveConfig } from "./overrides.ts";
 import { SessionRunner } from "./runner.ts";
 import { Store } from "./store.ts";
 import { TmuxCli } from "./tmux.ts";
@@ -19,7 +19,10 @@ const DIALOG_CHECK_MS = 3_000;
 const log = (m: string) => console.log(`${new Date().toISOString()} ${m}`);
 
 async function main() {
-  const config = await loadConfig(process.env.COORDINATOR_CONFIG ?? "config.ts");
+  // REQ-003-36: config.ts with the Settings overrides; `live.current` changes when the Owner saves settings.
+  const live = await loadLiveConfig(process.env.COORDINATOR_CONFIG ?? "config.ts");
+  // Only settings that can't be edited are read from `config` (config.ts); the rest from `live.current`.
+  const config = live.base;
   const stateDir = resolve(config.stateDir);
   mkdirSync(stateDir, { recursive: true });
   // REQ-003-07: an unusable token stops the start, before anything runs.
@@ -46,10 +49,20 @@ async function main() {
     clones,
     token: (repo) => auth.tokenFor(repo),
     setup: (repo) => config.repos.find((r) => r.name.toLowerCase() === repo.toLowerCase())?.setup,
-    maxWorktrees: config.limits.maxWorktrees,
+    maxWorktrees: () => live.current.limits.maxWorktrees,
     commitAuthor: config.github.commitAuthor,
   });
-  const coordinator = new Coordinator({ config, store, gh, runner, clones, worktrees, log });
+  const coordinator = new Coordinator({
+    get config() {
+      return live.current;
+    },
+    store,
+    gh,
+    runner,
+    clones,
+    worktrees,
+    log,
+  });
 
   for (const { name } of config.repos) {
     try {
@@ -61,13 +74,14 @@ async function main() {
   // REQ-003-08: it serves the last tick's snapshot and fails on its own.
   const dashboard = startDashboard({
     config,
+    settings: live,
     token: dashboardToken,
     login: dashboardLogin,
     snapshot: () => coordinator.snapshot(),
     timings: store,
     log,
   });
-  log(`${NAME}: watching ${config.repos.map((r) => r.name).join(", ")} every ${config.pollIntervalSec}s`);
+  log(`${NAME}: watching ${config.repos.map((r) => r.name).join(", ")} every ${live.current.pollIntervalSec}s`);
 
   let stopping = false;
   const stop = () => {
@@ -80,7 +94,8 @@ async function main() {
   const dialogs = setInterval(() => runner.answerDialogs(), DIALOG_CHECK_MS);
   while (!stopping) {
     await coordinator.tick();
-    for (let waited = 0; waited < config.pollIntervalSec * 1000 && !stopping; waited += 500) await Bun.sleep(500);
+    // The poll interval is read while waiting, so a saved one applies to the wait in progress (REQ-003-36).
+    for (let waited = 0; waited < live.current.pollIntervalSec * 1000 && !stopping; waited += 500) await Bun.sleep(500);
   }
   clearInterval(dialogs);
   dashboard?.stop();

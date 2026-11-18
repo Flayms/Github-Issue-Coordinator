@@ -14,10 +14,17 @@ import { dirname, join } from "node:path";
 import { ASSET_NAMES, asset } from "../src/dashboard/assets.ts";
 import { renderConfig } from "../src/dashboard/config-html.tsx";
 import { renderDashboard } from "../src/dashboard/html.tsx";
+import { settingFields } from "../src/dashboard/settings-form.ts";
 import { timingsView } from "../src/dashboard/timings.ts";
 import { renderTimings } from "../src/dashboard/timings-html.tsx";
 import { dashboardView } from "../src/dashboard/view.ts";
-import { MOCK_CONFIG, MOCK_NOW, MOCK_SNAPSHOT, MOCK_TIMING_SOURCE } from "../test/fixtures/dashboard-mock.ts";
+import {
+  MOCK_CONFIG,
+  MOCK_CONFIG_BASE,
+  MOCK_NOW,
+  MOCK_SNAPSHOT,
+  MOCK_TIMING_SOURCE,
+} from "../test/fixtures/dashboard-mock.ts";
 
 const ROOT = join(import.meta.dir, "..");
 
@@ -80,7 +87,14 @@ export const SCREENSHOTS: readonly Screenshot[] = [
 export function mockPages(): string[] {
   const view = dashboardView(MOCK_SNAPSHOT, MOCK_CONFIG, MOCK_NOW);
   const timings = timingsView({ source: MOCK_TIMING_SOURCE, pick: null, includeOwner: false, now: MOCK_NOW });
-  return [renderDashboard(view), renderConfig(view), renderTimings(view, timings)];
+  // The Config page as the signed-in Owner sees it: the editable settings as a form (REQ-003-36).
+  const form = {
+    token: "mock-form-token",
+    fields: settingFields(MOCK_CONFIG_BASE, MOCK_CONFIG),
+    errors: [],
+    saved: false,
+  };
+  return [renderDashboard(view), renderConfig(view, form), renderTimings(view, timings)];
 }
 
 /** A hash of the pages and the assets, each length-prefixed so moving bytes between them changes it. */

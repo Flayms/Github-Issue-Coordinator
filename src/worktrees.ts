@@ -45,7 +45,8 @@ export class Worktrees {
       remoteUrl?: (repo: string) => string;
       /** The repository's setup command (config `repos[].setup`). */
       setup: (repo: string) => string | undefined;
-      maxWorktrees: number;
+      /** Read on every check, so a saved setting applies without a restart (REQ-003-36). */
+      maxWorktrees: () => number;
       /** Identity for the agent's commits (the server has no global git identity). */
       commitAuthor: { name: string; email: string };
     },
@@ -65,7 +66,7 @@ export class Worktrees {
   }
 
   hasRoom(): boolean {
-    return this.count() < this.o.maxWorktrees;
+    return this.count() < this.o.maxWorktrees();
   }
 
   /** The Worktree of an issue or Bundle (named after its first issue); reused if it exists. */
@@ -76,7 +77,7 @@ export class Worktrees {
       excludeCoordinatorFolder(path);
       return { path, branch: git(path, ["rev-parse", "--abbrev-ref", "HEAD"]) };
     }
-    if (!this.hasRoom()) throw new Error(`maxWorktrees (${this.o.maxWorktrees}) reached`);
+    if (!this.hasRoom()) throw new Error(`maxWorktrees (${this.o.maxWorktrees()}) reached`);
 
     await this.checkout(repo, path);
     git(path, ["checkout", "-q", "-b", branch, "origin/HEAD"]);
@@ -91,7 +92,7 @@ export class Worktrees {
   async attach(repo: string, issues: number[], branch: string): Promise<Worktree> {
     const path = this.path(repo, issues);
     if (existsSync(path)) throw new Error(`a folder already exists at ${path}`);
-    if (!this.hasRoom()) throw new Error(`maxWorktrees (${this.o.maxWorktrees}) reached`);
+    if (!this.hasRoom()) throw new Error(`maxWorktrees (${this.o.maxWorktrees()}) reached`);
     await this.checkout(repo, path);
     git(path, ["checkout", "-q", "-b", branch, "--track", `origin/${branch}`]);
     this.prepare(repo, path);

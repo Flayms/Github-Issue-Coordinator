@@ -101,6 +101,12 @@ export function validSession(key: string, value: string | undefined, ownerId: nu
   return version === SESSION_VERSION && id === String(ownerId) && Number.parseInt(expires ?? "", 36) > now.getTime();
 }
 
+/**
+ * The Config form's token (REQ-003-07, REQ-003-36): bound to the session, so another site that can't read the page
+ * can't save settings, and a new sign-in gets a new one.
+ */
+export const formToken = (key: string, session: string): string => sign(key, `form.${session}`);
+
 export type SignInResult =
   | { ok: true; user: { id: number; login: string } }
   | { ok: false; status: 400 | 502; reason: string };

@@ -25,14 +25,14 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(dir, { recursive: true }));
 
-const make = (setup?: string, maxWorktrees = 5) => {
+const make = (setup?: string, maxWorktrees: number | (() => number) = 5) => {
   const opts = { token: async () => "tok-123", remoteUrl: () => origin };
   return new Worktrees({
     root: join(dir, "state"),
     clones: new Clones({ root: join(dir, "state", "clones"), ...opts }),
     ...opts,
     setup: () => setup,
-    maxWorktrees,
+    maxWorktrees: typeof maxWorktrees === "number" ? () => maxWorktrees : maxWorktrees,
     commitAuthor: { name: "Claude", email: "noreply@anthropic.com" },
   });
 };
@@ -124,6 +124,17 @@ describe("worktrees", () => {
     await w.create("octo/app", [5], "x");
     expect(w.hasRoom()).toBe(false);
     expect(w.create("octo/app", [6], "y")).rejects.toThrow("maxWorktrees");
+  });
+
+  test("REQ-003-36 maxWorktrees is read on every check, so a saved setting applies without a restart", async () => {
+    let max = 1;
+    const w = make(undefined, () => max);
+    await w.create("octo/app", [5], "x");
+    expect(w.hasRoom()).toBe(false);
+    max = 2;
+    expect(w.hasRoom()).toBe(true);
+    await w.create("octo/app", [6], "y");
+    expect(w.hasRoom()).toBe(false);
   });
 
   test("REQ-001-10 review checkouts are detached at the PR head", async () => {
