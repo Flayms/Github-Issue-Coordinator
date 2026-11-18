@@ -276,7 +276,7 @@ describe("dashboard html", () => {
     expect(rowClass(next)).toBe(rowClass(html.slice(html.indexOf('id="recent"'), html.indexOf('id="now"'))));
   });
 
-  test("REQ-003-16 Recent shows 5 Events on a phone and the other 10 behind an expander that needs no JavaScript", () => {
+  test("REQ-003-16 / REQ-003-23 Recent shows 5 of its 15 Events at every width and the other 10 behind an expander that needs no JavaScript", () => {
     const events = Array.from({ length: 15 }, (_, i) => ({
       at: new Date(Date.parse("2026-11-15T10:20:00.000Z") - i * 60_000).toISOString(),
       repo: "octo/app",
@@ -292,11 +292,81 @@ describe("dashboard html", () => {
     expect(shown).not.toContain("Event 6 happened");
     expect(more).toMatch(/<summary [^>]*>Show 10 more<\/summary>/);
     for (let n = 6; n <= 15; n++) expect(more).toContain(`Event ${n} happened`);
-    // From lg on there is room, so all 15 show and the expander's summary hides.
-    expect(more).toMatch(/^ class="[^"]*lg:details-content:\[content-visibility:visible\]/);
-    expect(more).toMatch(/<summary class="[^"]*lg:hidden/);
+    // Nothing forces the expander open or hides its summary on a wide screen.
+    expect(recent).not.toMatch(/lg:details-content|lg:hidden/);
+    expect(recent).not.toMatch(/<details[^>]* open/);
     // With 5 or fewer Events there is nothing to expand.
     expect(overview()).not.toContain("<details");
+  });
+
+  test("REQ-003-23 Next shows its first 5 steps and the rest, blocked issues last, behind an expander", () => {
+    const queue = Array.from({ length: 8 }, (_, i) => ({
+      work: {
+        key: `octo/app#${i + 10} implement`,
+        kind: "implement" as const,
+        role: "implementer" as const,
+        queuedAt: "t",
+      },
+      wait: { kind: "max-running" as const },
+    }));
+    const html = renderDashboard(dashboardView({ ...snap, queue }, config, NOW));
+    const next = html.slice(html.indexOf('id="next"'), html.indexOf('id="pipeline"'));
+    const [shown, more] = next.split("<details");
+    for (let n = 10; n <= 14; n++) expect(shown).toContain(`octo/app#${n} implement`);
+    expect(shown).toMatch(/data-step="next"/);
+    expect(shown).not.toContain("octo/app#15 implement");
+    // 3 more steps plus the blocked issue, in the same order and row style.
+    expect(more).toMatch(/<summary [^>]*>Show 4 more<\/summary>/);
+    const marks = order(more ?? "", ["octo/app#15", "octo/app#16", "octo/app#17", 'data-step="blocked"']);
+    expect(marks.every((m) => m >= 0)).toBe(true);
+    expect(marks).toEqual([...marks].sort((a, b) => a - b));
+    expect(more).not.toContain('data-step="next"');
+    // The header counts stay the totals.
+    expect(html).toContain("8 queued");
+  });
+
+  test("REQ-003-23 Now shows its first 5 sessions, running ones first, and the rest behind an expander", () => {
+    const base = snap.sessions[0];
+    if (!base) throw new Error("fixture has a session");
+    const sessions = Array.from({ length: 7 }, (_, i) => ({
+      ...base,
+      id: i + 1,
+      issues: [i + 20],
+      title: `Session ${i + 1} work`,
+      state: (i < 4 ? "running" : "idle") as "running" | "idle",
+    }));
+    const html = renderDashboard(dashboardView({ ...snap, sessions }, config, NOW));
+    const now = html.slice(html.indexOf('id="now"'), html.indexOf('id="next"'));
+    const [shown, more] = now.split("<details");
+    for (let n = 1; n <= 5; n++) expect(shown).toContain(`Session ${n} work`);
+    expect(shown).not.toContain("Session 6 work");
+    expect(more).toMatch(/<summary [^>]*>Show 2 more<\/summary>/);
+    for (const n of [6, 7]) expect(more).toContain(`Session ${n} work`);
+    // Same session style inside the expander as above it.
+    const listClass = (s: string) => s.match(/<ul class="([^"]*)"/)?.[1];
+    expect(listClass(more ?? "")).toBe(listClass(shown ?? ""));
+  });
+
+  test("REQ-003-23 a part with exactly 5 items has no expander", () => {
+    const queue = Array.from({ length: 4 }, (_, i) => ({
+      work: {
+        key: `octo/app#${i + 10} implement`,
+        kind: "implement" as const,
+        role: "implementer" as const,
+        queuedAt: "t",
+      },
+    }));
+    const events = Array.from({ length: 5 }, (_, i) => ({
+      at: new Date(Date.parse("2026-11-15T10:20:00.000Z") - i * 60_000).toISOString(),
+      repo: "octo/app",
+      kind: "approved" as const,
+      issues: [i + 1],
+      pr: null,
+      text: `Event ${i + 1} happened`,
+    }));
+    // 4 queued steps + 1 blocked issue = 5 in Next; 5 Events in Recent.
+    const html = renderDashboard(dashboardView({ ...snap, queue, events }, config, NOW));
+    expect(html).not.toContain("<details");
   });
 
   test("REQ-003-04 the first step is marked next, waiting steps say why, blocked issues are marked", () => {

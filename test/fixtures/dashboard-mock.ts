@@ -221,6 +221,18 @@ export const MOCK_SNAPSHOT: TickSnapshot = {
       work: { key: "acme/design-system plan", kind: "plan", role: "planner", queuedAt: at(1) },
       wait: { kind: "slot", role: "planner" },
     },
+    {
+      work: { key: "acme/storefront#227 revise", kind: "revise", role: "planner", queuedAt: at(1) },
+      wait: { kind: "slot", role: "planner" },
+    },
+    {
+      work: { key: "acme/payments-api#44 revise", kind: "revise", role: "planner", queuedAt: at(0.8) },
+      wait: { kind: "slot", role: "planner" },
+    },
+    {
+      work: { key: "acme/storefront plan", kind: "plan", role: "planner", queuedAt: at(0.6) },
+      wait: { kind: "slot", role: "planner" },
+    },
   ],
   events: [
     {
