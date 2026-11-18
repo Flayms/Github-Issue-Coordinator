@@ -234,8 +234,10 @@ describe("dashboard server", () => {
     });
     if (server) servers.push(server);
     const html = await (await fetch(`http://127.0.0.1:${server?.port}/?repo=octo%2Flib`)).text();
-    expect(html).toContain("Lib thing");
-    expect(html).not.toContain("Fix login");
+    // The Pipeline is narrowed; Your move above it lists what needs the Owner in every repository (REQ-003-32).
+    const pipeline = html.slice(html.indexOf('id="pipeline"'));
+    expect(pipeline).toContain("Lib thing");
+    expect(pipeline).not.toContain("Fix login");
   });
 
   test("REQ-003-09 serves the CSS, script and fonts from a fixed list of files, behind the token", async () => {

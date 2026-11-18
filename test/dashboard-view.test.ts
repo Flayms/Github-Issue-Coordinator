@@ -310,7 +310,11 @@ describe("dashboard view", () => {
     });
   });
 
-  test("REQ-003-03 lists reviewed, mergeable agent PRs with passing (or no) checks as ready to merge", () => {
+  /** The numbers of the ready PRs in Your move (REQ-003-32, the filter of the deprecated REQ-003-03). */
+  const readyPrs = (v: ReturnType<typeof dashboardView>) =>
+    v.yourMove.find((g) => g.kind === "merge")?.items.map((i) => i.number) ?? [];
+
+  test("REQ-003-32 lists reviewed, mergeable agent PRs with passing (or no) checks as ready to merge", () => {
     const reviewed = (n: number) => ({ number: n, title: `I${n}`, labels: ["agent:reviewed"], blockedBy: [] });
     const v = dashboardView(
       snapshot({
@@ -331,10 +335,10 @@ describe("dashboard view", () => {
       config,
       NOW,
     );
-    expect(v.readyToMerge.map((p) => p.number)).toEqual([71, 72]);
+    expect(readyPrs(v)).toEqual([71, 72]);
   });
 
-  test("REQ-003-03 a Bundle is ready only when all its issues are reviewed", () => {
+  test("REQ-003-32 a Bundle is ready only when all its issues are reviewed", () => {
     const v = dashboardView(
       snapshot({
         repos: [
@@ -351,7 +355,7 @@ describe("dashboard view", () => {
       config,
       NOW,
     );
-    expect(v.readyToMerge).toEqual([]);
+    expect(readyPrs(v)).toEqual([]);
   });
 
   test("REQ-003-04 shows the queue in order with why each item waits, then the blocked issues", () => {
@@ -485,37 +489,109 @@ describe("dashboard view", () => {
     ]);
   });
 
-  test("REQ-003-11 sums up ready PRs, running sessions, what needs the Owner, what is stuck and what waits", () => {
+  /** One issue per phase that needs the Owner, plus others that don't, two repositories. */
+  const owed = () => {
+    const issue = (number: number, label: string, title = `I${number}`) => ({
+      number,
+      title,
+      labels: [label],
+      blockedBy: [],
+    });
+    return snapshot({
+      repos: [
+        repo({
+          repo: "octo/app",
+          issues: [
+            issue(1, "agent:proposed", "Add search"),
+            issue(2, "agent:needs-refinement"),
+            issue(3, "agent:wontfix-proposed"),
+            issue(4, "agent:reviewed"),
+            issue(5, "agent:failed", "Broken thing"),
+            issue(6, "agent:blocked"),
+            issue(7, "agent:in-progress"),
+            issue(8, "agent:reviewed"),
+          ],
+          pulls: [{ ...pull(70, [4], { checks: "none" }), title: "Fix login" }, pull(71, [8], { mergeable: false })],
+        }),
+        repo({ repo: "octo/lib", issues: [issue(2, "agent:failed"), issue(9, "agent:proposed")] }),
+      ],
+    });
+  };
+
+  test("REQ-003-32 groups what needs the Owner: Merge PRs, Failed, Answer questions, Approve plans, Close?", () => {
+    const v = dashboardView(owed(), config, NOW);
+    expect(v.yourMove.map((g) => [g.kind, g.title, g.items.map((i) => `${i.repo}#${i.number}`)])).toEqual([
+      ["merge", "Merge PRs", ["octo/app#70"]],
+      ["failed", "Failed", ["octo/app#5", "octo/lib#2"]],
+      ["questions", "Answer questions", ["octo/app#2"]],
+      ["approve", "Approve plans", ["octo/app#1", "octo/lib#9"]],
+      ["close", "Close?", ["octo/app#3"]],
+    ]);
+    // A PR row links to the PR and says it is reviewed with its checks; an issue row links to the issue.
+    expect(v.yourMove[0]?.items[0]).toEqual({
+      repo: "octo/app",
+      number: 70,
+      title: "Fix login",
+      url: "https://github.com/octo/app/pull/70",
+      label: "PR #70",
+      checks: "no checks",
+      hint: "Reviewed: merge it",
+    });
+    expect(v.yourMove[1]?.items[0]).toEqual({
+      repo: "octo/app",
+      number: 5,
+      title: "Broken thing",
+      url: "https://github.com/octo/app/issues/5",
+      label: "#5",
+      checks: null,
+      hint: "The Coordinator gave up; see its comment",
+    });
+    expect(v.yourMove.map((g) => g.items[0]?.hint)).toEqual([
+      "Reviewed: merge it",
+      "The Coordinator gave up; see its comment",
+      "The Planner has questions",
+      "Assessment ready: approve or reply",
+      "The Planner proposes not to do it",
+    ]);
+  });
+
+  test("REQ-003-32 leaves out empty groups, and nothing at all when nothing needs the Owner", () => {
     const issue = (number: number, label: string) => ({ number, title: "x", labels: [label], blockedBy: [] });
+    const some = dashboardView(
+      snapshot({ repos: [repo({ repo: "octo/app", issues: [issue(1, "agent:needs-refinement")] })] }),
+      config,
+      NOW,
+    );
+    expect(some.yourMove.map((g) => g.kind)).toEqual(["questions"]);
+    const none = dashboardView(
+      snapshot({
+        repos: [repo({ repo: "octo/app", issues: [issue(1, "agent:in-progress"), issue(2, "agent:blocked")] })],
+      }),
+      config,
+      NOW,
+    );
+    expect(none.yourMove).toEqual([]);
+    expect(none.summary.needYou).toBe(0);
+    expect(dashboardView(undefined, config, NOW).yourMove).toEqual([]);
+  });
+
+  test("REQ-003-11 sums up what needs the Owner, running sessions, work waiting for a slot and blocked issues", () => {
     const work = (key: string) => ({ key, kind: "plan" as const, role: "planner" as const, queuedAt: "t" });
     const v = dashboardView(
-      snapshot({
-        repos: [
-          repo({
-            repo: "octo/app",
-            issues: [
-              issue(1, "agent:proposed"),
-              issue(2, "agent:needs-refinement"),
-              issue(3, "agent:wontfix-proposed"),
-              issue(4, "agent:reviewed"),
-              issue(5, "agent:failed"),
-              issue(6, "agent:blocked"),
-              issue(7, "agent:in-progress"),
-            ],
-            pulls: [pull(70, [4], {})],
-          }),
-        ],
+      {
+        ...owed(),
         sessions: [
           session({ id: 1, role: "implementer", issues: [7] }),
           session({ id: 2, role: "planner", issues: [1], state: "idle" }),
           session({ id: 3, role: "reviewer", issues: [4], live: false }),
         ],
         queue: [{ work: work("a") }, { work: work("b"), wait: { kind: "max-running" } }],
-      }),
+      },
       config,
       NOW,
     );
-    expect(v.summary).toEqual({ ready: 1, working: 1, needYou: 4, stuck: 2, queued: 1 });
+    // needYou is the total of Your move: 1 PR, 2 failed, 1 question, 2 plans, 1 close.
+    expect(v.summary).toEqual({ needYou: 7, working: 1, queued: 1, blocked: 1 });
   });
 
   test("REQ-003-12 shows used out of the limit for running and live sessions, each Role's Slots and Worktrees", () => {
