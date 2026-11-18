@@ -106,7 +106,7 @@ function findBrowser(): string {
 }
 
 /** A minimal Chrome DevTools Protocol client over one page target. */
-class Cdp {
+export class Cdp {
   private nextId = 1;
   private pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   private listeners = new Map<string, (() => void)[]>();
@@ -188,7 +188,16 @@ async function shoot(cdp: Cdp, base: string, s: Screenshot): Promise<Uint8Array>
   return Buffer.from(data, "base64");
 }
 
-async function main() {
+/** A headless Chrome on the mock pages (served with the dashboard's assets) and a DevTools client on its page. */
+export interface MockBrowser {
+  cdp: Cdp;
+  /** Where the mock pages are served, e.g. `http://127.0.0.1:41234`. */
+  base: string;
+  close(): Promise<void>;
+}
+
+/** Serves the mock pages and starts a headless Chrome on them; `flags` are added to Chrome's command line. */
+export async function openMockBrowser(flags: readonly string[] = []): Promise<MockBrowser> {
   const [overview = "", config = ""] = mockPages();
   const pages = new Map([
     ["/", overview],
@@ -219,12 +228,19 @@ async function main() {
       "--enable-unsafe-swiftshader",
       // Its GPU compositing draws seams across frosted panels (docs/known-pitfalls.md).
       "--disable-gpu-compositing",
+      ...flags,
       "--remote-debugging-port=0",
       `--user-data-dir=${profile}`,
       "about:blank",
     ],
     { stdout: "ignore", stderr: "ignore" },
   );
+  const close = async () => {
+    browser.kill();
+    await browser.exited;
+    server.stop(true);
+    rmSync(profile, { recursive: true, force: true });
+  };
   try {
     const port = await waitFor("the browser's DevTools port", () => {
       try {
@@ -241,21 +257,33 @@ async function main() {
     if (!page) throw new Error("the browser has no page");
     const cdp = await Cdp.connect(page.webSocketDebuggerUrl);
     await cdp.send("Page.enable");
-    const base = `http://127.0.0.1:${server.port}`;
+    return {
+      cdp,
+      base: `http://127.0.0.1:${server.port}`,
+      close: async () => {
+        cdp.close();
+        await close();
+      },
+    };
+  } catch (e) {
+    await close();
+    throw e;
+  }
+}
+
+async function main() {
+  const { cdp, base, close } = await openMockBrowser();
+  try {
     for (const s of SCREENSHOTS) {
       const png = await shoot(cdp, base, s);
       mkdirSync(dirname(join(ROOT, s.file)), { recursive: true });
       writeFileSync(join(ROOT, s.file), png);
       console.log(`${s.file} (${Math.round(png.length / 1024)} KB)`);
     }
-    cdp.close();
     writeFileSync(join(ROOT, FINGERPRINT_FILE), `${mockFingerprint()}\n`);
     console.log(`${FINGERPRINT_FILE} updated`);
   } finally {
-    browser.kill();
-    await browser.exited;
-    server.stop(true);
-    rmSync(profile, { recursive: true, force: true });
+    await close();
   }
 }
 
