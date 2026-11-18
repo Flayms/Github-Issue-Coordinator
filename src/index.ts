@@ -64,6 +64,7 @@ async function main() {
     token: dashboardToken,
     login: dashboardLogin,
     snapshot: () => coordinator.snapshot(),
+    timings: store,
     log,
   });
   log(`${NAME}: watching ${config.repos.map((r) => r.name).join(", ")} every ${config.pollIntervalSec}s`);

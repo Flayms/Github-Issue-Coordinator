@@ -402,4 +402,167 @@ describe("store", () => {
     expect(events[0]?.issues).toEqual([EVENTS_KEPT + 5]);
     expect(events.at(-1)?.issues).toEqual([6]);
   });
+
+  describe("Timings", () => {
+    const time = (min: number) => new Date(Date.UTC(2026, 10, 18, 10, min)).toISOString();
+    const clock = (start: number) => {
+      let min = start;
+      return { now: () => new Date(time(min)), at: (m: number) => (min = m) };
+    };
+    const pick = (s: Store, issue = 5) =>
+      s.timings("octo/app", issue).map((t) => ({
+        phase: t.phase,
+        kind: t.kind,
+        role: t.role,
+        round: t.round,
+        start: t.start,
+        end: t.end,
+      }));
+
+    test("REQ-003-33 a step records its wait, and the session's running time, not its idle time, as agent time", () => {
+      const c = clock(14);
+      const s = new Store(":memory:", c.now);
+      s.beginStep("octo/app", 5, { phase: "planning", role: "planner", title: "Dark mode", queuedAt: time(0) });
+      const id = s.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [5] });
+      c.at(23);
+      s.patchSession(id, { state: "idle", needsSync: true });
+      c.at(30);
+      s.patchSession(id, { needsSync: false }); // no state change: nothing recorded
+      s.patchSession(id, { state: "running", ownerMessagedAt: time(30) }); // the Owner chats with it
+      s.patchSession(id, { state: "running" }); // already running: still one interval
+      c.at(32);
+      s.setState(id, "closed");
+      expect(pick(s)).toEqual([
+        { phase: "planning", kind: "queued", role: "planner", round: 1, start: time(0), end: time(14) },
+        { phase: "planning", kind: "agent", role: "planner", round: 1, start: time(14), end: time(23) },
+        { phase: "planning", kind: "agent", role: "planner", round: 1, start: time(30), end: time(32) },
+      ]);
+      expect(s.timings("octo/app", 5)[1]).toMatchObject({ sessionId: id, title: "Dark mode" });
+      // A session of another Role, or one without a step, records nothing.
+      s.createSession({ repo: "octo/app", role: "reviewer", kind: "issue", issues: [5] });
+      s.createSession({ repo: "octo/app", role: "planner", kind: "issue", issues: [6] });
+      expect(pick(s)).toHaveLength(3);
+      expect(pick(s, 6)).toEqual([]);
+    });
+
+    test("REQ-003-33 Timings survive a restart; an interval left open by a crash is closed when a Tick notices it", () => {
+      const dir = mkdtempSync(join(tmpdir(), "store-"));
+      try {
+        const path = join(dir, "state.db");
+        const c = clock(0);
+        const a = new Store(path, c.now);
+        for (const n of [5, 6])
+          a.beginStep("octo/app", n, { phase: "building", role: "implementer", queuedAt: time(0) });
+        const crashed = a.createSession({ repo: "octo/app", role: "implementer", kind: "issue", issues: [5] });
+        const alive = a.createSession({ repo: "octo/app", role: "implementer", kind: "issue", issues: [6] });
+        a.close();
+
+        c.at(40);
+        const b = new Store(path, c.now);
+        b.closeInterruptedTimings(new Set([alive]));
+        expect(b.timings("octo/app", 5).at(-1)).toMatchObject({ sessionId: crashed, start: time(0), end: time(40) });
+        expect(b.timings("octo/app", 6).at(-1)).toMatchObject({ sessionId: alive, start: time(0), end: null });
+        // Resumed after the restart: a new interval of the same step.
+        c.at(41);
+        b.patchSession(crashed, { state: "running" });
+        expect(pick(b).slice(1)).toEqual([
+          { phase: "building", kind: "agent", role: "implementer", round: 1, start: time(0), end: time(40) },
+          { phase: "building", kind: "agent", role: "implementer", round: 1, start: time(41), end: null },
+        ]);
+        b.close();
+      } finally {
+        rmSync(dir, { recursive: true });
+      }
+    });
+
+    test("REQ-003-33 a session's time goes to the step that began last, whatever the rounds of the other phases", () => {
+      const c = clock(0);
+      const s = new Store(":memory:", c.now);
+      // Two Implementer runs (building round 2), then a Feedback round (review round 1) of the same Role.
+      for (const at of [0, 20]) {
+        c.at(at);
+        s.beginStep("octo/app", 5, { phase: "building", role: "implementer" });
+        const run = s.createSession({ repo: "octo/app", role: "implementer", kind: "issue", issues: [5] });
+        c.at(at + 10);
+        s.setState(run, "closed");
+      }
+      c.at(40);
+      s.beginStep("octo/app", 5, { phase: "review", role: "implementer" });
+      s.createSession({ repo: "octo/app", role: "implementer", kind: "issue", issues: [5] });
+      expect(pick(s).at(-1)).toEqual({
+        phase: "review",
+        kind: "agent",
+        role: "implementer",
+        round: 1,
+        start: time(40),
+        end: null,
+      });
+    });
+
+    test("REQ-003-33 a start tried again stays the same round; the next step is a new round that starts where the last ended", () => {
+      const c = clock(10);
+      const s = new Store(":memory:", c.now);
+      s.beginStep("octo/app", 5, { phase: "planning", role: "planner", queuedAt: time(0) });
+      c.at(12);
+      s.beginStep("octo/app", 5, { phase: "planning", role: "planner", queuedAt: time(0) }); // the first start failed
+      const id = s.createSession({ repo: "octo/app", role: "planner", kind: "issue", issues: [5] });
+      c.at(20);
+      s.patchSession(id, { state: "idle" });
+      c.at(50);
+      // A queue time before the last end (e.g. the issue's creation, when it is planned anew) starts at the last end.
+      s.beginStep("octo/app", 5, { phase: "planning", role: "planner", queuedAt: time(0) });
+      expect(pick(s)).toEqual([
+        { phase: "planning", kind: "queued", role: "planner", round: 1, start: time(0), end: time(12) },
+        { phase: "planning", kind: "agent", role: "planner", round: 1, start: time(12), end: time(20) },
+        { phase: "planning", kind: "queued", role: "planner", round: 2, start: time(20), end: time(50) },
+      ]);
+    });
+
+    test("REQ-003-33 the Owner's time fills the gap since the last step; checks run alongside, once per head; never for an issue without Timings", () => {
+      const c = clock(10);
+      const s = new Store(":memory:", c.now);
+      s.recordWait("octo/app", 5, { phase: "planning", kind: "owner", end: time(10) }); // no backfill
+      expect(pick(s)).toEqual([]);
+
+      s.beginStep("octo/app", 5, { phase: "building", role: "implementer", queuedAt: time(0) });
+      const id = s.createSession({ repo: "octo/app", role: "implementer", kind: "issue", issues: [5] });
+      c.at(30);
+      s.patchSession(id, { state: "idle" });
+      c.at(37);
+      s.recordWait("octo/app", 5, { phase: "review", kind: "checks", end: time(37), headSha: "h1" });
+      c.at(38);
+      s.recordWait("octo/app", 5, { phase: "review", kind: "checks", end: time(38), headSha: "h1" }); // same head
+      s.recordWait("octo/app", 5, { phase: "review", kind: "owner", end: time(20) }); // before the last end
+      c.at(90);
+      s.recordWait("octo/app", 5, { phase: "review", kind: "owner", end: time(90) });
+      // Checks running alongside the Review start when the pushed head was seen, not at the last end.
+      s.recordWait("octo/app", 5, { phase: "review", kind: "checks", start: time(70), end: time(80), headSha: "h2" });
+      // Checks already finished when their head is first seen: kept with no duration, so a later Tick adds none.
+      s.recordWait("octo/app", 5, { phase: "review", kind: "checks", start: time(95), end: time(95), headSha: "h3" });
+      c.at(99);
+      s.recordWait("octo/app", 5, { phase: "review", kind: "checks", start: time(95), end: time(99), headSha: "h3" });
+      expect(pick(s).slice(2)).toEqual([
+        { phase: "review", kind: "checks", role: null, round: 1, start: time(30), end: time(37) },
+        { phase: "review", kind: "owner", role: null, round: 1, start: time(30), end: time(90) }, // checks don't end a step
+        { phase: "review", kind: "checks", role: null, round: 2, start: time(70), end: time(80) },
+        { phase: "review", kind: "checks", role: null, round: 3, start: time(95), end: time(95) },
+      ]);
+      expect(s.hasTimings("octo/app", 5)).toBe(true);
+      expect(s.hasTimings("octo/app", 6)).toBe(false);
+    });
+
+    test("REQ-003-34 lists the issues with Timings, the most recently active first, with their title", () => {
+      const c = clock(0);
+      const s = new Store(":memory:", c.now);
+      s.beginStep("octo/app", 5, { phase: "planning", role: "planner", title: "Old", queuedAt: time(0) });
+      c.at(5);
+      s.beginStep("acme/web", 9, { phase: "planning", role: "planner", title: "Other", queuedAt: time(0) });
+      c.at(9);
+      s.beginStep("octo/app", 5, { phase: "building", role: "implementer", title: "Renamed", queuedAt: time(8) });
+      expect(s.timedIssues()).toEqual([
+        { repo: "octo/app", issue: 5, title: "Renamed", lastAt: time(9) },
+        { repo: "acme/web", issue: 9, title: "Other", lastAt: time(5) },
+      ]);
+    });
+  });
 });

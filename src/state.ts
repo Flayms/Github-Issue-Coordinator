@@ -127,12 +127,14 @@ export type Action =
   | { type: "block"; repo: string; issue: number; blockers: number[] }
   | { type: "unblock"; repo: string; issue: number }
   | { type: "implement"; repo: string; issues: number[]; approvedAt: string }
-  | { type: "cleanup"; repo: string; issues: number[]; prNumber: number; worktreePath: string }
+  /** `merged`: the Owner merged the PR, which ends their time on it (REQ-003-33); else it was closed. */
+  | { type: "cleanup"; repo: string; issues: number[]; prNumber: number; worktreePath: string; merged: boolean }
   | { type: "review"; repo: string; pr: number; issues: number[]; headSha: string }
   /** REQ-001-31 / REQ-001-64: a reviewed head without findings whose checks passed leaves draft. */
   | { type: "ready"; repo: string; pr: number; issues: number[]; headSha: string }
   | { type: "implement"; repo: string; issues: number[]; approvedAt: string }
-  | { type: "cleanup"; repo: string; issues: number[]; prNumber: number; worktreePath: string }
+  /** `merged`: the Owner merged the PR, which ends their time on it (REQ-003-33); else it was closed. */
+  | { type: "cleanup"; repo: string; issues: number[]; prNumber: number; worktreePath: string; merged: boolean }
   /** REQ-001-43: rebuild the Worktree of an orphaned agent PR from its branch and record the PR again. */
   | { type: "reattach"; repo: string; pr: number; branch: string; issues: number[] }
   /** REQ-001-43: an orphaned agent PR whose issues are all closed or out of scope; only logged. */
@@ -449,6 +451,7 @@ export function deriveActions(s: Snapshot): Action[] {
         issues: w.issues,
         prNumber: w.prNumber,
         worktreePath: w.worktreePath,
+        merged: state === "merged",
       });
   }
 

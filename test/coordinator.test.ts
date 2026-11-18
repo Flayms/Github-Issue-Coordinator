@@ -1670,3 +1670,130 @@ describe("reconcile loop", () => {
     });
   });
 });
+
+describe("reconcile loop", () => {
+  const time = (min: number) => new Date(Date.UTC(2026, 10, 11, 10, min)).toISOString();
+  const at = (min: number) => {
+    now = new Date(time(min));
+  };
+  const timings = (issue = 5) =>
+    store
+      .timings("octo/app", issue)
+      .map((t) => [t.phase, t.kind, t.role, t.round, t.start.slice(11, 16), t.end?.slice(11, 16) ?? null]);
+  const turnEnds = (id: number, result: unknown) => {
+    mkdirSync(runner.sessionDir(id), { recursive: true });
+    writeFileSync(join(runner.sessionDir(id), "result.json"), JSON.stringify(result));
+    store.patchSession(id, { state: "idle", needsSync: true });
+  };
+
+  test("REQ-003-33 one issue through plan, revision, approval, Implementer, checks, Review, Feedback round, re-review and merge", async () => {
+    gh.items = [item(5, [], { createdAt: time(0) })];
+    at(14);
+    await coordinator.tick(); // the Planner pass starts
+    at(23);
+    finishPlanner(1, [5]);
+    await coordinator.tick(); // the Assessment is posted
+
+    gh.comments.set(5, [{ id: 901, body: "Use v2", author: OWNER, createdAt: time(50), updatedAt: "" }]);
+    gh.changed = true;
+    at(60);
+    await coordinator.tick(); // the revision starts
+    const revision = runner.started.length;
+    expect(runner.started.at(-1)).toMatchObject({ role: "planner", issues: [5] });
+    at(66);
+    finishPlanner(revision, [5]);
+    await coordinator.tick();
+
+    gh.comments.set(5, [
+      ...(gh.comments.get(5) ?? []),
+      { id: 902, body: "/approve", author: OWNER, createdAt: time(100), updatedAt: "" },
+    ]);
+    gh.changed = true;
+    gh.checkState = "pending";
+    at(105);
+    await coordinator.tick(); // approve
+    at(110);
+    await coordinator.tick(); // the Implementer starts
+    const impl = runner.started.length;
+    expect(runner.started.at(-1)).toMatchObject({ role: "implementer" });
+    at(158);
+    turnEnds(impl, { prTitle: "T", prBody: "B", summary: "S" });
+    gh.items.push(item(70, [], { isPullRequest: true, author: { login: "bot", id: 1 } }));
+    at(160);
+    await coordinator.tick(); // the PR opens; the Review starts while its checks run
+    const review = runner.started.length;
+    expect(runner.started.at(-1)).toMatchObject({ role: "reviewer" });
+
+    gh.checkState = "success";
+    at(165);
+    await coordinator.tick(); // checks done
+    expect(runner.started.at(-1)).toMatchObject({ role: "reviewer" });
+    at(177);
+    turnEnds(review, { summary: "S", findings: [{ path: "a.ts", line: 1, severity: "high", body: "crash" }] });
+    await coordinator.tick(); // the findings start the Feedback round in the same Tick
+    expect(runner.resumed.at(-1)?.[0]).toBe(impl);
+
+    worktrees.headSha = "h2";
+    gh.heads.set(70, "h2");
+    at(194);
+    turnEnds(impl, {
+      prTitle: "T",
+      prBody: "B",
+      summary: "Fixed",
+      responses: [{ finding: 1, answer: "fixed", reason: "Guarded" }],
+    });
+    gh.changed = true;
+    at(200);
+    await coordinator.tick(); // pushed (checks of h2 already done); the re-review starts
+    const reReview = runner.started.length;
+    expect(runner.started.at(-1)).toMatchObject({ role: "reviewer" });
+    at(208);
+    turnEnds(reReview, { summary: "Good", findings: [] });
+    await coordinator.tick();
+
+    gh.items = gh.items.filter((i) => i.number !== 70 && i.number !== 5);
+    gh.pullStates.set(70, "merged");
+    gh.changed = true;
+    at(250);
+    await coordinator.tick(); // merged and cleaned up
+
+    expect(timings()).toEqual([
+      ["planning", "queued", "planner", 1, "10:00", "10:14"],
+      ["planning", "agent", "planner", 1, "10:14", "10:23"],
+      ["planning", "owner", null, 1, "10:23", "10:50"],
+      ["planning", "queued", "planner", 2, "10:50", "11:00"],
+      ["planning", "agent", "planner", 2, "11:00", "11:06"],
+      ["planning", "owner", null, 2, "11:06", "11:40"],
+      ["building", "queued", "implementer", 1, "11:40", "11:50"],
+      ["building", "agent", "implementer", 1, "11:50", "12:38"],
+      // REQ-001-64: the Review starts on the pushed head right away; its checks run alongside, from the push.
+      ["review", "queued", "reviewer", 1, "12:38", "12:40"],
+      ["review", "agent", "reviewer", 1, "12:40", "12:57"],
+      ["review", "checks", null, 1, "12:40", "12:45"],
+      ["review", "queued", "implementer", 1, "12:57", "12:57"],
+      ["review", "agent", "implementer", 1, "12:57", "13:14"],
+      ["review", "queued", "reviewer", 2, "13:14", "13:20"],
+      // h2's checks had already passed when its push was first seen: no duration, which the page leaves out.
+      ["review", "checks", null, 2, "13:20", "13:20"],
+      ["review", "agent", "reviewer", 2, "13:20", "13:28"],
+      ["review", "owner", null, 1, "13:28", "14:10"],
+    ]);
+    expect(store.timedIssues()).toEqual([{ repo: "octo/app", issue: 5, title: "Issue 5", lastAt: time(250) }]);
+  });
+
+  test("REQ-003-33 a session whose window is gone while it counted as running is closed at the next Tick", async () => {
+    gh.items = [item(5, [], { createdAt: time(0) })];
+    at(14);
+    await coordinator.tick();
+    runner.live.clear(); // the window died with the Coordinator
+    at(40);
+    await coordinator.tick();
+    expect(timings().slice(0, 2)).toEqual([
+      ["planning", "queued", "planner", 1, "10:00", "10:14"],
+      ["planning", "agent", "planner", 1, "10:14", "10:40"],
+    ]);
+    // The interrupted session is resumed in the same Tick: a new interval of the same step.
+    expect(runner.resumed.at(-1)?.[0]).toBe(1);
+    expect(timings()[2]).toEqual(["planning", "agent", "planner", 1, "10:40", null]);
+  });
+});

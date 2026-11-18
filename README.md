@@ -31,6 +31,13 @@ A self-hosted Bun daemon that polls GitHub and runs Claude Code agents. They tri
 
 </details>
 
+<details>
+<summary>The Timings page</summary>
+
+![The Timings page: one issue's Planning, Building and Review as bars of waiting, agent and checks time](docs/images/dashboard-timings.png)
+
+</details>
+
 <sub>Made-up data from <code>test/fixtures/dashboard-mock.ts</code>; <code>bun run screenshots</code> renders them again.</sub>
 
 ## Commands (comments by you)
