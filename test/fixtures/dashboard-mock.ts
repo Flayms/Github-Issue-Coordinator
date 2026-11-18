@@ -324,7 +324,7 @@ export const MOCK_SNAPSHOT: TickSnapshot = {
 };
 
 /**
- * Timings of one reviewed issue for the Timings page (REQ-003-33), after the mockup in #125: a revision, one
+ * Timings of one reviewed issue for the Timings page (REQ-003-34), after the mockup in #125: a revision, one
  * Feedback round and a re-review. Steps that started at once have a zero wait, which the page leaves out.
  */
 const timeline: [TimingPhase, TimingKind, Role | null, number, number][] = [
@@ -364,7 +364,7 @@ export const MOCK_TIMED_ISSUES: TimedIssue[] = [
   { repo: "acme/storefront", issue: 229, title: "Search suggestions are slow on mobile", lastAt: at(90) },
 ].sort((a, b) => b.lastAt.localeCompare(a.lastAt));
 
-/** The Timings source the page reads (REQ-003-33): only #41 has intervals here; it is the newest. */
+/** The Timings source the page reads (REQ-003-34): only #41 has intervals here; it is the newest. */
 export const MOCK_TIMING_SOURCE = {
   timedIssues: () => MOCK_TIMED_ISSUES,
   timings: (repo: string, issue: number) =>

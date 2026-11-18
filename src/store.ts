@@ -55,9 +55,11 @@ export interface WorktreeRecord {
   feedbackRounds: number;
   pendingFeedback: string | null;
   failedChecksSha: string | null;
+  /** Head commit the Coordinator marked ready for review, so it does so once per head (REQ-001-64). */
+  readySha: string | null;
   /** Head commit whose merge conflicts already triggered a Feedback round (REQ-001-28). */
   conflictSha: string | null;
-  /** The PR head commit last seen, and when it was first seen, for the checks grace period (REQ-001-10). */
+  /** The PR head commit last seen, and when it was first seen, for the checks grace period (REQ-001-64). */
   headSha: string | null;
   headSeenAt: string | null;
 }
@@ -87,9 +89,11 @@ export interface IssueRecord {
   lastHandledReviewId: number;
   /** Head commit whose failed checks already triggered a Feedback round (REQ-001-13). */
   failedChecksSha: string | null;
+  /** Head commit the Coordinator marked ready for review, so it does so once per head (REQ-001-64). */
+  readySha: string | null;
   /** Head commit whose merge conflicts already triggered a Feedback round (REQ-001-28). */
   conflictSha: string | null;
-  /** The PR head commit last seen, and when it was first seen (REQ-001-10 grace period). */
+  /** The PR head commit last seen, and when it was first seen (REQ-001-64 grace period). */
   headSha: string | null;
   headSeenAt: string | null;
   /** 1 while a Feedback round runs; its next sync returns the issue to agent:pr-open. */
@@ -132,12 +136,12 @@ export interface CoordinatorEvent {
 /** How many Events the store keeps (REQ-003-15). */
 export const EVENTS_KEPT = 200;
 
-/** The phase a Timing belongs to, one row each on the Timings page (REQ-003-33). */
+/** The phase a Timing belongs to, one row each on the Timings page (REQ-003-34). */
 export type TimingPhase = "planning" | "building" | "review";
-/** What the time was spent on: waiting in the queue, an agent working, checks running, or the Owner's move (REQ-003-32). */
+/** What the time was spent on: waiting in the queue, an agent working, checks running, or the Owner's move (REQ-003-33). */
 export type TimingKind = "queued" | "agent" | "checks" | "owner";
 
-/** One recorded interval of an issue's history (REQ-003-32). */
+/** One recorded interval of an issue's history (REQ-003-33). */
 export interface Timing {
   repo: string;
   issue: number;
@@ -156,7 +160,7 @@ export interface Timing {
   sessionId: number | null;
 }
 
-/** An issue with recorded Timings, for the Timings page's picker (REQ-003-33). */
+/** An issue with recorded Timings, for the Timings page's picker (REQ-003-34). */
 export interface TimedIssue {
   repo: string;
   issue: number;
@@ -202,6 +206,7 @@ CREATE TABLE IF NOT EXISTS issues (
   pending_feedback TEXT,
   last_handled_review_id INTEGER NOT NULL DEFAULT 0,
   failed_checks_sha TEXT,
+  ready_sha TEXT,
   conflict_sha TEXT,
   head_sha TEXT,
   head_seen_at TEXT,
@@ -344,6 +349,7 @@ const ISSUE_COLUMNS = {
   pendingFeedback: "pending_feedback",
   lastHandledReviewId: "last_handled_review_id",
   failedChecksSha: "failed_checks_sha",
+  readySha: "ready_sha",
   conflictSha: "conflict_sha",
   headSha: "head_sha",
   headSeenAt: "head_seen_at",
@@ -381,6 +387,7 @@ export class Store {
         reply_to: "TEXT",
         auto_round: "TEXT",
         screenshots: "TEXT",
+        ready_sha: "TEXT",
       },
       sessions: { model_id: "TEXT", title: "TEXT", started_at: "TEXT", account: "TEXT" },
     };
@@ -521,6 +528,7 @@ export class Store {
       pendingFeedback: null,
       lastHandledReviewId: 0,
       failedChecksSha: null,
+      readySha: null,
       conflictSha: null,
       headSha: null,
       headSeenAt: null,
@@ -576,6 +584,7 @@ export class Store {
           feedbackRounds: r.feedbackRounds,
           pendingFeedback: r.pendingFeedback,
           failedChecksSha: r.failedChecksSha,
+          readySha: r.readySha,
           conflictSha: r.conflictSha,
           headSha: r.headSha,
           headSeenAt: r.headSeenAt,
@@ -653,7 +662,7 @@ export class Store {
   }
 
   /**
-   * REQ-003-32: the one place agent intervals open and close. Every change of a session's state goes through the
+   * REQ-003-33: the one place agent intervals open and close. Every change of a session's state goes through the
    * store (the runner, the hooks, the reconcile loop), so a session that starts running opens an interval for each
    * of its issues, in the issue's current step of the session's Role, and one that stops closes them.
    */
@@ -689,12 +698,15 @@ export class Store {
     );
   }
 
-  /** The end of the issue's latest interval (the start of one that lasts), or null without Timings. */
+  /**
+   * The end of the issue's latest interval (the start of one that lasts), or null without Timings. Checks run
+   * alongside the steps (REQ-001-64), so they don't move it; an issue has checks only after other intervals.
+   */
   private lastEnd(repo: string, issue: number): string | null {
     return (
       this.db
         .query<{ at: string | null }, [string, number]>(
-          "SELECT MAX(COALESCE(end_at, start_at)) AS at FROM timings WHERE repo = ? AND issue = ?",
+          "SELECT MAX(COALESCE(end_at, start_at)) AS at FROM timings WHERE repo = ? AND issue = ? AND kind != 'checks'",
         )
         .get(repo, issue)?.at ?? null
     );
@@ -732,7 +744,7 @@ export class Store {
   }
 
   /**
-   * REQ-003-32: work of a Role starts on the issue. Records its wait, from `queuedAt` (or where the issue's last
+   * REQ-003-33: work of a Role starts on the issue. Records its wait, from `queuedAt` (or where the issue's last
    * interval ended, never before that) until now, as a new round; the session's running time then counts toward it.
    * A step whose agent never ran (a start that failed) is the same round tried again: its wait is extended.
    */
@@ -775,17 +787,20 @@ export class Store {
   }
 
   /**
-   * REQ-003-32: the Owner's time or the checks, from where the issue's last interval ended until `end`. Nothing for
-   * an issue without Timings (no backfill) or an `end` not after that; checks once per head commit.
+   * REQ-003-33: the Owner's time or the checks, from `start` (by default where the issue's last interval ended) until
+   * `end`. Nothing for an issue without Timings (no backfill) or an `end` not after the start; checks once per head
+   * commit, also with no duration. Checks run alongside the Review (REQ-001-64), so they start when their head was pushed.
    */
   recordWait(
     repo: string,
     issue: number,
-    o: { phase: TimingPhase; kind: "owner" | "checks"; end: string; headSha?: string },
+    o: { phase: TimingPhase; kind: "owner" | "checks"; start?: string; end: string; headSha?: string },
   ): void {
-    const start = this.lastEnd(repo, issue);
+    const last = this.lastEnd(repo, issue);
+    const start = last && (iso(o.start) ?? last);
     const end = iso(o.end);
-    if (!start || !end || end <= start) return;
+    // A head's checks seen finished at once still mark the head as done, with no duration.
+    if (!start || !end || end < start || (end === start && !o.headSha)) return;
     if (o.headSha) {
       const seen = this.db
         .query<{ id: number }, [string, number, string, string]>(
@@ -814,7 +829,7 @@ export class Store {
     });
   }
 
-  /** REQ-003-32: closes the agent intervals of sessions whose window is gone (a crash, a closed window) at now. */
+  /** REQ-003-33: closes the agent intervals of sessions whose window is gone (a crash, a closed window) at now. */
   closeInterruptedTimings(live: Set<number>): void {
     const open = this.db
       .query<{ session_id: number }, []>(
@@ -831,7 +846,7 @@ export class Store {
     return this.lastEnd(repo, issue) !== null;
   }
 
-  /** The issue's Timings in time order (REQ-003-33). */
+  /** The issue's Timings in time order (REQ-003-34). */
   timings(repo: string, issue: number): Timing[] {
     return this.db
       .query<TimingRow, [string, number]>("SELECT * FROM timings WHERE repo = ? AND issue = ? ORDER BY start_at, id")
@@ -839,7 +854,7 @@ export class Store {
       .map(toTiming);
   }
 
-  /** Issues with Timings, the most recently active first (REQ-003-33). */
+  /** Issues with Timings, the most recently active first (REQ-003-34). */
   timedIssues(): TimedIssue[] {
     return this.db
       .query<TimedIssue, []>(

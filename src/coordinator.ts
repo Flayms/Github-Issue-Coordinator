@@ -170,7 +170,7 @@ export class Coordinator {
     const pullStates = new Map<string, Map<number, PullState>>();
     let planned: Queued[] = [];
     try {
-      // REQ-003-32: agent intervals of sessions that stopped without a hook (a crash) end now.
+      // REQ-003-33: agent intervals of sessions that stopped without a hook (a crash) end now.
       this.d.store.closeInterruptedTimings(this.d.runner.liveSessionIds());
       await this.syncTurns();
       await this.failStalledStarts();
@@ -412,7 +412,7 @@ export class Coordinator {
           view.prFeedback.delete(a.pr);
           const auto = a.causes.length ? { headSha: a.headSha, causes: a.causes } : undefined;
           for (const n of a.issues) {
-            // REQ-003-32: a round the Owner started by commenting ends their time on the PR.
+            // REQ-003-33: a round the Owner started by commenting ends their time on the PR.
             if (!auto) this.d.store.recordWait(a.repo, n, { phase: "review", kind: "owner", end: now });
             this.beginStep(a.repo, n, view, { phase: "review", role: "implementer" });
           }
@@ -467,7 +467,7 @@ export class Coordinator {
         return;
       }
       case "approve":
-        // REQ-003-32: the approval ends the Owner's time on the Assessment.
+        // REQ-003-33: the approval ends the Owner's time on the Assessment.
         this.d.store.recordWait(a.repo, a.issue, { phase: "planning", kind: "owner", end: a.at });
         this.d.store.updateIssue(a.repo, a.issue, {
           approvedAt: a.at,
@@ -544,8 +544,14 @@ export class Coordinator {
         });
         return;
       }
+      case "ready":
+        // REQ-001-31 / REQ-001-64: recorded after the call, so a failed one is retried on the next tick.
+        await this.reviewer.markReady(a.repo, a.pr);
+        for (const n of a.issues) this.d.store.updateIssue(a.repo, n, { readySha: a.headSha });
+        this.log(`${a.repo}: PR #${a.pr} is ready for review at ${a.headSha.slice(0, 7)}`);
+        return;
       case "cleanup":
-        // REQ-003-32: the merge ends the Owner's time on the reviewed PR.
+        // REQ-003-33: the merge ends the Owner's time on the reviewed PR.
         if (a.merged)
           for (const n of a.issues) this.d.store.recordWait(a.repo, n, { phase: "review", kind: "owner", end: now });
         if (await this.implementer.cleanup(a.repo, a.issues, a.worktreePath))
@@ -594,7 +600,7 @@ export class Coordinator {
           const splitOffs = this.d.store.splitOffNumbers(a.repo);
           const issues = view.items.filter((i) => inScope(i, this.d.config.owner.id, splitOffs));
           const pulls = view.items.filter((i) => i.isPullRequest);
-          // REQ-003-32: waiting for the Planner starts at the issue's creation.
+          // REQ-003-33: waiting for the Planner starts at the issue's creation.
           for (const i of assess)
             this.beginStep(a.repo, i.number, view, { phase: "planning", role: "planner", queuedAt: i.createdAt });
           const id = await this.planner.startPass(a.repo, dir, assess, { issues, pulls });
@@ -616,7 +622,7 @@ export class Coordinator {
             const splitOffs = this.d.store.splitOffNumbers(a.repo);
             const issues = view.items.filter((i) => inScope(i, this.d.config.owner.id, splitOffs));
             const pulls = view.items.filter((i) => i.isPullRequest);
-            // REQ-003-32: the Owner's time ends with their first new comment (an edit is only seen now).
+            // REQ-003-33: the Owner's time ends with their first new comment (an edit is only seen now).
             const replied = a.comments.map((c) => c.createdAt).filter((t) => !Number.isNaN(Date.parse(t)));
             const ownerEnd = replied.sort((x, y) => Date.parse(x) - Date.parse(y))[0] ?? this.now().toISOString();
             this.d.store.recordWait(a.repo, a.issue, { phase: "planning", kind: "owner", end: ownerEnd });
@@ -682,20 +688,21 @@ export class Coordinator {
         continue;
       }
       const checks = await this.d.gh.checks(repo, pull.headSha);
-      // REQ-003-32: the checks of a new head, from the turn that pushed it until they are seen finished.
-      if (checks.state !== "pending")
-        for (const n of w.issues)
-          this.d.store.recordWait(repo, n, {
-            phase: "review",
-            kind: "checks",
-            end: this.now().toISOString(),
-            headSha: pull.headSha,
-          });
       let headSeenAt = w.headSeenAt;
       if (w.headSha !== pull.headSha || !headSeenAt) {
         headSeenAt = this.now().toISOString();
         for (const n of w.issues) this.d.store.updateIssue(repo, n, { headSha: pull.headSha, headSeenAt });
       }
+      // REQ-003-33: the checks of a new head, from when it was first seen (the push) until they are seen finished.
+      if (checks.state !== "pending")
+        for (const n of w.issues)
+          this.d.store.recordWait(repo, n, {
+            phase: "review",
+            kind: "checks",
+            start: headSeenAt,
+            end: this.now().toISOString(),
+            headSha: pull.headSha,
+          });
       out.set(w.prNumber, {
         headSha: pull.headSha,
         checks: checks.state,
@@ -704,6 +711,7 @@ export class Coordinator {
         headSeenAt,
         baseRef: pull.baseRef,
         state: pull.state,
+        draft: pull.draft,
       });
     }
     return out;
@@ -894,7 +902,7 @@ export class Coordinator {
     this.log(`${repo}: ${issues.map((n) => `#${n}`).join(", ")} failed: ${reason}`);
   }
 
-  /** REQ-003-32: work of a Role starts on the issue; a store error is only logged, it must not stop the work. */
+  /** REQ-003-33: work of a Role starts on the issue; a store error is only logged, it must not stop the work. */
   private beginStep(
     repo: string,
     issue: number,

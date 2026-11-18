@@ -222,6 +222,7 @@ describe("store", () => {
         feedbackRounds: 0,
         pendingFeedback: null,
         failedChecksSha: null,
+        readySha: null,
         conflictSha: null,
         headSha: null,
         headSeenAt: null,
@@ -234,6 +235,7 @@ describe("store", () => {
         feedbackRounds: 0,
         pendingFeedback: null,
         failedChecksSha: null,
+        readySha: null,
         conflictSha: null,
         headSha: null,
         headSeenAt: null,
@@ -259,6 +261,9 @@ describe("store", () => {
       // REQ-001-38: and the running automatic round.
       s.updateIssue("octo/app", 5, { autoRound: '{"headSha":"h1","causes":["checks"]}' });
       expect(s.issue("octo/app", 5).autoRound).toBe('{"headSha":"h1","causes":["checks"]}');
+      // REQ-001-64: and the head marked ready.
+      s.updateIssue("octo/app", 5, { readySha: "h1" });
+      expect(s.issue("octo/app", 5).readySha).toBe("h1");
       s.close();
     } finally {
       rmSync(dir, { recursive: true });
@@ -331,6 +336,7 @@ describe("store", () => {
       pendingFeedback: null,
       lastHandledReviewId: 0,
       failedChecksSha: null,
+      readySha: null,
       conflictSha: null,
       headSha: null,
       headSeenAt: null,
@@ -413,7 +419,7 @@ describe("store", () => {
         end: t.end,
       }));
 
-    test("REQ-003-32 a step records its wait, and the session's running time, not its idle time, as agent time", () => {
+    test("REQ-003-33 a step records its wait, and the session's running time, not its idle time, as agent time", () => {
       const c = clock(14);
       const s = new Store(":memory:", c.now);
       s.beginStep("octo/app", 5, { phase: "planning", role: "planner", title: "Dark mode", queuedAt: time(0) });
@@ -439,7 +445,7 @@ describe("store", () => {
       expect(pick(s, 6)).toEqual([]);
     });
 
-    test("REQ-003-32 Timings survive a restart; an interval left open by a crash is closed when a Tick notices it", () => {
+    test("REQ-003-33 Timings survive a restart; an interval left open by a crash is closed when a Tick notices it", () => {
       const dir = mkdtempSync(join(tmpdir(), "store-"));
       try {
         const path = join(dir, "state.db");
@@ -469,7 +475,7 @@ describe("store", () => {
       }
     });
 
-    test("REQ-003-32 a start tried again stays the same round; the next step is a new round that starts where the last ended", () => {
+    test("REQ-003-33 a start tried again stays the same round; the next step is a new round that starts where the last ended", () => {
       const c = clock(10);
       const s = new Store(":memory:", c.now);
       s.beginStep("octo/app", 5, { phase: "planning", role: "planner", queuedAt: time(0) });
@@ -488,7 +494,7 @@ describe("store", () => {
       ]);
     });
 
-    test("REQ-003-32 the Owner's time and checks fill the gap since the last interval; once per head, and never for an issue without Timings", () => {
+    test("REQ-003-33 the Owner's time fills the gap since the last step; checks run alongside, once per head; never for an issue without Timings", () => {
       const c = clock(10);
       const s = new Store(":memory:", c.now);
       s.recordWait("octo/app", 5, { phase: "planning", kind: "owner", end: time(10) }); // no backfill
@@ -505,15 +511,23 @@ describe("store", () => {
       s.recordWait("octo/app", 5, { phase: "review", kind: "owner", end: time(20) }); // before the last end
       c.at(90);
       s.recordWait("octo/app", 5, { phase: "review", kind: "owner", end: time(90) });
+      // Checks running alongside the Review start when the pushed head was seen, not at the last end.
+      s.recordWait("octo/app", 5, { phase: "review", kind: "checks", start: time(70), end: time(80), headSha: "h2" });
+      // Checks already finished when their head is first seen: kept with no duration, so a later Tick adds none.
+      s.recordWait("octo/app", 5, { phase: "review", kind: "checks", start: time(95), end: time(95), headSha: "h3" });
+      c.at(99);
+      s.recordWait("octo/app", 5, { phase: "review", kind: "checks", start: time(95), end: time(99), headSha: "h3" });
       expect(pick(s).slice(2)).toEqual([
         { phase: "review", kind: "checks", role: null, round: 1, start: time(30), end: time(37) },
-        { phase: "review", kind: "owner", role: null, round: 1, start: time(37), end: time(90) },
+        { phase: "review", kind: "owner", role: null, round: 1, start: time(30), end: time(90) }, // checks don't end a step
+        { phase: "review", kind: "checks", role: null, round: 2, start: time(70), end: time(80) },
+        { phase: "review", kind: "checks", role: null, round: 3, start: time(95), end: time(95) },
       ]);
       expect(s.hasTimings("octo/app", 5)).toBe(true);
       expect(s.hasTimings("octo/app", 6)).toBe(false);
     });
 
-    test("REQ-003-33 lists the issues with Timings, the most recently active first, with their title", () => {
+    test("REQ-003-34 lists the issues with Timings, the most recently active first, with their title", () => {
       const c = clock(0);
       const s = new Store(":memory:", c.now);
       s.beginStep("octo/app", 5, { phase: "planning", role: "planner", title: "Old", queuedAt: time(0) });

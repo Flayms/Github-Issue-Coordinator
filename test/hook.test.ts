@@ -162,7 +162,7 @@ describe("hook", () => {
     expect(existsSync(join(sessionDir, "events.jsonl"))).toBe(true);
   });
 
-  test("REQ-003-32 a turn's running time is recorded as agent time: a blocked stop keeps it running, a valid Result ends it", () => {
+  test("REQ-003-33 a turn's running time is recorded as agent time: a blocked stop keeps it running, a valid Result ends it", () => {
     // The step the session works on, as the Coordinator records it before resuming (a Feedback round).
     store.beginStep("octo/app", 5, { phase: "review", role: "implementer", queuedAt: now });
     const resumed = () => store.timings("octo/app", 5).filter((t) => t.kind === "agent");

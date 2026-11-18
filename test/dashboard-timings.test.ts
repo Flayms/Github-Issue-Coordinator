@@ -24,7 +24,7 @@ const segments = (v: TimingsView) =>
 const shares = (v: TimingsView) => v.rows.map((r) => r.segments.map((s) => s.share));
 
 describe("dashboard timings", () => {
-  test("REQ-003-33 each phase is a row of labelled segments in time order; the Owner's time is left out by default", () => {
+  test("REQ-003-34 each phase is a row of labelled segments in time order; the Owner's time is left out by default", () => {
     const v = view();
     expect(v.picked).toMatchObject({
       repo: "acme/payments-api",
@@ -56,7 +56,7 @@ describe("dashboard timings", () => {
     ]);
   });
 
-  test('REQ-003-33 with "Include your time" the Owner\'s reply and approval are segments too, and the total is end to end', () => {
+  test('REQ-003-34 with "Include your time" the Owner\'s reply and approval are segments too, and the total is end to end', () => {
     const v = view({ includeOwner: true });
     expect(v.rows[0]?.segments.map((s) => `${s.label} ${s.duration}`)).toEqual([
       "Waited for the Planner 14 min",
@@ -69,7 +69,7 @@ describe("dashboard timings", () => {
     expect(shares(v)[0]).toEqual([8.54, 5.49, 57.93, 3.66, 24.39]); // Planning (164 min) is now the longest
   });
 
-  test("REQ-003-33 one step's running intervals are one segment; a running agent grows until now; under a second is left out", () => {
+  test("REQ-003-34 one step's running intervals are one segment; a running agent grows until now; under a second is left out", () => {
     const t = (o: Partial<Timing> & Pick<Timing, "kind" | "start" | "end">): Timing => ({
       repo: "octo/app",
       issue: 5,
@@ -101,7 +101,36 @@ describe("dashboard timings", () => {
     ]);
   });
 
-  test("REQ-003-33 the picker lists the issues with Timings, newest first; an issue or a store with nothing recorded says so", () => {
+  test("REQ-003-34 checks running alongside the Review count once in the totals", () => {
+    const at = (min: number) => new Date(MOCK_NOW.getTime() - min * 60_000).toISOString();
+    const t = (o: Pick<Timing, "kind" | "role" | "start" | "end">): Timing => ({
+      repo: "octo/app",
+      issue: 5,
+      title: "T",
+      phase: "review",
+      round: 1,
+      sessionId: null,
+      ...o,
+    });
+    const timings = [
+      t({ kind: "queued", role: "reviewer", start: at(60), end: at(58) }),
+      t({ kind: "agent", role: "reviewer", start: at(58), end: at(40) }),
+      t({ kind: "checks", role: null, start: at(58), end: at(50) }),
+    ];
+    const source = {
+      timedIssues: () => [{ repo: "octo/app", issue: 5, title: "T", lastAt: at(40) }],
+      timings: () => timings,
+    };
+    const v = view({ source });
+    expect(v.rows[0]?.segments.map((s) => `${s.label} ${s.duration}`)).toEqual([
+      "Waited for the Reviewer 2 min",
+      "Reviewer 18 min",
+      "Checks 8 min",
+    ]);
+    expect(v.totals).toMatchObject({ total: "20 min", agents: "18 min" });
+  });
+
+  test("REQ-003-34 the picker lists the issues with Timings, newest first; an issue or a store with nothing recorded says so", () => {
     expect(view().issues).toEqual([
       {
         value: "acme/payments-api#41",
@@ -136,7 +165,7 @@ describe("dashboard timings", () => {
     const page = (o: Parameters<typeof view>[0] = {}) =>
       renderTimings(dashboardView(MOCK_SNAPSHOT, MOCK_CONFIG, MOCK_NOW), view(o));
 
-    test("REQ-003-33 a tab next to Overview and Config, and a picker that works without JavaScript", () => {
+    test("REQ-003-34 a tab next to Overview and Config, and a picker that works without JavaScript", () => {
       const html = page();
       expect(html).toContain('<a href="/timings" aria-current="page"');
       expect(html.indexOf('href="/config"')).toBeLessThan(html.indexOf('href="/timings"'));
@@ -153,7 +182,7 @@ describe("dashboard timings", () => {
       );
     });
 
-    test("REQ-003-33 / REQ-003-09 rows with proportional segments sized by attributes, labels and totals; no inline style", () => {
+    test("REQ-003-34 / REQ-003-09 rows with proportional segments sized by attributes, labels and totals; no inline style", () => {
       const html = page();
       for (const text of ["Planning", "Building", "Review", "Waited for the Planner", "Feedback round 1", "Revise 1"])
         expect(html).toContain(`>${text}<`);
@@ -168,14 +197,14 @@ describe("dashboard timings", () => {
       expect(page({ includeOwner: true })).toContain(">Your approval<");
     });
 
-    test("REQ-003-33 with nothing recorded the page says so", () => {
+    test("REQ-003-34 with nothing recorded the page says so", () => {
       const html = page({ source: { timedIssues: () => [], timings: () => [] } });
       expect(html).toContain("No Timings recorded yet");
       expect(html).not.toContain("<select");
     });
   });
 
-  test("REQ-003-33 the mock issue ends where its last interval ends", () => {
+  test("REQ-003-34 the mock issue ends where its last interval ends", () => {
     expect(MOCK_TIMINGS.at(-1)?.end).toBe(MOCK_TIMED_ISSUES[0]?.lastAt);
   });
 });

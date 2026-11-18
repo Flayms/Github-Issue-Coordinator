@@ -71,7 +71,7 @@ export interface Snapshot {
   /** Per agent PR: the Owner's comments since the last handled one, and changes-requested reviews by the Owner. */
   prFeedback?: ReadonlyMap<number, { comments: Comment[]; changesRequested: { id: number; body: string }[] }>;
   maxFeedbackRounds?: number;
-  /** How long after a head appeared "no checks" still means CI may not have registered yet (REQ-001-10). */
+  /** How long after a head appeared "no checks" still means CI may not have registered yet (REQ-001-64). */
   checksGraceSeconds?: number;
 }
 
@@ -87,6 +87,8 @@ export interface PullState {
   baseRef?: string;
   /** As GitHub reports it for the PR itself (REQ-001-14). */
   state: PullStatus;
+  /** Whether the PR is a draft (REQ-001-31). */
+  draft?: boolean;
 }
 
 export interface IssueFeedback {
@@ -125,11 +127,13 @@ export type Action =
   | { type: "block"; repo: string; issue: number; blockers: number[] }
   | { type: "unblock"; repo: string; issue: number }
   | { type: "implement"; repo: string; issues: number[]; approvedAt: string }
-  /** `merged`: the Owner merged the PR, which ends their time on it (REQ-003-32); else it was closed. */
+  /** `merged`: the Owner merged the PR, which ends their time on it (REQ-003-33); else it was closed. */
   | { type: "cleanup"; repo: string; issues: number[]; prNumber: number; worktreePath: string; merged: boolean }
   | { type: "review"; repo: string; pr: number; issues: number[]; headSha: string }
+  /** REQ-001-31 / REQ-001-64: a reviewed head without findings whose checks passed leaves draft. */
+  | { type: "ready"; repo: string; pr: number; issues: number[]; headSha: string }
   | { type: "implement"; repo: string; issues: number[]; approvedAt: string }
-  /** `merged`: the Owner merged the PR, which ends their time on it (REQ-003-32); else it was closed. */
+  /** `merged`: the Owner merged the PR, which ends their time on it (REQ-003-33); else it was closed. */
   | { type: "cleanup"; repo: string; issues: number[]; prNumber: number; worktreePath: string; merged: boolean }
   /** REQ-001-43: rebuild the Worktree of an orphaned agent PR from its branch and record the PR again. */
   | { type: "reattach"; repo: string; pr: number; branch: string; issues: number[] }
@@ -312,6 +316,13 @@ export function deriveActions(s: Snapshot): Action[] {
     actions.push({ type: "implement", repo: s.repo, issues: members, approvedAt });
   }
 
+  const failedIssue = (w: WorktreeRecord) =>
+    w.issues.some((n) => issueState(s.items.find((i) => i.number === n)?.labels ?? []) === "failed");
+  // REQ-001-10: an unreviewed, mergeable head gets a Review (REQ-001-28), whatever its checks; not once the
+  // issue failed (REQ-001-44), e.g. because the Reviewer could not start.
+  const reviewDue = (w: WorktreeRecord, pull: PullState) =>
+    pull.headSha !== w.reviewedHeadSha && pull.mergeable === true && !failedIssue(w);
+
   // REQ-001-11/12/13: Feedback rounds on agent PRs; REQ-001-24: /wake.
   const withFeedback = new Set<number>();
   for (const w of s.worktrees ?? []) {
@@ -328,9 +339,14 @@ export function deriveActions(s: Snapshot): Action[] {
     ].filter(Boolean);
     // REQ-001-28: GitHub runs no checks on a conflicted PR, so conflicts need their own round.
     // Automatic rounds stop once the issue failed; only the Owner's rounds run then (REQ-001-37).
-    const failed = w.issues.some((n) => issueState(s.items.find((i) => i.number === n)?.labels ?? []) === "failed");
+    const failed = failedIssue(w);
     const findings = !failed && w.pendingFeedback ? w.pendingFeedback : null;
-    const checksFailed = !failed && pull.checks === "failure" && pull.headSha !== w.failedChecksSha;
+    // REQ-001-64: failing checks of a head that is still to be reviewed wait for its Review, so they share a round.
+    const checksFailed =
+      !failed &&
+      pull.checks === "failure" &&
+      pull.headSha !== w.failedChecksSha &&
+      (findings !== null || owner.length > 0 || !reviewDue(w, pull));
     const newConflict = !failed && pull.mergeable === false && pull.headSha !== w.conflictSha;
     const causes: FeedbackCause[] = [
       ...(findings ? (["findings"] as const) : []),
@@ -397,24 +413,31 @@ export function deriveActions(s: Snapshot): Action[] {
       });
   }
 
-  // REQ-001-10: an unreviewed, mergeable head whose checks passed gets a Review, unless an agent is still on it
-  // (REQ-001-07). "No checks" counts only after a grace period, since CI registers its runs a little after a push.
-  const now = Date.parse(s.now ?? new Date().toISOString());
-  const graceMs = (s.checksGraceSeconds ?? 120) * 1000;
+  // REQ-001-10: a Review runs as soon as a head is due one, alongside its checks, unless an agent is still on it (REQ-001-07).
   for (const w of s.worktrees ?? []) {
     const pull = openPull(s, w);
-    if (!pull || w.prNumber === null || pull.headSha === w.reviewedHeadSha || withFeedback.has(w.prNumber)) continue;
-    if (pull.mergeable !== true) continue; // REQ-001-28
-    // REQ-001-44: like automatic rounds, Reviews stop once the issue failed, e.g. because the Reviewer could not start.
-    if (w.issues.some((n) => issueState(s.items.find((i) => i.number === n)?.labels ?? []) === "failed")) continue;
-    if (pull.checks !== "success" && pull.checks !== "none") continue;
-    if (pull.checks === "none" && now - Date.parse(pull.headSeenAt) < graceMs) continue;
+    if (!pull || w.prNumber === null || withFeedback.has(w.prNumber) || !reviewDue(w, pull)) continue;
     const busy = s.sessions.some(
       (x) =>
         x.issues.some((n) => w.issues.includes(n)) &&
         (x.role === "reviewer" || (x.role === "implementer" && x.state === "running")),
     );
     if (!busy) actions.push({ type: "review", repo: s.repo, pr: w.prNumber, issues: w.issues, headSha: pull.headSha });
+  }
+
+  // REQ-001-31 / REQ-001-64: a draft whose head has a Review without findings leaves draft once its checks passed,
+  // once per head. "No checks" counts only after a grace period, since CI registers its runs a little after a push.
+  // An issue at agent:pr-open with a reviewed head had its findings declined and waits for the Owner.
+  const now = Date.parse(s.now ?? new Date().toISOString());
+  const graceMs = (s.checksGraceSeconds ?? 120) * 1000;
+  for (const w of s.worktrees ?? []) {
+    const pull = openPull(s, w);
+    if (!pull?.draft || w.prNumber === null || withFeedback.has(w.prNumber)) continue;
+    if (pull.headSha !== w.reviewedHeadSha || pull.headSha === w.readySha || w.pendingFeedback) continue;
+    if (!w.issues.every((n) => issueState(s.items.find((i) => i.number === n)?.labels ?? []) === "reviewed")) continue;
+    const passed =
+      pull.checks === "success" || (pull.checks === "none" && now - Date.parse(pull.headSeenAt) >= graceMs);
+    if (passed) actions.push({ type: "ready", repo: s.repo, pr: w.prNumber, issues: w.issues, headSha: pull.headSha });
   }
 
   // REQ-001-14: a Worktree whose PR GitHub reports as merged or closed is cleaned up. Missing from the

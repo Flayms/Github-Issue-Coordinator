@@ -5,7 +5,7 @@
  * Its only request is a GET of the page's own URL.
  */
 (() => {
-  // REQ-003-33: the Timings picker shows a pick right away; without the script its "Show" button does.
+  // REQ-003-34: the Timings picker shows a pick right away; without the script its "Show" button does.
   // One listener for the whole page, so a form a refresh replaced works too.
   document.addEventListener("change", (e) => {
     const form = e.target instanceof Element ? e.target.closest("form[data-autosubmit]") : null;

@@ -216,7 +216,7 @@ describe("dashboard server", () => {
     expect(html).not.toContain("Fix login");
   });
 
-  test("REQ-003-33 serves the Timings page at /timings from the store, behind the same token as the Overview", async () => {
+  test("REQ-003-34 serves the Timings page at /timings from the store, behind the same token as the Overview", async () => {
     const store = new Store(":memory:", () => new Date("2026-11-15T10:00:00Z"));
     try {
       store.beginStep("octo/app", 5, {
@@ -244,7 +244,7 @@ describe("dashboard server", () => {
     }
   });
 
-  test("REQ-003-33 without a Timings source the page says nothing is recorded", async () => {
+  test("REQ-003-34 without a Timings source the page says nothing is recorded", async () => {
     const { url } = start({ dashboard: { port: 0 } });
     const html = await (await fetch(`${url}/timings`)).text();
     expect(html).toContain("No Timings recorded yet");
@@ -276,8 +276,10 @@ describe("dashboard server", () => {
     });
     if (server) servers.push(server);
     const html = await (await fetch(`http://127.0.0.1:${server?.port}/?repo=octo%2Flib`)).text();
-    expect(html).toContain("Lib thing");
-    expect(html).not.toContain("Fix login");
+    // The Pipeline is narrowed; Your move above it lists what needs the Owner in every repository (REQ-003-32).
+    const pipeline = html.slice(html.indexOf('id="pipeline"'));
+    expect(pipeline).toContain("Lib thing");
+    expect(pipeline).not.toContain("Fix login");
   });
 
   test("REQ-003-09 serves the CSS, script and fonts from a fixed list of files, behind the token", async () => {

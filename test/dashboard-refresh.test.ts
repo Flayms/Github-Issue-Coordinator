@@ -194,7 +194,7 @@ describe("dashboard refresh", () => {
     expect(server.requests).toHaveLength(1);
   });
 
-  test('REQ-003-33 picking an issue or ticking "Include your time" on the Timings page shows it right away', () => {
+  test('REQ-003-34 picking an issue or ticking "Include your time" on the Timings page shows it right away', () => {
     const html = renderTimings(
       dashboardView(snap("t"), config, NOW),
       timingsView({ source: MOCK_TIMING_SOURCE, pick: null, includeOwner: false, now: MOCK_NOW }),

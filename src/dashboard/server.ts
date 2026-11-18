@@ -1,6 +1,6 @@
 /**
  * Read-only dashboard server (spec 003), inside the Coordinator process. It serves the last tick's
- * snapshot, and the Timings page the recorded Timings (REQ-003-33): no store writes, and no GitHub
+ * snapshot, and the Timings page the recorded Timings (REQ-003-34): no store writes, and no GitHub
  * calls besides the sign-in's (REQ-003-07, REQ-003-08).
  */
 import { readFileSync } from "node:fs";
@@ -55,7 +55,7 @@ export interface DashboardDeps {
   /** For the sign-in's two GitHub requests; the global fetch by default. */
   fetch?: Fetch;
   snapshot: () => TickSnapshot | undefined;
-  /** The recorded Timings for the Timings page, read only (REQ-003-33); the store in the Coordinator. */
+  /** The recorded Timings for the Timings page, read only (REQ-003-34); the store in the Coordinator. */
   timings?: TimingSource;
   log: (message: string) => void;
   now?: () => Date;
@@ -225,7 +225,7 @@ const secure = (req: Request, url: URL) =>
 
 const NO_TIMINGS: TimingSource = { timedIssues: () => [], timings: () => [] };
 
-/** The pages: the Overview, the Config page (REQ-003-05) and the Timings page (REQ-003-33); all plain GET links. */
+/** The pages: the Overview, the Config page (REQ-003-05) and the Timings page (REQ-003-34); all plain GET links. */
 const PAGES = new Map<string, (view: DashboardView, url: URL, d: DashboardDeps, now: Date) => string>([
   ["/", renderDashboard],
   ["/config", renderConfig],

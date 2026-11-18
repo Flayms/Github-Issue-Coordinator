@@ -109,7 +109,7 @@ const configSchema = z
       })
       .prefault({}),
     pollIntervalSec: positiveInt.default(60),
-    /** How long after a push a PR without check runs waits before its Review, so CI can register (REQ-001-10). */
+    /** How long after a push a reviewed PR without check runs waits before it leaves draft, so CI can register (REQ-001-64). */
     checksGraceSeconds: z.number().int().nonnegative().default(120),
     /** Store, session files and clones; relative paths are resolved against the working directory. */
     stateDir: z.string().min(1).default(".coordinator"),

@@ -1,5 +1,5 @@
 /**
- * The Timings page (REQ-003-33): how long each step of one issue took, as a row of segments per phase. Rendered
+ * The Timings page (REQ-003-34): how long each step of one issue took, as a row of segments per phase. Rendered
  * on the server like the other pages (REQ-003-19); the picker is a GET form, so it works without JavaScript.
  * The CSP forbids inline styles, so a segment's width is the `width` attribute of an empty `<svg>`.
  */

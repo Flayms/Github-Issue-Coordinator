@@ -1,5 +1,5 @@
 /**
- * The Timings page's view model (REQ-003-33): one issue's recorded Timings (REQ-003-32) as rows of segments,
+ * The Timings page's view model (REQ-003-34): one issue's recorded Timings (REQ-003-33) as rows of segments,
  * one row per phase, on one scale. Pure, so it is tested without a store or a server.
  */
 import type { Role } from "../config.ts";
@@ -60,6 +60,20 @@ interface Group {
   round: number;
   ms: number;
   running: boolean;
+  /** Its intervals as [start, end] in ms, for the totals. */
+  spans: [number, number][];
+}
+
+/** How long any of the spans lasted: time they overlap (checks alongside the Review) counts once. */
+function covered(spans: [number, number][]): number {
+  let total = 0;
+  let until = Number.NEGATIVE_INFINITY;
+  for (const [start, end] of [...spans].sort((a, b) => a[0] - b[0])) {
+    if (end <= until) continue;
+    total += end - Math.max(start, until);
+    until = end;
+  }
+  return total;
 }
 
 function label(g: Group, last: boolean): string {
@@ -114,8 +128,18 @@ export function timingsView(o: {
   for (const t of timings) {
     const k = [t.phase, t.kind, t.role, t.round].join(" ");
     const end = t.end ? Date.parse(t.end) : o.now.getTime();
-    const g = groups.get(k) ?? { phase: t.phase, kind: t.kind, role: t.role, round: t.round, ms: 0, running: false };
-    g.ms += Math.max(0, end - Date.parse(t.start));
+    const g = groups.get(k) ?? {
+      phase: t.phase,
+      kind: t.kind,
+      role: t.role,
+      round: t.round,
+      ms: 0,
+      running: false,
+      spans: [],
+    };
+    const start = Date.parse(t.start);
+    g.ms += Math.max(0, end - start);
+    g.spans.push([start, Math.max(start, end)]);
     g.running ||= t.end === null;
     groups.set(k, g);
   }
@@ -130,7 +154,7 @@ export function timingsView(o: {
   const rowMs = rows.map((r) => r.segments.reduce((sum, s) => sum + s.g.ms, 0));
   const widest = Math.max(...rowMs, 1);
   const shown = rows.flatMap((r) => r.segments.map((s) => s.g));
-  const sum = (gs: Group[]) => gs.reduce((n, g) => n + g.ms, 0);
+  const sum = (gs: Group[]) => covered(gs.flatMap((g) => g.spans));
   return {
     ...base,
     picked,
