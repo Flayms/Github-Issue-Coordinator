@@ -10,7 +10,7 @@
  * or icon while its text stays neutral. Divided rows instead of boxes; the only glass panel is
  * "Ready to merge"; a full-width frosted band holds the Pipeline and the footer, down to the bottom
  * of the page (#100). Recent, Now and Next sit above it, as one timeline in Activity (REQ-003-20). Follows the v3 mockup of #41 (#87). Fonts are served from this
- * origin (REQ-003-09).
+ * origin (REQ-003-09). The script replaces the page's scrollbar with a comet (REQ-003-23).
  */
 @import "tailwindcss" source(none);
 @source "./*.tsx";
@@ -99,6 +99,12 @@
   }
 }
 
+@keyframes comet-flow {
+  to {
+    background-position: 0 -200%;
+  }
+}
+
 @keyframes drift-h {
   to {
     background-position: 20px 0;
@@ -111,14 +117,37 @@
    * #bg (z-index: -1). On body it would cover the animated background (REQ-003-14).
    */
   html {
-    background:
-      radial-gradient(1200px 600px at 85% -10%, rgb(124 114 255 / 0.16), transparent 60%),
-      radial-gradient(900px 500px at -10% 30%, rgb(59 52 128 / 0.22), transparent 60%),
-      linear-gradient(180deg, var(--color-ink-2), var(--color-ink) 40%);
+    background: linear-gradient(180deg, var(--color-ink-2), var(--color-ink) 40%);
     background-color: var(--color-ink);
     background-attachment: fixed;
     scroll-behavior: smooth;
     color-scheme: dark;
+  }
+
+  /*
+   * REQ-003-25: the soft indigo glows, on their own fixed layer below #bg, so the script can move
+   * them with the scroll (--glow-y, about 15 % of it) without repainting the page. Without WebGL
+   * they are what moves.
+   */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(1200px 600px at 85% -10%, rgb(124 114 255 / 0.16), transparent 60%),
+      radial-gradient(900px 500px at -10% 30%, rgb(59 52 128 / 0.22), transparent 60%);
+    transform: translate3d(0, var(--glow-y, 0px), 0);
+    will-change: transform;
+  }
+
+  /* REQ-003-23: the script marks the page once its comet is in place; only then is the browser's own bar hidden. */
+  html.has-comet {
+    scrollbar-width: none;
+  }
+  html.has-comet::-webkit-scrollbar {
+    display: none;
   }
 
   body {
@@ -336,6 +365,130 @@
     animation: var(--animate-slide);
   }
 
+  /*
+   * REQ-003-23: the comet scrollbar the script draws over the right edge. The track lets every
+   * pointer through; only the thumb (a 16px wide hit area around a thin bar) catches them, to be
+   * dragged. The bar flows while scrolling (.on) and slims and dims at rest. At its leading end
+   * sits the head, a white-hot plasma drop pointing back along the scroll (data-dir) and stretched
+   * by the scroll's speed (--stretch); behind the bar a tail grows with the speed (--tail).
+   */
+  .comet {
+    position: fixed;
+    top: 6px;
+    right: 2px;
+    bottom: 6px;
+    z-index: 50;
+    width: 16px;
+    pointer-events: none;
+  }
+  .comet-thumb {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 16px;
+    pointer-events: auto;
+    touch-action: none;
+    cursor: grab;
+    will-change: transform;
+  }
+  .comet-thumb:active {
+    cursor: grabbing;
+  }
+  .comet-thumb::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 2px;
+    border-radius: 9999px;
+    background: linear-gradient(
+      180deg,
+      var(--color-acc-lo),
+      var(--color-acc-hi),
+      var(--color-acc),
+      var(--color-acc-lo)
+    );
+    background-size: 100% 200%;
+    box-shadow: 0 0 6px rgb(124 114 255 / 0.35);
+    opacity: 0.4;
+    transform: translateX(-50%);
+    transition:
+      width 0.5s var(--ease-calm),
+      opacity 0.8s var(--ease-calm),
+      box-shadow 0.8s;
+  }
+  .comet.on .comet-thumb::before,
+  .comet-thumb:hover::before,
+  .comet.drag .comet-thumb::before {
+    width: 4px;
+    opacity: 1;
+    box-shadow: 0 0 10px rgb(124 114 255 / 0.7);
+  }
+  .comet.on .comet-thumb::before {
+    animation: comet-flow 1.4s linear infinite;
+  }
+  .comet-head {
+    position: absolute;
+    left: 50%;
+    bottom: -5px;
+    width: 10px;
+    height: 14px;
+    margin-left: -5px;
+    opacity: 0.35;
+    transform-origin: 50% 100%;
+    transform: scaleY(var(--stretch, 1));
+    transition: opacity 0.8s var(--ease-calm);
+  }
+  /* The drop: round in front (down), pointed behind (up); a rotated square with one sharp corner. */
+  .comet-head::before {
+    content: "";
+    position: absolute;
+    left: 1px;
+    bottom: 1px;
+    width: 8px;
+    height: 8px;
+    border-radius: 0 50% 50% 50%;
+    background: radial-gradient(circle at 60% 60%, #fff 0 30%, #d9d6ff 48%, var(--color-acc-hi) 75%, var(--color-acc));
+    box-shadow:
+      0 0 6px 1px rgb(255 255 255 / 0.55),
+      0 0 14px 3px rgb(124 114 255 / 0.6);
+    transform: rotate(45deg);
+  }
+  .comet[data-dir="up"] .comet-head {
+    top: -5px;
+    bottom: auto;
+    transform-origin: 50% 0;
+  }
+  /* Scrolling up the drop turns round in place (round end up, point down into the bar). */
+  .comet[data-dir="up"] .comet-head::before {
+    top: 1px;
+    bottom: auto;
+    transform: rotate(225deg);
+  }
+  .comet.on .comet-head,
+  .comet.drag .comet-head {
+    opacity: 1;
+  }
+  .comet-tail {
+    position: absolute;
+    left: 50%;
+    bottom: 100%;
+    width: 4px;
+    height: 120px;
+    margin-left: -2px;
+    border-radius: 9999px;
+    background: linear-gradient(0deg, rgb(164 157 255 / 0.55), rgb(124 114 255 / 0));
+    transform-origin: 50% 100%;
+    transform: scaleY(var(--tail, 0));
+  }
+  .comet[data-dir="up"] .comet-tail {
+    top: 100%;
+    bottom: auto;
+    transform-origin: 50% 0;
+    background: linear-gradient(180deg, rgb(164 157 255 / 0.55), rgb(124 114 255 / 0));
+  }
+
   .thin-scroll {
     scrollbar-width: thin;
     scrollbar-color: var(--color-acc-lo) transparent;
@@ -427,5 +580,13 @@
     transition: none !important;
     /* biome-ignore lint/complexity/noImportantStyles: must win over the smooth scrolling on html */
     scroll-behavior: auto !important;
+  }
+  /* REQ-003-23: the comet is a plain bar: no tail and no stretch (and, above, no flow). */
+  .comet-tail {
+    display: none;
+  }
+  .comet-head {
+    /* biome-ignore lint/complexity/noImportantStyles: must win over the speed the script sets on the element */
+    --stretch: 1 !important;
   }
 }
