@@ -61,6 +61,10 @@ afterEach(() => {
 /** The prompt the session's last launch handed to `claude` (REQ-001-45). */
 const promptOf = (id: number) => readFileSync(join(dir, "sessions", String(id), "prompt.md"), "utf8");
 
+/** REQ-001-62: the session's own temp folder, and the variables that send temp files there. */
+const tmpOf = (id: number) => join(dir, "sessions", String(id), "tmp");
+const tmpEnv = (id: number) => `TMPDIR=${shellQuote([tmpOf(id)])} CLAUDE_CODE_TMPDIR=${shellQuote([tmpOf(id)])} `;
+
 const startImplementer = () =>
   runner.start({
     repo: "octo/app",
@@ -192,8 +196,10 @@ describe("session runner", () => {
   });
 
   test("REQ-005-01 every session is started with IS_SANDBOX=1, so skipped permissions also work as root", () => {
-    for (const role of ["planner", "implementer", "reviewer"] as const)
-      expect(tmux.windows.get(`s${startRole(role)}`)?.command).toStartWith("IS_SANDBOX=1 'claude' ");
+    for (const role of ["planner", "implementer", "reviewer"] as const) {
+      const id = startRole(role);
+      expect(tmux.windows.get(`s${id}`)?.command).toStartWith(`${tmpEnv(id)}IS_SANDBOX=1 'claude' `);
+    }
   });
 
   test("REQ-005-01 session settings hold only the hooks and the CLAUDE.md excludes, for every Role", () => {
@@ -463,6 +469,55 @@ describe("session runner", () => {
     expect(store.session(busy)?.state).toBe("running");
   });
 
+  describe("REQ-001-62 each session has its own temp folder", () => {
+    test("a started session (of any Role, see REQ-005-01) gets TMPDIR and CLAUDE_CODE_TMPDIR inside its session folder, and the folder exists", () => {
+      const id = startImplementer();
+      expect(tmux.windows.get(`s${id}`)?.command).toStartWith(tmpEnv(id));
+      expect(existsSync(tmpOf(id))).toBe(true);
+    });
+
+    test("a resumed session gets them again, with the folder recreated after a close", () => {
+      const id = startImplementer();
+      store.setClaudeSessionId(id, "sess-abc");
+      store.patchSession(id, { state: "idle" });
+      runner.close(id);
+      runner.resume(id, "Fix the review findings", { model: "opus" });
+      expect(tmux.windows.get(`s${id}`)?.command).toStartWith(tmpEnv(id));
+      expect(existsSync(tmpOf(id))).toBe(true);
+    });
+
+    test("closing a session deletes its temp folder, but keeps the Result and meta.json", () => {
+      const id = startImplementer();
+      mkdirSync(join(tmpOf(id), "chrome-profile"), { recursive: true });
+      writeFileSync(join(tmpOf(id), "chrome-profile", "Cookies"), "x");
+      const sessionFolder = join(dir, "sessions", String(id));
+      writeFileSync(join(sessionFolder, "result.json"), "{}");
+      store.patchSession(id, { state: "idle" });
+      runner.close(id);
+      expect(existsSync(tmpOf(id))).toBe(false);
+      expect(existsSync(join(sessionFolder, "result.json"))).toBe(true);
+      expect(existsSync(join(sessionFolder, "meta.json"))).toBe(true);
+    });
+
+    test("an abandoned session (REQ-001-57) and one whose launch failed (REQ-001-44) lose their temp folder too", () => {
+      const id = startImplementer();
+      expect(existsSync(tmpOf(id))).toBe(true);
+      runner.abandon(id);
+      expect(existsSync(tmpOf(id))).toBe(false);
+      tmux.failWith = "tmux new-window failed";
+      let error: unknown;
+      try {
+        startImplementer();
+      } catch (e) {
+        error = e;
+      }
+      expect(error).toBeInstanceOf(SessionStartError);
+      const failed = (error as SessionStartError).session.id;
+      expect(existsSync(join(dir, "sessions", String(failed), "meta.json"))).toBe(true);
+      expect(existsSync(tmpOf(failed))).toBe(false);
+    });
+  });
+
   test("ignores tmux windows it does not own", () => {
     tmux.newWindow("keepalive", "/", "sleep");
     tmux.newWindow("s12x", "/", "sleep");
@@ -500,7 +555,7 @@ describe("Accounts", () => {
 
   test("REQ-004-01 a session starts on the first Account, in Claude's default folder, and records it", () => {
     const id = start();
-    expect(commandOf(id)).toStartWith("IS_SANDBOX=1 'claude' ");
+    expect(commandOf(id)).toStartWith(`${tmpEnv(id)}IS_SANDBOX=1 'claude' `);
     expect(commandOf(id)).not.toContain("CLAUDE_CONFIG_DIR");
     expect(store.session(id)?.account).toBe("main");
   });
@@ -508,7 +563,9 @@ describe("Accounts", () => {
   test("REQ-004-01 / REQ-001-17 while the first Account is paused, sessions start on the next one with its folder", () => {
     store.setPausedUntil("main", new Date(Date.now() + 60_000).toISOString());
     const id = start();
-    expect(commandOf(id)).toStartWith(`IS_SANDBOX=1 CLAUDE_CONFIG_DIR=${shellQuote([spareDir()])} 'claude' `);
+    expect(commandOf(id)).toStartWith(
+      `${tmpEnv(id)}IS_SANDBOX=1 CLAUDE_CONFIG_DIR=${shellQuote([spareDir()])} 'claude' `,
+    );
     expect(store.session(id)?.account).toBe("spare");
   });
 
@@ -523,7 +580,7 @@ describe("Accounts", () => {
 
     accountsRunner.resume(id, "go on", { model: "opus" });
     expect(commandOf(id)).toStartWith(
-      `IS_SANDBOX=1 CLAUDE_CONFIG_DIR=${shellQuote([spareDir()])} 'claude' '--resume' 'c1'`,
+      `${tmpEnv(id)}IS_SANDBOX=1 CLAUDE_CONFIG_DIR=${shellQuote([spareDir()])} 'claude' '--resume' 'c1'`,
     );
     expect(store.session(id)?.account).toBe("spare");
     expect(readFileSync(join(spareDir(), "projects", "-work-app", "c1.jsonl"), "utf8")).toBe("turns\n");
