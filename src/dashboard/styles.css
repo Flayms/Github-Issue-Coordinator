@@ -509,16 +509,14 @@
     height: 14px;
     margin-left: -5px;
     opacity: 0;
+    /* Down is the base state, also before the first scroll: the bottom end, the thumb's height less the drop (14 - 5 px). */
+    translate: 0 calc(var(--thumb-h, 0px) - 4px);
     transform-origin: 50% 100%;
     transform: scaleY(var(--stretch, 1));
     transition:
       opacity 0.8s var(--ease-calm),
       translate 0.3s var(--ease-calm),
       transform-origin 0.3s var(--ease-calm);
-  }
-  /* Scrolling down the head rests at the bottom end: the thumb's height less the drop (14 - 5 px). */
-  .comet[data-dir="down"] .comet-head {
-    translate: 0 calc(var(--thumb-h, 0px) - 4px);
   }
   /* The drop: round in front (down), pointed behind (up); a rotated square with one sharp corner. */
   .comet-head::before {
@@ -539,6 +537,7 @@
       top 0.3s var(--ease-calm);
   }
   .comet[data-dir="up"] .comet-head {
+    translate: 0;
     transform-origin: 50% 0;
   }
   /* Scrolling up the drop turns round (round end up, point down into the bar), while gliding up. */

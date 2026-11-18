@@ -751,9 +751,13 @@ describe("dashboard html", () => {
       expect(head).toContain("top: -5px");
       expect(head).not.toMatch(/(^|[\s;])bottom:/);
       expect(head).toMatch(/transition:[^;]*translate 0?\.3s/);
-      expect(rule('.comet[data-dir="up"] .comet-head')).not.toMatch(/(^|[\s;])(top|bottom):/);
-      // Scrolling down it rests at the bottom end: the thumb's height (set by the script) less the drop.
-      expect(rule('.comet[data-dir="down"] .comet-head')).toContain("translate: 0 calc(var(--thumb-h");
+      const up = rule('.comet[data-dir="up"] .comet-head');
+      expect(up).not.toMatch(/(^|[\s;])(top|bottom):/);
+      expect(up).toMatch(/translate: 0(;|\s*$)/);
+      // "Down" is the base state (review of #136): before the first scroll there is no data-dir, and the head
+      // waits at the bottom end, so the first scroll down doesn't glide it there from the top. That end is the
+      // thumb's height (set by the script) less the drop.
+      expect(head).toContain("translate: 0 calc(var(--thumb-h");
       expect(asset("dashboard.js")).toMatch(/setProperty\("--thumb-h"/);
       expect(rule(".comet-head::before")).toMatch(/transition:[^;]*transform 0?\.3s/);
     });
