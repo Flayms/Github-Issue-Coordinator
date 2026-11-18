@@ -936,6 +936,19 @@ describe("reconcile loop", () => {
     expect(store.issue("octo/app", 5).reviewFindings).toBeNull();
   });
 
+  test("REQ-001-54 / REQ-001-16 a Feedback round interrupted again after its one resume labels the PR agent:failed and drafts it", async () => {
+    const id = prOpen();
+    gh.items[0] = item(5, ["agent:in-progress"]);
+    store.patchSession(id, { state: "running" });
+    store.recordResume(id); // resumed once already
+    runner.live.clear(); // the window is gone a second time
+    await coordinator.tick();
+    expect(gh.calls).toContainEqual(["addLabels", 5, ["agent:failed"]]);
+    expect(gh.calls).toContainEqual(["removeLabel", 70, "agent:in-progress"]);
+    expect(gh.calls).toContainEqual(["addLabels", 70, ["agent:failed"]]);
+    expect(gh.calls).toContainEqual(["setDraft", 70, true]); // REQ-001-31
+  });
+
   test("REQ-001-13 failing checks start a round with their output, once per head", async () => {
     const id = prOpen();
     gh.checkState = "failure";

@@ -163,6 +163,7 @@ export function Layout({ v, page, children }: { v: DashboardView; page: "overvie
         <title>{page === "config" ? "Config · Coordinator" : "Coordinator"}</title>
         <link rel="stylesheet" href={assetUrl("dashboard.css")} />
         <script src={assetUrl("dashboard.js")} defer />
+        <script src={assetUrl("meters.js")} defer />
       </head>
       {/* A column, so the Overview's band can grow to the bottom of a short page (#100). */}
       <body className="flex flex-col">

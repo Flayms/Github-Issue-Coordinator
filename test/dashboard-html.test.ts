@@ -220,6 +220,144 @@ describe("dashboard html", () => {
     expect(capacity).toContain('aria-label="Worktrees: 1 of 3"');
   });
 
+  describe("REQ-003-24 liquid glass meters", () => {
+    /** The markup of one meter, rendered on its own in Capacity. */
+    const meter = (used: number, limit: number) => {
+      const html = renderDashboard({ ...dashboardView(snap, config, NOW), capacity: [{ label: "Live", used, limit }] });
+      return html.slice(html.indexOf('role="meter"'), html.indexOf("</li>", html.indexOf('role="meter"')));
+    };
+    const liquid = (html: string) => html.match(/<span class="liquid ([^"]*)"/)?.[1];
+    const slots = (html: string) =>
+      html
+        .match(/<span class="slots[^"]*">((?:<i(?: class="wet")?><\/i>)*)<\/span>/)?.[1]
+        ?.replaceAll(' class="wet"', "").length;
+    const slotMarks = (html: string) =>
+      [...(html.match(/<span class="slots[^"]*">(.*?)<\/span>/)?.[1] ?? "").matchAll(/<i(?: class="(\w+)")?>/g)].map(
+        (m) => m[1] ?? "",
+      );
+
+    test("the liquid fills used out of the limit inside a glass tube, with Slot marks etched in up to 12", () => {
+      const live = meter(4, 5);
+      expect(live).toMatch(/<span class="tube [^"]*grid-cols-5[^"]*">/);
+      expect(liquid(live)).toBe("col-span-4");
+      expect(slots(live)).toBe("<i></i>".length * 5);
+      expect(live).toContain('aria-valuemin="0" aria-valuemax="5" aria-valuenow="4" aria-label="Live: 4 of 5"');
+    });
+
+    test("an empty meter has no liquid, a full one fills the whole tube", () => {
+      expect(meter(0, 3)).toContain('class="tube ');
+      expect(liquid(meter(0, 3))).toBeUndefined();
+      expect(liquid(meter(3, 3))).toBe("col-span-3");
+      expect(liquid(meter(5, 3))).toBe("col-span-3");
+      expect(liquid(meter(12, 12))).toBe("col-span-12");
+    });
+
+    test("above 12 Slots the tube has no Slot marks and the liquid fills to the nearest tenth", () => {
+      const big = meter(7, 20);
+      expect(big).toMatch(/<span class="tube [^"]*grid-cols-10[^"]*">/);
+      expect(liquid(big)).toBe("col-span-4");
+      expect(big).not.toContain('class="slots');
+      expect(liquid(meter(20, 20))).toBe("col-span-10");
+    });
+
+    test("the tube is 18 px tall and holds a canvas for the moving liquid, decoration only, next to the CSS liquid", () => {
+      const live = meter(4, 5);
+      expect(live).toMatch(
+        /<span class="tube [^"]*"><span class="liquid [^"]*"><\/span><canvas class="brew" aria-hidden="true"><\/canvas>/,
+      );
+      expect(meter(0, 5)).not.toContain("<canvas");
+      const css = asset("dashboard.css");
+      expect(css.match(/\.tube \{([^}]*)\}/)?.[1]).toContain("height: 18px");
+      // While the shader draws, the CSS liquid gives way to it (the script marks the tube).
+      expect(css).toMatch(/\.tube\.gl \.liquid \{[^}]*background: none/);
+      expect(css).toMatch(/\.brew \{[^}]*position: absolute/);
+    });
+
+    test("the Slot marks keep their faint line and are a little whiter over the liquid", () => {
+      const live = meter(4, 5);
+      // Marks between used Slots lie over the liquid; the one at its front and those beyond it don't.
+      expect(slotMarks(live)).toEqual(["", "wet", "wet", "wet", ""]);
+      expect(slotMarks(meter(0, 3))).toEqual(["", "", ""]);
+      expect(slotMarks(meter(3, 3))).toEqual(["", "wet", "wet"]);
+      const css = asset("dashboard.css");
+      // The built stylesheet writes white with alpha as `#ffffffAA`.
+      const white = (rule: string) => Number.parseInt(rule.match(/#ffffff([0-9a-f]{2})\b/)?.[1] ?? "", 16) / 255;
+      const dry = css.match(/\.slots > i \+ i \{([^}]*)\}/)?.[1] ?? "";
+      expect(dry).toMatch(/border-left: 1px solid #ffffff/);
+      expect(white(dry)).toBeCloseTo(0.12, 2);
+      const wet = css.match(/\.slots > i\.wet \{([^}]*)\}/)?.[1] ?? "";
+      expect(wet).toContain("border-left-color: #ffffff");
+      expect(white(wet)).toBeGreaterThan(0.12);
+      expect(white(wet)).toBeLessThanOrEqual(0.4);
+      expect(wet).not.toMatch(/width|border-left:/);
+    });
+
+    test("without the shader the CSS liquid's light moves slowly (loops of 10 s or more), out of step across meters", () => {
+      const css = asset("dashboard.css");
+      const rules = [...css.matchAll(/\.liquid(?:::?[a-z-]+)? \{([^}]*)\}/g)].map((m) => m[1] ?? "");
+      const animations = rules.flatMap((r) => [...r.matchAll(/animation: ([^;]+);/g)].map((m) => m[1] ?? ""));
+      expect(animations.length).toBeGreaterThanOrEqual(2);
+      for (const value of animations) {
+        // An animation may come from a theme variable (`var(--animate-glide)`).
+        const a = value.replace(
+          /^var\((--[\w-]+)\)$/,
+          (_, v: string) => css.match(new RegExp(`${v}: ([^;]+);`))?.[1] ?? value,
+        );
+        const seconds = Number(a.match(/([\d.]+)s\b/)?.[1]);
+        expect(seconds).toBeGreaterThanOrEqual(10);
+        // Light glides via transform only: no surface or width moves.
+        const name = a.split(" ")[0];
+        const frames = css.match(new RegExp(`@keyframes ${name} \\{([\\s\\S]*?)\\n\\s*\\}`))?.[1] ?? "";
+        expect(frames).toContain("transform");
+        expect(frames).not.toMatch(/width|height|background-position/);
+      }
+      // Meters take their timing by position, so neighbours' highlights are never at the same spot.
+      const timings = [...css.matchAll(/#capacity li:nth-child\(([^)]*)\) \.liquid::?(before|after) \{([^}]*)\}/g)];
+      for (const pseudo of ["before", "after"]) {
+        const own = timings.filter((m) => m[2] === pseudo).map((m) => m[3] ?? "");
+        expect(own.length).toBeGreaterThanOrEqual(2);
+        for (const r of own) {
+          const d = Number(r.match(/animation-duration: ([\d.]+)s/)?.[1] ?? "NaN");
+          expect(d).toBeGreaterThanOrEqual(10);
+          expect(r).toMatch(/animation-delay: -[\d.]+s/);
+        }
+        expect(new Set(own).size).toBe(own.length);
+      }
+      expect(css).not.toContain(".gauge");
+      expect(css).not.toContain("@keyframes flow");
+    });
+
+    test("the liquid is still for reduced motion: no CSS animation and no shader", () => {
+      const reduced = asset("dashboard.css").slice(
+        asset("dashboard.css").indexOf("@media (prefers-reduced-motion: reduce)"),
+      );
+      expect(reduced).toMatch(/:after \{[^}]*animation: none/);
+      const js = asset("meters.js");
+      expect(js).toContain('matchMedia("(prefers-reduced-motion: reduce)")');
+    });
+
+    test("one WebGL context draws every meter, about 30 frames a second, only while visible", () => {
+      const js = asset("meters.js");
+      expect(js.match(/getContext\("webgl"/g)?.length).toBe(1);
+      expect(js).toContain('getContext("2d"');
+      expect(js).toContain("visibilitychange");
+      expect(js).toContain("IntersectionObserver");
+      expect(js).toMatch(/now - last < 3\d/);
+      // Each meter gets its own seed for phase, speed and pattern.
+      expect(js).toMatch(/uniform float seed/);
+      expect(overview()).toMatch(/<script src="\/assets\/meters\.js\?v=[0-9a-f]+" defer=""><\/script>/);
+    });
+  });
+
+  test("REQ-003-26 the pointer stirs a meter's liquid, a tap on a phone too, and it calms down", () => {
+    const js = asset("meters.js");
+    expect(js).toContain('"pointermove"');
+    expect(js).toContain('"pointerdown"');
+    expect(js).toMatch(/uniform float stir/);
+    // The stir decays over about 2 s.
+    expect(js).toMatch(/STIR_CALM_SEC = [12](\.\d+)?/);
+  });
+
   test("REQ-003-01 each session shows its model and its Remote Control name, with a copy button only for scripts", () => {
     const html = overview();
     expect(html).toContain("claude-sonnet-5-5");
