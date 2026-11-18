@@ -1,52 +1,153 @@
 /*
  * Dashboard script (spec 003). Optional: the page reads fully without it. It adds the countdown and
- * reload (REQ-003-06), the "Copy name" buttons (REQ-003-01), the comet scrollbar (REQ-003-27) and
- * the animated background with its parallax (REQ-003-14, REQ-003-25). It reads only the page
- * itself and makes no requests.
+ * the in-place refresh (REQ-003-06, REQ-003-28), the "Copy name" buttons (REQ-003-01), the comet
+ * scrollbar (REQ-003-27) and the animated background with its parallax (REQ-003-14, REQ-003-25).
+ * Its only request is a GET of the page's own URL.
  */
 (() => {
-  // REQ-003-06: count down to the next reload; a hidden tab reloads once it is shown again.
+  // REQ-003-01: copy the Remote Control name. The clipboard needs a secure context (HTTPS or localhost).
+  // One listener for the whole page, so buttons a refresh adds work too.
+  const canCopy = Boolean(navigator.clipboard && window.isSecureContext);
+  const showCopy = () => {
+    if (canCopy) for (const button of document.querySelectorAll("button[data-copy]")) button.hidden = false;
+  };
+  if (canCopy) {
+    document.addEventListener("click", (e) => {
+      const button = e.target instanceof Element ? e.target.closest("button[data-copy]") : null;
+      if (!button) return;
+      const text = button.querySelector("span");
+      navigator.clipboard.writeText(button.getAttribute("data-copy") || "").then(
+        () => {
+          button.classList.add("done");
+          if (text) text.textContent = "Copied";
+          setTimeout(() => {
+            button.classList.remove("done");
+            if (text) text.textContent = "Copy name";
+          }, 1600);
+        },
+        () => {},
+      );
+    });
+  }
+  showCopy();
+
+  // REQ-003-28: the page is patched to the server's newer copy of itself. Matched nodes are kept,
+  // so focus, a ticked "Show N more", canvases and running animations survive; only attributes and
+  // text that differ are written. Some things belong to this script, not to the server's HTML:
+  /** Classes the scripts add; the server never sends them, so a patch must not take them away. */
+  const CLIENT_CLASSES = ["gl", "on", "done", "drag"];
+  /** The node a new node takes over: the same id, else the next one of the same kind without an id. */
+  const sameKind = (a, b) =>
+    a.nodeType === b.nodeType && (a.nodeType !== 1 || (a.tagName === b.tagName && a.id === b.id));
+  /** Nodes the page's scripts own (the background, the comet): never patched, moved or removed. */
+  const owned = (n) => n.nodeType === 1 && (n.id === "bg" || n.classList.contains("comet"));
+  const patchAttributes = (cur, next) => {
+    for (const { name } of [...cur.attributes]) {
+      if (!next.hasAttribute(name) && name !== "class") cur.removeAttribute(name);
+    }
+    for (const { name, value } of [...next.attributes]) {
+      if (name === "class") continue;
+      if (cur.getAttribute(name) !== value) cur.setAttribute(name, value);
+    }
+    const kept = CLIENT_CLASSES.filter((c) => cur.classList.contains(c));
+    const cls = [next.getAttribute("class") || "", ...kept.filter((c) => !next.classList.contains(c))].join(" ").trim();
+    if ((cur.getAttribute("class") || "") !== cls) {
+      if (cls) cur.setAttribute("class", cls);
+      else cur.removeAttribute("class");
+    }
+  };
+  const patch = (cur, next) => {
+    if (cur.nodeType !== 1) {
+      if (cur.nodeValue !== next.nodeValue) cur.nodeValue = next.nodeValue;
+      return;
+    }
+    // A canvas is drawn by a script (a meter's liquid): its size and pixels stay.
+    if (cur.tagName === "CANVAS") return;
+    patchAttributes(cur, next);
+    patchChildren(cur, next);
+  };
+  const patchChildren = (parent, nextParent) => {
+    const pool = [...parent.childNodes].filter((n) => !owned(n));
+    const at = 0;
+    for (const want of [...nextParent.childNodes]) {
+      if (owned(want)) continue;
+      let i = at;
+      while (i < pool.length && !sameKind(pool[i], want)) i++;
+      let node;
+      if (i < pool.length) {
+        node = pool[i];
+        pool.splice(i, 1);
+        patch(node, want);
+      } else {
+        node = document.importNode(want, true);
+      }
+      // In order after the nodes placed so far.
+      const before = pool[at] ?? null;
+      if (node.nextSibling !== before || node.parentNode !== parent) parent.insertBefore(node, before);
+    }
+    for (const n of pool) n.remove();
+  };
+  /** The stylesheet and scripts a page loads, with their versions. */
+  const assets = (doc) =>
+    [...doc.querySelectorAll("link[rel=stylesheet], script[src]")]
+      .map((e) => e.getAttribute("href") || e.getAttribute("src"))
+      .join(" ");
+
+  // REQ-003-06 / REQ-003-28: count down to the next refresh; a hidden tab refreshes once it is shown again.
   const tick = document.querySelector("[data-reload]");
   if (tick) {
-    const total = Math.max(1, Number(tick.getAttribute("data-reload")) || 60);
-    const label = tick.querySelector("[data-countdown]");
-    const ring = tick.querySelector(".ring-fg");
     const circumference = 2 * Math.PI * 8;
-    const due = Date.now() + total * 1000;
+    const interval = () => Math.max(1, Number(tick.getAttribute("data-reload")) || 60);
+    let due = Date.now() + interval() * 1000;
+    let busy = false;
+    let failed = false;
     const update = () => {
+      const total = interval();
       const left = Math.max(0, Math.ceil((due - Date.now()) / 1000));
-      if (label) {
-        label.textContent = left >= 60 ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}` : `${left} s`;
+      const label = tick.querySelector("[data-countdown]");
+      const time = left >= 60 ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}` : `${left} s`;
+      if (label) label.textContent = failed ? `failed · ${time}` : time;
+      tick.querySelector(".ring-fg")?.setAttribute("stroke-dashoffset", String(circumference * (1 - left / total)));
+      if (left === 0 && !document.hidden) refresh();
+    };
+    const fail = (why) => {
+      failed = true;
+      tick.setAttribute("data-failed", "");
+      tick.setAttribute(
+        "title",
+        `Refresh failed (${why}); this page shows the state before. It tries again in the next interval.`,
+      );
+    };
+    const refresh = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const res = await fetch(location.href, { credentials: "same-origin", cache: "no-store" });
+        // Signed out (an expired token cookie): the whole page, so the Owner sees why.
+        if (res.status === 401) return location.reload();
+        if (!res.ok) return fail(`HTTP ${res.status}`);
+        const next = new DOMParser().parseFromString(await res.text(), "text/html");
+        // Another version of the Coordinator, or not a dashboard page: load it the ordinary way.
+        if (assets(next) !== assets(document) || !next.querySelector("[data-reload]")) return location.reload();
+        if (document.title !== next.title) document.title = next.title;
+        patchChildren(document.body, next.body);
+        failed = false;
+        tick.removeAttribute("data-failed");
+        showCopy();
+        document.dispatchEvent(new Event("dashboard:refreshed"));
+      } catch (e) {
+        fail(e instanceof Error ? e.message : "no answer");
+      } finally {
+        busy = false;
+        due = Date.now() + interval() * 1000;
+        update();
       }
-      ring?.setAttribute("stroke-dashoffset", String(circumference * (1 - left / total)));
-      if (left === 0 && !document.hidden) location.reload();
     };
     update();
     setInterval(update, 1000);
     document.addEventListener("visibilitychange", () => {
-      if (!document.hidden && Date.now() >= due) location.reload();
+      if (!document.hidden && Date.now() >= due) refresh();
     });
-  }
-
-  // REQ-003-01: copy the Remote Control name. The clipboard needs a secure context (HTTPS or localhost).
-  if (navigator.clipboard && window.isSecureContext) {
-    for (const button of document.querySelectorAll("button[data-copy]")) {
-      const text = button.querySelector("span");
-      button.hidden = false;
-      button.addEventListener("click", () => {
-        navigator.clipboard.writeText(button.getAttribute("data-copy") || "").then(
-          () => {
-            button.classList.add("done");
-            if (text) text.textContent = "Copied";
-            setTimeout(() => {
-              button.classList.remove("done");
-              if (text) text.textContent = "Copy name";
-            }, 1600);
-          },
-          () => {},
-        );
-      });
-    }
   }
 
   // The scroll as the comet and the background see it: position, and speed in pixels per millisecond.

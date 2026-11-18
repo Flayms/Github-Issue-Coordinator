@@ -168,7 +168,7 @@ export interface EventView {
 }
 
 export interface DashboardView {
-  lastTick: { at: string; ago: string } | null;
+  lastTick: { at: string } | null;
   refreshSec: number;
   pausedUntil: string | null;
   errors: { repo: string; error: string }[];
@@ -356,7 +356,7 @@ export function dashboardView(
   };
 
   return {
-    lastTick: snap ? { at: formatTime(snap.finishedAt), ago: `${formatDuration(since(snap.finishedAt))} ago` } : null,
+    lastTick: snap ? { at: formatTime(snap.finishedAt) } : null,
     refreshSec: config.pollIntervalSec,
     pausedUntil:
       snap?.pausedUntil && Date.parse(snap.pausedUntil) > now.getTime() ? formatTime(snap.pausedUntil) : null,
