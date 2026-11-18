@@ -220,7 +220,9 @@ const MAX_SLOT_MARKS = 12;
 /**
  * REQ-003-12, REQ-003-24: used out of the limit, as a glossy liquid in a glass tube. The tube is a
  * grid of one column per Slot (of tenths above 12 Slots) and the liquid spans the used ones, so its
- * width needs no inline style (the CSP forbids them).
+ * width needs no inline style (the CSP forbids them). `meters.js` draws the moving liquid into the
+ * canvas next to it (REQ-003-26 stirs it); without that script the CSS liquid stays. Slot marks over
+ * the liquid are a little whiter, so they stay visible on it.
  */
 function Meter({ m }: { m: MeterView }) {
   const used = Math.min(m.used, m.limit);
@@ -245,11 +247,16 @@ function Meter({ m }: { m: MeterView }) {
       </span>
       <span className={`tube col-span-full grid ${COLS[cols]}`}>
         {filled > 0 && <span className={`liquid ${SPAN[filled]}`} />}
+        {filled > 0 && (
+          // biome-ignore lint/a11y/noAriaHiddenOnFocusable: a canvas without tabindex is not focusable; the moving liquid is decoration
+          <canvas className="brew" aria-hidden="true" />
+        )}
         {marked && (
           <span className={`slots grid ${COLS[cols]}`}>
             {Array.from({ length: m.limit }, (_, i) => (
+              // A mark is the left edge of its Slot: over the liquid when both Slots beside it are used.
               // biome-ignore lint/suspicious/noArrayIndexKey: the Slot marks are identical and never reorder
-              <i key={i} />
+              <i key={i} className={i > 0 && i < filled ? "wet" : undefined} />
             ))}
           </span>
         )}
