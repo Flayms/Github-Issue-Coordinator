@@ -118,6 +118,31 @@ describe("dashboard refresh", () => {
     expect(doc.querySelectorAll("#bg")).toHaveLength(1);
   });
 
+  test('REQ-003-28 / REQ-003-35 an opened "Show N more" in Your move stays open', async () => {
+    /** `n` failed issues in Your move (more than 6, so it has its expander), titled with `label`. */
+    const moves = (label: string, n: number): TickSnapshot => {
+      const s = snap(label, 0);
+      const issues = Array.from({ length: n }, (_, i) => ({
+        number: 300 + i,
+        title: `${label} move ${i + 1}`,
+        labels: ["agent:failed"],
+        blockedBy: [],
+      }));
+      return { ...s, repos: s.repos.map((r) => (r.repo === "octo/app" ? { ...r, issues } : r)) };
+    };
+    const server: Server = { answers: [ok(page(moves("new", 9)))], requests: [] };
+    const { doc } = open(page(moves("old", 8)), server);
+    const toggle = doc.getElementById("moves-more") as unknown as { checked: boolean } | null;
+    expect(toggle).not.toBeNull();
+    if (toggle) toggle.checked = true;
+
+    await until(() => (doc.body.textContent ?? "").includes("new move 9"));
+
+    expect(doc.getElementById("moves-more") as unknown).toBe(toggle);
+    expect(toggle?.checked).toBe(true);
+    expect(doc.body.textContent).toContain("Show 4 more");
+  });
+
   test("REQ-003-28 the meters' canvases are kept as they are, and the meters are told to measure again", async () => {
     const server: Server = { answers: [ok(page(snap("old", 8, 2)))], requests: [] };
     const { w, doc } = open(page(snap("old", 8, 1)), server);

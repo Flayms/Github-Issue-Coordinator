@@ -242,7 +242,7 @@ describe("dashboard html", () => {
     expect(none).toMatch(/<h1 [^>]*>Nothing needs you right now<\/h1>/);
   });
 
-  test("REQ-003-32 Your move lists the groups with an icon, a name and a count, each row linked with title, repository, number and hint", () => {
+  test("REQ-003-32 Your move lists the groups with an icon, a name and a count, each row linked with title, repository and number", () => {
     const summary = summaryOf(overview());
     expect(summary).toMatch(/<div class="panel[^"]*"><h2 [^>]*>(?:(?!<\/h2>)[\s\S])*Your move<\/h2>/);
     const groups = [...summary.matchAll(/<li [^>]*data-move="(\w+)"/g)].map((m) => m[1]);
@@ -250,16 +250,41 @@ describe("dashboard html", () => {
     expect(summary).toMatch(/data-move="merge"[\s\S]*?<h3[^>]*>[\s\S]*?Merge PRs[\s\S]*?>1<[\s\S]*?<\/h3>/);
     expect(summary).toMatch(/data-move="approve"[\s\S]*?<h3[^>]*>[\s\S]*?Approve plans[\s\S]*?>1<[\s\S]*?<\/h3>/);
     const pr = summary.slice(summary.indexOf('href="https://github.com/octo/app/pull/70"'));
-    expect(pr).toMatch(
-      /^[^>]*>[\s\S]*?Fix the login form[\s\S]*?octo\/app[\s\S]*?PR #70[\s\S]*?checks passed[\s\S]*?Reviewed: merge it/,
-    );
+    expect(pr).toMatch(/^[^>]*>[\s\S]*?Fix the login form[\s\S]*?octo\/app[\s\S]*?PR #70[\s\S]*?checks passed/);
     expect(summary).toContain('href="https://github.com/octo/app/issues/6"');
-    expect(summary).toContain("Assessment ready: approve or reply");
-    // On a phone the hint is hidden and rows are not indented; from sm on they line up with the group name.
-    expect(summary).toMatch(/<span class="hidden sm:inline"> · Assessment ready: approve or reply<\/span>/);
   });
 
-  test("REQ-003-32 a ready PR keeps its checks fact at every width, with a green shield; only the hint hides on a phone", () => {
+  test("REQ-003-32 a row's title and meta line take one line each from sm on, with the full title on hover and no hint", () => {
+    const summary = summaryOf(overview());
+    const row = (href: string) => {
+      const at = summary.indexOf(`href="${href}"`);
+      return summary.slice(at, summary.indexOf("</a>", at));
+    };
+    const pr = row("https://github.com/octo/app/pull/70");
+    const issue = row("https://github.com/octo/app/issues/6");
+    // The hint is gone: the group name already says what to do.
+    expect(summary).not.toContain("Reviewed: merge it");
+    expect(summary).not.toContain("Assessment ready: approve or reply");
+    for (const [r, title] of [
+      [pr, "Fix the login form"],
+      [issue, "Add search"],
+    ] as const) {
+      const t = r.match(/<span class="([^"]*)" title="([^"]*)">([^<]*)<\/span>/);
+      expect(t?.[2]).toBe(title);
+      expect(t?.[3]).toBe(title);
+      // Up to 2 lines on a phone, one line cut with an ellipsis from sm on.
+      expect(t?.[1]?.split(" ")).toEqual(expect.arrayContaining(["line-clamp-2", "sm:block", "sm:truncate"]));
+    }
+    // The meta line is one line: only the repository shrinks and is cut, never the number or the checks fact.
+    const meta = pr.match(/<span class="([^"]*)"><span class="([^"]*)">octo\/app<\/span>/);
+    expect(meta?.[1]?.split(" ")).toEqual(expect.arrayContaining(["flex", "whitespace-nowrap"]));
+    expect(meta?.[2]?.split(" ")).toEqual(expect.arrayContaining(["min-w-0", "truncate"]));
+    expect(pr).toMatch(/<span class="[^"]*flex-none[^"]*">[^<]*PR #70<\/span>/);
+    expect(pr).toMatch(/<span class="[^"]*flex-none[^"]*">[^<]*<svg[\s\S]*?<\/svg>checks passed<\/span>/);
+    expect(issue).toMatch(/<span class="[^"]*flex-none[^"]*">[^<]*#6<\/span>/);
+  });
+
+  test("REQ-003-32 a ready PR keeps its checks fact at every width, with a green shield", () => {
     const summary = summaryOf(overview());
     const row = summary.slice(
       summary.indexOf('href="https://github.com/octo/app/pull/70"'),
@@ -272,7 +297,7 @@ describe("dashboard html", () => {
     expect(fact).not.toBeNull();
     expect(fact?.[1]?.split(" ")).not.toContain("hidden");
     expect(fact?.[3]?.split(" ")).toContain("text-ok");
-    expect(row).toContain('<span class="hidden sm:inline"> · Reviewed: merge it</span>');
+    expect(row).not.toMatch(/class="[^"]*\bhidden\b/);
     // Issue rows have no checks fact.
     const issue = summary.slice(summary.indexOf('href="https://github.com/octo/app/issues/6"'));
     expect(issue.slice(0, issue.indexOf("</a>"))).not.toContain("checks");
@@ -344,6 +369,104 @@ describe("dashboard html", () => {
     expect(summary).toContain("Nothing needs you.");
     expect(summary).toMatch(/Nothing needs you\. [^<]*Review passes[^<]*Planner/);
     expect(summary).not.toContain("data-move=");
+  });
+
+  /** A tick whose Your move holds `failed` failed issues, then `proposed` plans to approve. */
+  const moves = (failed: number, proposed: number) => {
+    const issue = (number: number, label: string) => ({ number, title: `I${number}`, labels: [label], blockedBy: [] });
+    return renderDashboard(
+      dashboardView(
+        {
+          ...snap,
+          repos: [
+            repo({
+              repo: "octo/app",
+              issues: [
+                ...Array.from({ length: failed }, (_, i) => issue(100 + i, "agent:failed")),
+                ...Array.from({ length: proposed }, (_, i) => issue(200 + i, "agent:proposed")),
+              ],
+            }),
+          ],
+        },
+        config,
+        NOW,
+      ),
+    );
+  };
+  /** The Your move panel's markup. */
+  const yourMoveOf = (html: string) => {
+    const summary = summaryOf(html);
+    return summary.slice(summary.indexOf('<div class="panel'), summary.indexOf('id="stats"'));
+  };
+  const rowsIn = (part: string) =>
+    [...part.matchAll(/href="https:\/\/github.com\/octo\/app\/issues\/(\d+)"/g)].map((m) => Number(m[1]));
+
+  test('REQ-003-35 with 11 items Your move shows the first 5 in group order and one "Show 6 more" for the whole panel', () => {
+    const panel = yourMoveOf(moves(3, 8));
+    const c = expectExpander(panel, 6);
+    expect(panel.match(/data-capped="toggle"/g)).toHaveLength(1);
+    expect(rowsIn(c.shown)).toEqual([100, 101, 102, 200, 201]);
+    expect(rowsIn(c.rest)).toEqual([202, 203, 204, 205, 206, 207]);
+    // The counts stay the totals: the headline and each group.
+    expect(moves(3, 8)).toMatch(/<span class="text-acc-hi">11<\/span> things need you/);
+    expect(c.shown).toMatch(/Failed<span[^>]*>3<\/span>/);
+    expect(c.shown).toMatch(/Approve plans<span[^>]*>8<\/span>/);
+    // The 5th row fades while the rest is closed.
+    expect(c.shown.match(/data-fade/g)).toHaveLength(1);
+    expect(c.shown.slice(c.shown.indexOf("data-fade"))).toContain("issues/201");
+  });
+
+  test("REQ-003-35 a group split by the cap continues in the rest without repeating its heading", () => {
+    const c = capped(yourMoveOf(moves(3, 8)));
+    expect(c.shown.match(/Approve plans/g)).toHaveLength(1);
+    expect(c.rest).not.toContain("Approve plans");
+    expect(c.rest).not.toContain("<h3");
+    // The continued group has no hairline of its own.
+    expect(c.rest).toMatch(/<li data-move="approve"/);
+    // A group that starts after the cap brings its heading along.
+    const later = capped(yourMoveOf(moves(5, 3)));
+    expect(rowsIn(later.shown)).toEqual([100, 101, 102, 103, 104]);
+    expect(later.rest).toMatch(/<li class="border-line border-t" data-move="approve"><h3[\s\S]*?Approve plans/);
+    expect(later.shown).not.toContain("Approve plans");
+  });
+
+  test('REQ-003-35 with 6 items or fewer all show and there is no expander, never a "Show 1 more"', () => {
+    for (const [failed, proposed] of [
+      [3, 3],
+      [0, 5],
+    ] as const) {
+      const panel = yourMoveOf(moves(failed, proposed));
+      expect(panel).not.toContain("data-capped");
+      expect(panel).not.toContain("data-fade");
+      expect(rowsIn(panel)).toHaveLength(failed + proposed);
+    }
+  });
+
+  test("REQ-003-35 the 5th row fades out only while the rest is closed", () => {
+    const css = asset("dashboard.css").replace(/\s*([>~])\s*/g, "$1");
+    expect(css).toMatch(
+      /\.capped>:not\(:checked\)~\[data-capped="?first"?\] \[data-fade\][^{]*\{[^}]*mask-image:\s*linear-gradient\([^;]*(?:transparent|#0000)/,
+    );
+  });
+
+  test("REQ-003-11 / REQ-003-12 Your move sits under the headline on the left, the counts with Capacity under them on the right", () => {
+    const html = overview();
+    // Capacity is no longer its own section after the Summary: it sits in it, under the counts.
+    expect(html).not.toMatch(/<section id="capacity"/);
+    expect(inside(html, "section#summary", ["#capacity", "#stats", ".panel"])).toEqual(
+      new Set(["#capacity", "#stats", ".panel"]),
+    );
+    const summary = html.slice(html.indexOf('id="summary"'), html.indexOf('id="activity"'));
+    // Two columns from md on, the left one wider; in page order (a phone stacks them): headline, Your move, counts, Capacity.
+    expect(summary).toMatch(/^id="summary" class="[^"]*md:grid-cols-\[minmax\(0,3fr\)_minmax\(0,2fr\)\]/);
+    const at = order(summary, ["<h1", "Your move", 'id="stats"', 'id="capacity"']);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+    expect(at.every((i) => i >= 0)).toBe(true);
+    expect(inside(html, "section#summary > div:first-child", ["h1", ".panel", "#stats"])).toEqual(
+      new Set(["h1", ".panel"]),
+    );
+    // Two meters per row.
+    expect(summary).toMatch(/id="capacity"[\s\S]*?<ul class="grid grid-cols-2 /);
   });
 
   test("REQ-003-12 shows each meter as used out of the limit", () => {

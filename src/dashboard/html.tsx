@@ -27,6 +27,7 @@ import type {
   EventView,
   IssueView,
   MeterView,
+  MoveGroup,
   MoveItem,
   MoveKind,
   PullView,
@@ -74,30 +75,35 @@ function PrDetails({ p }: { p: PullView }) {
 /**
  * A row of Your move (REQ-003-32), the hover of the ready PRs (#87): the green accent line grows in
  * at the left edge, a green wash, the text nudges, and the grey arrow circle turns green. From sm on
- * the row lines up with its group's name; on a phone it isn't indented and the hint is hidden, but a
- * ready PR keeps its checks fact.
+ * the row lines up with its group's name and its title and meta line take one line each, cut with an
+ * ellipsis (the full title on hover); on a phone it isn't indented and the title may take 2 lines. In
+ * the meta line only the repository is ever cut, never the number or a ready PR's checks fact.
+ * `fade` marks the last row shown before "Show N more" (REQ-003-35).
  */
-const MoveRow = ({ m }: { m: MoveItem }) => (
-  <li>
+const MoveRow = ({ m, fade = false }: { m: MoveItem; fade?: boolean }) => (
+  <li data-fade={fade ? "" : undefined}>
     <a
-      className="group accent relative flex items-center gap-4 py-3 pr-[18px] pl-[18px] text-fg transition-[background] duration-600 ease-calm [--accent:var(--color-ok)] hover:bg-linear-to-r hover:from-ok/7 hover:to-transparent hover:to-70% hover:text-fg sm:pr-6 sm:pl-[52px]"
+      className="group accent relative flex items-center gap-4 py-2.5 pr-[18px] pl-[18px] text-fg transition-[background] duration-600 ease-calm [--accent:var(--color-ok)] hover:bg-linear-to-r hover:from-ok/7 hover:to-transparent hover:to-70% hover:text-fg sm:pr-6 sm:pl-[52px]"
       href={m.url}
       rel="noreferrer"
     >
       <span className="flex min-w-0 flex-1 flex-col transition-transform duration-450 ease-calm group-hover:translate-x-1.5">
-        <span className="font-display font-semibold text-[15px] text-white leading-[1.35] wrap-anywhere">
+        <span
+          className="line-clamp-2 font-display font-semibold text-[15px] text-white leading-[1.35] wrap-anywhere sm:block sm:truncate"
+          title={m.title}
+        >
           {m.title}
         </span>
-        <span className="mt-1 text-[13px] text-white/50 wrap-anywhere">
-          {m.repo} · <span className="whitespace-nowrap">{m.label}</span>
+        <span className="mt-0.5 flex min-w-0 whitespace-nowrap text-[13px] text-white/50">
+          <span className="min-w-0 truncate">{m.repo}</span>
+          <span className="flex-none whitespace-pre"> · {m.label}</span>
           {m.checks && (
-            <span className="whitespace-nowrap">
+            <span className="flex-none whitespace-pre">
               {" · "}
               <Icon name="shield" className="mr-1 size-[13px] text-ok" />
               {m.checks}
             </span>
           )}
-          <span className="hidden sm:inline"> · {m.hint}</span>
         </span>
       </span>
       <span
@@ -119,38 +125,88 @@ const MOVE_ICONS: Record<MoveKind, { icon: IconName; tone: Tone }> = {
   close: { icon: "cross", tone: "acc" },
 };
 
-/** REQ-003-32: everything that needs the Owner, in groups split by a plain hairline. */
-const YourMove = ({ v }: { v: DashboardView }) => (
-  <div className="panel">
-    <Label className="px-6 pt-[18px] pb-3">Your move</Label>
-    {v.yourMove.length ? (
-      <ul>
-        {v.yourMove.map((g) => {
-          const { icon, tone } = MOVE_ICONS[g.kind];
-          return (
-            <li key={g.kind} className="border-line border-t" data-move={g.kind}>
-              <h3 className="flex items-center gap-3 px-[18px] pt-3.5 pb-1 font-semibold text-[13px] text-white/80 sm:px-6">
-                <Icon name={icon} className={`size-4 ${TONE_TEXT[tone]}`} />
-                {g.title}
-                <span className="font-medium text-muted tabular-nums">{g.items.length}</span>
-              </h3>
-              <ul className="pb-2">
-                {g.items.map((m) => (
-                  <MoveRow key={m.url} m={m} />
-                ))}
-              </ul>
-            </li>
-          );
-        })}
-      </ul>
-    ) : (
-      <Empty className="px-6 pt-3 pb-5">
-        Nothing needs you. A PR shows up here when its Review passes and the checks are green, an issue when the Planner
-        has a plan or questions for you, or when it failed.
-      </Empty>
-    )}
-  </div>
+/** A run of one group's rows; `continued` when its group started before "Show N more" (REQ-003-35). */
+interface MovePart {
+  group: MoveGroup;
+  items: MoveItem[];
+  continued: boolean;
+}
+
+/** REQ-003-35: Your move shows this many items when it holds more than `MOVES_UNCAPPED`. */
+const MOVES_SHOWN = 5;
+const MOVES_UNCAPPED = 6;
+
+/** The groups' rows from item `from` up to `to`, in group order, each run marked if its group began earlier. */
+function moveParts(groups: MoveGroup[], from: number, to: number): MovePart[] {
+  const parts: MovePart[] = [];
+  let at = 0;
+  for (const group of groups) {
+    const start = Math.max(from, at);
+    const end = Math.min(to, at + group.items.length);
+    if (start < end) parts.push({ group, items: group.items.slice(start - at, end - at), continued: start > at });
+    at += group.items.length;
+  }
+  return parts;
+}
+
+/**
+ * REQ-003-32: groups with a bare icon, name and total count, split by a plain hairline. A group
+ * continued after "Show N more" has neither heading nor hairline (REQ-003-35).
+ */
+const MoveGroups = ({ parts, fadeLast = false }: { parts: MovePart[]; fadeLast?: boolean }) => (
+  <ul>
+    {parts.map(({ group: g, items, continued }, p) => {
+      const { icon, tone } = MOVE_ICONS[g.kind];
+      const last = p === parts.length - 1;
+      return (
+        <li key={g.kind} className={continued ? undefined : "border-line border-t"} data-move={g.kind}>
+          {!continued && (
+            <h3 className="flex items-center gap-3 px-[18px] pt-3.5 pb-1 font-semibold text-[13px] text-white/80 sm:px-6">
+              <Icon name={icon} className={`size-4 ${TONE_TEXT[tone]}`} />
+              {g.title}
+              <span className="font-medium text-muted tabular-nums">{g.items.length}</span>
+            </h3>
+          )}
+          <ul className="pb-2">
+            {items.map((m, i) => (
+              <MoveRow key={m.url} m={m} fade={fadeLast && last && i === items.length - 1} />
+            ))}
+          </ul>
+        </li>
+      );
+    })}
+  </ul>
 );
+
+/**
+ * REQ-003-32: everything that needs the Owner. REQ-003-35: more than 6 items show the first 5 and
+ * one "Show N more" for the whole panel, the rest continuing their group in place.
+ */
+function YourMove({ v }: { v: DashboardView }) {
+  const total = v.summary.needYou;
+  return (
+    <div className="panel">
+      <Label className="px-6 pt-[18px] pb-3">Your move</Label>
+      {total === 0 ? (
+        <Empty className="px-6 pt-3 pb-5">
+          Nothing needs you. A PR shows up here when its Review passes and the checks are green, an issue when the
+          Planner has a plan or questions for you, or when it failed.
+        </Empty>
+      ) : total <= MOVES_UNCAPPED ? (
+        <MoveGroups parts={moveParts(v.yourMove, 0, total)} />
+      ) : (
+        <Expander
+          id="moves"
+          className="moves"
+          more={total - MOVES_SHOWN}
+          linkClassName="px-[18px] sm:px-6"
+          first={<MoveGroups parts={moveParts(v.yourMove, 0, MOVES_SHOWN)} fadeLast />}
+          rest={<MoveGroups parts={moveParts(v.yourMove, MOVES_SHOWN, total)} />}
+        />
+      )}
+    </div>
+  );
+}
 
 /** REQ-003-11: a count with what it means, under the headline. */
 const Stat = ({ icon, n, label, why }: { icon: IconName; n: number; label: string; why: string }) => (
@@ -165,20 +221,20 @@ const Stat = ({ icon, n, label, why }: { icon: IconName; n: number; label: strin
   </li>
 );
 
-/** REQ-003-11: the headline, the explained counts, and Your move next to them (REQ-003-32). */
+/**
+ * REQ-003-11: the headline with Your move (REQ-003-32) under it on the left, the explained counts with
+ * Capacity (REQ-003-12) under them on the right; a phone stacks them in that order.
+ */
 function Summary({ v }: { v: DashboardView }) {
   const s = v.summary;
   return (
-    <section
-      id="summary"
-      className="grid items-start gap-8 pt-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] md:gap-10"
-    >
-      <div>
+    <section id="summary" className="grid items-start gap-8 pt-3 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] md:gap-10">
+      <div className="min-w-0">
         <p className="mb-2.5 font-mono font-semibold text-[12px] text-acc-hi uppercase leading-none tracking-[0.16em]">
           Overview
         </p>
         {/* Plain white, only the number in accent purple (#111: no gold on the purple page). */}
-        <h1 className="font-extrabold text-[clamp(40px,6vw,60px)] text-white leading-[1.02] tracking-[-0.03em]">
+        <h1 className="mb-6 font-extrabold text-[clamp(40px,6vw,60px)] text-white leading-[1.02] tracking-[-0.03em]">
           {s.needYou ? (
             <>
               <span className="text-acc-hi">{s.needYou}</span> {s.needYou === 1 ? "thing needs" : "things need"} you
@@ -187,7 +243,10 @@ function Summary({ v }: { v: DashboardView }) {
             "Nothing needs you right now"
           )}
         </h1>
-        <ul className="mt-6">
+        <YourMove v={v} />
+      </div>
+      <div className="min-w-0">
+        <ul id="stats">
           <Stat
             icon="bolt"
             n={s.working}
@@ -207,8 +266,8 @@ function Summary({ v }: { v: DashboardView }) {
             why={s.blocked === 1 ? "Waits for another issue to finish" : "Wait for another issue to finish"}
           />
         </ul>
+        <Capacity v={v} />
       </div>
-      <YourMove v={v} />
     </section>
   );
 }
@@ -311,15 +370,16 @@ function Meter({ m }: { m: MeterView }) {
   );
 }
 
+/** REQ-003-12: the meters, two per row, under the counts in the Summary. */
 const Capacity = ({ v }: { v: DashboardView }) => (
-  <section id="capacity" className="wrap mt-9">
+  <div id="capacity" className="mt-8">
     <Label>Capacity</Label>
-    <ul className="grid grid-cols-2 gap-x-6 sm:grid-cols-3 lg:grid-cols-6">
+    <ul className="grid grid-cols-2 gap-x-6">
       {v.capacity.map((m) => (
         <Meter key={m.label} m={m} />
       ))}
     </ul>
-  </section>
+  </div>
 );
 
 const ROLE_ICONS: Record<string, IconName> = { Planner: "compass", Implementer: "code", Reviewer: "eye" };
@@ -444,35 +504,52 @@ function Phase({
 const SHOWN = 5;
 
 /**
- * REQ-003-23: the first five items of a part of Activity, the last of them fading out, and "Show N
- * more" under them; open, the rest show in place, in the same list and row style, with "Show less"
- * under them. A checkbox and two labels, so it needs no script; `.capped` in the stylesheet does the
- * rest. Five or fewer: just the list.
+ * REQ-003-23, REQ-003-35: what shows at first, then "Show N more"; open, the rest shows in place with
+ * "Show less" under it. A checkbox and two labels, so it needs no script; `.capped` in the stylesheet
+ * does the rest.
  */
-function Capped({ id, items, list }: { id: string; items: ReactNode[]; list: (items: ReactNode[]) => ReactNode }) {
-  const more = items.slice(SHOWN);
-  if (!more.length) return list(items);
+function Expander({
+  id,
+  more,
+  first,
+  rest,
+  className = "",
+  linkClassName = "",
+}: {
+  id: string;
+  more: number;
+  first: ReactNode;
+  rest: ReactNode;
+  /** `moves`: the last row shown is marked with `data-fade` instead of being the last child (REQ-003-35). */
+  className?: string;
+  linkClassName?: string;
+}) {
   const toggle = `${id}-more`;
-  const link = "cursor-pointer py-3 font-medium text-[13px] text-acc-hi hover:underline";
+  const link = `cursor-pointer py-3 font-medium text-[13px] text-acc-hi hover:underline ${linkClassName}`.trim();
   return (
-    <div className="capped">
-      <input
-        type="checkbox"
-        id={toggle}
-        className="sr-only"
-        data-capped="toggle"
-        aria-label={`Show ${more.length} more`}
-      />
-      <div data-capped="first">{list(items.slice(0, SHOWN))}</div>
-      <div data-capped="rest">{list(more)}</div>
+    <div className={`capped ${className}`.trim()}>
+      <input type="checkbox" id={toggle} className="sr-only" data-capped="toggle" aria-label={`Show ${more} more`} />
+      <div data-capped="first">{first}</div>
+      <div data-capped="rest">{rest}</div>
       <label data-capped="more" className={link} htmlFor={toggle}>
-        Show {more.length} more
+        Show {more} more
       </label>
       <label data-capped="less" className={link} htmlFor={toggle}>
         Show less
       </label>
     </div>
   );
+}
+
+/**
+ * REQ-003-23: the first five items of a part of Activity, the last of them fading out, and "Show N
+ * more" under them; open, the rest show in place, in the same list and row style. Five or fewer:
+ * just the list.
+ */
+function Capped({ id, items, list }: { id: string; items: ReactNode[]; list: (items: ReactNode[]) => ReactNode }) {
+  const more = items.slice(SHOWN);
+  if (!more.length) return list(items);
+  return <Expander id={id} more={more.length} first={list(items.slice(0, SHOWN))} rest={list(more)} />;
 }
 
 /** REQ-003-01: the open sessions, running ones first; idle ones say they wait, not that they work (#74). */
@@ -770,7 +847,7 @@ function Pipeline({ v }: { v: DashboardView }) {
 }
 
 /**
- * The Overview: Summary, Capacity, Activity (REQ-003-20), then the Pipeline and the footer in the
+ * The Overview: Summary (with Capacity), Activity (REQ-003-20), then the Pipeline and the footer in the
  * band, which grows to the bottom of a short page (#100).
  */
 export const Overview = ({ v }: { v: DashboardView }) => (
@@ -779,7 +856,6 @@ export const Overview = ({ v }: { v: DashboardView }) => (
       <div className="wrap mt-9">
         <Summary v={v} />
       </div>
-      <Capacity v={v} />
       <Activity v={v} />
       <div className="band mt-12 flex grow flex-col pt-24">
         <div className="wrap">
