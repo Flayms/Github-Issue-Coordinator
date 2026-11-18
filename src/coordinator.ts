@@ -525,6 +525,12 @@ export class Coordinator {
         });
         return;
       }
+      case "ready":
+        // REQ-001-31 / REQ-001-64: recorded after the call, so a failed one is retried on the next tick.
+        await this.reviewer.markReady(a.repo, a.pr);
+        for (const n of a.issues) this.d.store.updateIssue(a.repo, n, { readySha: a.headSha });
+        this.log(`${a.repo}: PR #${a.pr} is ready for review at ${a.headSha.slice(0, 7)}`);
+        return;
       case "cleanup":
         if (await this.implementer.cleanup(a.repo, a.issues, a.worktreePath))
           this.log(`${a.repo}: PR #${a.prNumber} is closed; cleaned up ${a.issues.map((n) => `#${n}`).join(", ")}`);
@@ -665,6 +671,7 @@ export class Coordinator {
         headSeenAt,
         baseRef: pull.baseRef,
         state: pull.state,
+        draft: pull.draft,
       });
     }
     return out;
