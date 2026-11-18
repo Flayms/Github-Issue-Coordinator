@@ -97,8 +97,11 @@ class FakeGitHub {
   async updatePull(_r: string, pr: number) {
     this.calls.push(["updatePull", pr]);
   }
+  /** PRs not listed here are drafts (REQ-001-31). */
+  drafts = new Map<number, boolean>();
   async setDraft(_r: string, pr: number, draft: boolean) {
     this.calls.push(["setDraft", pr, draft]);
+    this.drafts.set(pr, draft);
   }
   async addAssignees(_r: string, issue: number, assignees: string[]) {
     this.calls.push(["addAssignees", issue, assignees]);
@@ -117,7 +120,7 @@ class FakeGitHub {
       state: this.pullStates.get(pr) ?? "open",
       number: pr,
       nodeId: `PR_${pr}`,
-      draft: true,
+      draft: this.drafts.get(pr) ?? true,
       headSha,
       headRef: "agent/5-x",
       baseRef: "main",
@@ -463,7 +466,7 @@ describe("reconcile loop", () => {
 
   test("REQ-001-09 / REQ-001-14 an approved issue is implemented, gets a PR, and is cleaned up once the PR is merged", async () => {
     await proposed();
-    gh.checkState = "pending"; // keep the Reviewer out of this one
+    gh.mergeable = null; // GitHub still computing mergeability keeps the Reviewer out (REQ-001-10/28)
     gh.comments.set(5, [{ id: 970, body: "/approve", author: OWNER, createdAt: "t", updatedAt: "" }]);
     gh.changed = true;
     await coordinator.tick(); // approve
@@ -532,7 +535,7 @@ describe("reconcile loop", () => {
 
   test("REQ-001-14 an issue whose PR was closed without merging is open again without an agent label and planned anew", async () => {
     await proposed();
-    gh.checkState = "pending";
+    gh.mergeable = null; // GitHub still computing mergeability keeps the Reviewer out (REQ-001-10/28)
     gh.comments.set(5, [{ id: 970, body: "/approve", author: OWNER, createdAt: "t", updatedAt: "" }]);
     gh.changed = true;
     await coordinator.tick(); // approve
@@ -562,7 +565,7 @@ describe("reconcile loop", () => {
   const implementerDone = () => {
     // PR #70 is what createPull returns; listing it keeps it open once created.
     gh.items = [item(5, ["agent:in-progress"]), item(70, [], { isPullRequest: true, author: { login: "bot", id: 1 } })];
-    gh.checkState = "pending"; // keep the Reviewer out
+    gh.mergeable = null; // GitHub still computing mergeability keeps the Reviewer out (REQ-001-10/28)
     store.updateIssue("octo/app", 5, { worktreePath: "/wt/5" });
     const id = store.createSession({ repo: "octo/app", role: "implementer", kind: "issue", issues: [5] });
     store.setClaudeSessionId(id, "claude-impl");
@@ -579,7 +582,7 @@ describe("reconcile loop", () => {
   test("REQ-001-14 a PR missing from a cached (304) or lagging list right after it was opened keeps its Worktree and gets a Review", async () => {
     const id = implementerDone();
     gh.items = gh.items.filter((i) => i.number !== 70); // GitHub's list doesn't show the new PR yet
-    gh.checkState = "success";
+    gh.mergeable = true;
     await coordinator.tick(); // sync opens PR #70
     expect(gh.calls).toContainEqual(["createPull", "T"]);
     expect(store.issue("octo/app", 5).prNumber).toBe(70);
@@ -635,7 +638,8 @@ describe("reconcile loop", () => {
     gh.items = [item(5, ["agent:approved"])];
     store.updateIssue("octo/app", 5, { approvedAt: "2026-11-11T09:00:00Z" });
     gh.openPulls = [orphan()];
-    gh.checkState = "failure";
+    gh.mergeable = false; // REQ-001-64: failing checks of an unreviewed head would wait for its Review
+    gh.checkState = "none";
     await coordinator.tick();
     expect(runner.started).toEqual([]);
     expect(gh.items[0]?.labels).toEqual(["agent:pr-open"]);
@@ -647,7 +651,8 @@ describe("reconcile loop", () => {
   test("REQ-001-43 a re-attached issue with stale agent:failed or agent:in-progress labels ends up only agent:pr-open, and automatic rounds resume", async () => {
     gh.items = [item(5, ["agent:failed", "agent:in-progress"])];
     gh.openPulls = [orphan()];
-    gh.checkState = "failure";
+    gh.mergeable = false; // REQ-001-64: failing checks of an unreviewed head would wait for its Review
+    gh.checkState = "none";
     await coordinator.tick();
     expect(gh.items[0]?.labels).toEqual(["agent:pr-open"]);
     expect(gh.calls).not.toContainEqual(["addLabels", 5, ["agent:failed"]]);
@@ -656,7 +661,7 @@ describe("reconcile loop", () => {
     ]);
     await coordinator.tick();
     expect(runner.started).toMatchObject([{ role: "implementer", issues: [5], cwd: "/wt/5" }]);
-    expect(runner.started[0]?.prompt).toContain("Failing checks");
+    expect(runner.started[0]?.prompt).toContain("git merge origin/main");
   });
 
   test("REQ-001-43 a listed PR that GitHub reports closed, or with another branch, is not re-attached", async () => {
@@ -759,14 +764,10 @@ describe("reconcile loop", () => {
     expect(gh.calls.filter((c) => c[0] === "setDraft")).toEqual([]);
   });
 
-  test("REQ-001-10 / REQ-001-23 / REQ-001-52 an agent PR is reviewed once its checks pass, then the Reviewer closes, assigning the Owner", async () => {
+  test("REQ-001-10 / REQ-001-23 / REQ-001-52 / REQ-001-64 an agent PR is reviewed while its checks are pending and leaves draft once they pass, assigning the Owner", async () => {
     gh.items = [item(5, ["agent:pr-open"]), item(70, [], { isPullRequest: true, author: { login: "bot", id: 1 } })];
     store.updateIssue("octo/app", 5, { worktreePath: "/wt/5", prNumber: 70 });
     gh.checkState = "pending";
-    await coordinator.tick();
-    expect(runner.started).toEqual([]);
-
-    gh.checkState = "success"; // checks finishing does not change the issue list
     await coordinator.tick();
     expect(runner.started).toEqual([expect.objectContaining({ role: "reviewer", issues: [5], cwd: "/reviews/70" })]);
     await coordinator.tick();
@@ -777,12 +778,40 @@ describe("reconcile loop", () => {
     await coordinator.tick();
     expect(gh.calls).toContainEqual(["createReview", 70, "h1"]);
     expect(gh.items[0]?.labels).toEqual(["agent:reviewed"]);
+    expect(store.session(1)?.state).toBe("closed");
+    await coordinator.tick();
+    expect(gh.calls.filter((c) => c[0] === "setDraft" || c[0] === "addAssignees")).toEqual([]); // checks pending
+
+    gh.checkState = "success"; // checks finishing does not change the issue list
+    await coordinator.tick();
     expect(gh.calls).toContainEqual(["setDraft", 70, false]); // REQ-001-31
     expect(gh.calls).toContainEqual(["addAssignees", 70, ["octo"]]); // REQ-001-52
     expect(gh.calls.some((c) => c[0] === "requestReviewers")).toBe(false);
-    expect(store.session(1)?.state).toBe("closed");
+    gh.drafts.set(70, true); // the Owner turns it back into a draft
     await coordinator.tick();
+    expect(gh.calls.filter((c) => c[0] === "setDraft")).toHaveLength(1);
     expect(runner.started).toHaveLength(1);
+  });
+
+  test("REQ-001-64 failing checks of an unreviewed head wait for its Review, then share one round with the findings", async () => {
+    const impl = prOpen({ reviewedHeadSha: null });
+    gh.checkState = "failure";
+    await coordinator.tick();
+    expect(runner.started).toEqual([expect.objectContaining({ role: "reviewer", issues: [5] })]);
+    expect(runner.resumed).toEqual([]);
+    const reviewId = impl + 1;
+    const finding = { path: "a.ts", line: 1, severity: "medium", body: "crash" };
+    writeFileSync(
+      join(runner.sessionDir(reviewId), "result.json"),
+      JSON.stringify({ summary: "S", findings: [finding] }),
+    );
+    store.patchSession(reviewId, { state: "idle", needsSync: true });
+    await coordinator.tick();
+    await coordinator.tick();
+    expect(runner.resumed).toEqual([
+      [impl, expect.stringMatching(/1\. \*\*medium\*\* `a\.ts:1`: crash[\s\S]*Failing checks on h1:\n\n- test/)],
+    ]);
+    expect(store.issue("octo/app", 5)).toMatchObject({ feedbackRounds: 1, failedChecksSha: "h1" });
   });
 
   const prOpen = (extra: Record<string, unknown> = {}) => {
@@ -1063,15 +1092,9 @@ describe("reconcile loop", () => {
     expect(store.issue("octo/app", 5).failedChecksSha).toBe("h1");
   });
 
-  test("REQ-001-10 a new head without checks is reviewed only after the grace period", async () => {
+  test("REQ-001-10 a new head without checks yet is reviewed right away", async () => {
     prOpen({ reviewedHeadSha: null });
     gh.checkState = "none";
-    await coordinator.tick();
-    expect(runner.started).toEqual([]);
-    now = new Date(now.getTime() + 60_000);
-    await coordinator.tick();
-    expect(runner.started).toEqual([]);
-    now = new Date(now.getTime() + 61_000);
     await coordinator.tick();
     expect(runner.started).toEqual([expect.objectContaining({ role: "reviewer", issues: [5] })]);
   });
@@ -1568,7 +1591,7 @@ describe("reconcile loop", () => {
 
     test("a Review without findings", async () => {
       await reviewed([]);
-      expect(events()).toEqual([["review-passed", [5], 70, "Review of PR #70: no findings, ready for the Owner"]]);
+      expect(events()).toEqual([["review-passed", [5], 70, "Review of PR #70: no findings"]]);
     });
 
     test("a Review with findings", async () => {

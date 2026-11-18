@@ -8,7 +8,7 @@ export default defineConfig({
   // GitHub access is the GitHub CLI's login, a fine-grained PAT (`gh auth login`, docs/setup.md step 1); nothing here.
   // github: { commitAuthor: { name: "Claude", email: "noreply@anthropic.com" } }, // author of the Implementer's commits
   pollIntervalSec: 60,
-  // A PR head without check runs is reviewed only this long after it appeared, so CI can register first.
+  // A reviewed PR head without check runs leaves draft only this long after it appeared, so CI can register first.
   checksGraceSeconds: 120,
   stateDir: ".coordinator", // store, session files, clones and Worktrees (outside the managed repos)
   // All optional; these are the defaults. maxLiveSessions counts running and idle sessions.
