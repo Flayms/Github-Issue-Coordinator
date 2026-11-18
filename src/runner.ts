@@ -127,6 +127,16 @@ export class SessionRunner {
     return join(this.o.stateDir, "sessions", String(id));
   }
 
+  /** REQ-001-62: the session's own temp folder, on the disk of the state folder rather than a small `/tmp`. */
+  private tmpDir(id: number): string {
+    return join(this.sessionDir(id), "tmp");
+  }
+
+  /** REQ-001-62: a closed session's temp files (e.g. headless-Chrome profiles) have no value. */
+  private removeTmp(id: number): void {
+    rmSync(this.tmpDir(id), { recursive: true, force: true });
+  }
+
   start(opts: StartOptions): number {
     const id = this.o.store.createSession({
       repo: opts.repo,
@@ -191,6 +201,7 @@ export class SessionRunner {
 
   /** REQ-001-44: a session whose launch failed is closed, so it is not taken for an interrupted one (REQ-001-16). */
   private startFailed(id: number, cause: unknown): SessionStartError {
+    this.removeTmp(id);
     this.o.store.patchSession(id, { state: "closed", coordinatorPromptPending: false });
     return new SessionStartError(this.mustGet(id), cause);
   }
@@ -200,6 +211,7 @@ export class SessionRunner {
     const s = this.mustGet(id);
     if (this.isBusy(s)) throw new SessionBusyError(id);
     this.o.tmux.killWindow(`s${id}`);
+    this.removeTmp(id);
     this.o.store.patchSession(id, { state: "closed" });
   }
 
@@ -233,6 +245,7 @@ export class SessionRunner {
   abandon(id: number): void {
     this.mustGet(id);
     this.o.tmux.killWindow(`s${id}`);
+    this.removeTmp(id);
     this.o.store.patchSession(id, { state: "closed", coordinatorPromptPending: false });
   }
 
@@ -270,8 +283,12 @@ export class SessionRunner {
     const promptPath = join(dir, "prompt.md");
     writeFileSync(promptPath, keepResult ? prompt : `${prompt}\n\n${resultInstructions(s.role, resultPath)}`);
     const args = claudeArgs({ name: remoteControlName(s), settingsPath: join(dir, "settings.json"), model, resumeId });
+    // REQ-001-62: temp files go to the session's own folder (`os.tmpdir()`, `mktemp`, Chrome profiles, Claude Code's own).
+    const tmp = this.tmpDir(id);
+    mkdirSync(tmp, { recursive: true });
+    const tmpEnv = `TMPDIR=${shellQuote([tmp])} CLAUDE_CODE_TMPDIR=${shellQuote([tmp])} `;
     // REQ-005-01: Claude Code refuses skipped permissions as root unless IS_SANDBOX=1 is set.
-    const env = `IS_SANDBOX=1 ${account.configDir ? `CLAUDE_CONFIG_DIR=${shellQuote([account.configDir])} ` : ""}`;
+    const env = `${tmpEnv}IS_SANDBOX=1 ${account.configDir ? `CLAUDE_CONFIG_DIR=${shellQuote([account.configDir])} ` : ""}`;
     const command = `${env}${shellQuote([this.o.claudeBin ?? "claude", ...args])} "$(cat ${shellQuote([promptPath])})"`;
     this.o.tmux.newWindow(`s${id}`, cwd, command);
   }

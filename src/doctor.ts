@@ -4,10 +4,12 @@
  * (docs/setup.md) and prints what is missing. Read-only: it changes nothing.
  */
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { DEFAULT_ACCOUNT } from "./accounts.ts";
 import { githubLoginOf, loadConfig } from "./config.ts";
 import { GhToken } from "./github/gh-token.ts";
 import { API, baseHeaders } from "./github/http.ts";
+import { tempSpaceChecks } from "./temp-space.ts";
 
 type Status = "ok" | "fail" | "warn";
 const results: { status: Status; check: string; detail: string }[] = [];
@@ -42,6 +44,10 @@ try {
 } catch (e) {
   report("fail", "config valid", e instanceof Error ? e.message : String(e));
 }
+
+// REQ-005-08: sessions keep their temp files in their session folder (REQ-001-62); `/tmp` is often a small tmpfs.
+for (const c of tempSpaceChecks({ sessions: resolve(config?.stateDir ?? ".coordinator"), tmp: "/tmp" }))
+  report(c.status, c.check, c.detail);
 
 // REQ-003-29: the dashboard's GitHub sign-in is on by default; its client secret must be readable.
 if (config?.dashboard && config.dashboard.githubLogin !== false) {

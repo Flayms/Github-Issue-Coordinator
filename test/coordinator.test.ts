@@ -1333,6 +1333,15 @@ describe("reconcile loop", () => {
     expect(runner.resumed).toHaveLength(1);
   });
 
+  test("REQ-001-62 / REQ-001-16 an idle session whose window is gone after a restart is closed through the runner, so its temp folder goes", async () => {
+    gh.items = [item(5, ["agent:planning"])];
+    const id = store.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [5] });
+    store.patchSession(id, { state: "idle" });
+    await coordinator.tick();
+    expect(runner.closed).toContain(id);
+    expect(store.session(id)?.state).toBe("closed");
+  });
+
   test("REQ-001-17 with one Account, pauses after the usage limit, then continues the interrupted session", async () => {
     gh.items = [item(5), item(6, ["agent:planning"])];
     const id = store.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [6] });
