@@ -2,7 +2,7 @@
  * Dashboard view model (spec 003): turns the last tick's snapshot and the config into what the page
  * shows. Pure, so every rule is unit-tested; src/dashboard/html.tsx renders it.
  */
-import { type Config, type Limits, ROLES, type Role, roleSettings } from "../config.ts";
+import { type Config, githubLoginOf, type Limits, ROLES, type Role, roleSettings } from "../config.ts";
 import type { RepoSnapshot, TickSnapshot } from "../coordinator.ts";
 import type { ChecksState } from "../github/client.ts";
 import { ROLE_NAMES } from "../note.ts";
@@ -138,7 +138,7 @@ export interface SettingsView {
   checksGraceSeconds: number;
   limits: Limits;
   /** How the dashboard is reached; null without a `dashboard` block. */
-  access: { host: string; port: number; tokenRequired: boolean } | null;
+  access: { host: string; port: number; tokenRequired: boolean; githubLogin: "on" | "off" | "not set up" } | null;
   /** The model and effort per Role, before repository overrides. */
   roles: RoleView[];
   repos: {
@@ -447,7 +447,14 @@ function settingsView(config: Config, snapshot: RepoSnapshot[]): SettingsView {
     pollIntervalSec: config.pollIntervalSec,
     checksGraceSeconds: config.checksGraceSeconds,
     limits: { ...config.limits },
-    access: dash ? { host: dash.host, port: dash.port, tokenRequired: dash.tokenPath !== undefined } : null,
+    access: dash
+      ? {
+          host: dash.host,
+          port: dash.port,
+          tokenRequired: dash.tokenPath !== undefined,
+          githubLogin: dash.githubLogin === false ? "off" : githubLoginOf(config) ? "on" : "not set up",
+        }
+      : null,
     roles: ROLES.map((role) => roleView(role, config.roles[role])),
     repos: config.repos.map((r) => {
       const seen = snapshot.find((x) => x.repo === r.name);

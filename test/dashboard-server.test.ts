@@ -39,7 +39,9 @@ afterEach(() => {
 const start = (opts: { dashboard?: ConfigInput["dashboard"]; token?: string; snapshot?: () => TickSnapshot }) => {
   const logs: string[] = [];
   const calls = { snapshot: 0 };
-  const config = parseConfig({ ...base, ...(opts.dashboard !== undefined ? { dashboard: opts.dashboard } : {}) });
+  // These tests are about the token; the GitHub sign-in (on by default) has its own tests below.
+  const dashboard = opts.dashboard ? { githubLogin: false as const, ...opts.dashboard } : opts.dashboard;
+  const config = parseConfig({ ...base, ...(dashboard !== undefined ? { dashboard } : {}) });
   const server = startDashboard({
     config,
     token: opts.token,
@@ -222,7 +224,11 @@ describe("dashboard server", () => {
     };
     const logs: string[] = [];
     const server = startDashboard({
-      config: parseConfig({ ...base, repos: [{ name: "octo/app" }, { name: "octo/lib" }], dashboard: { port: 0 } }),
+      config: parseConfig({
+        ...base,
+        repos: [{ name: "octo/app" }, { name: "octo/lib" }],
+        dashboard: { port: 0, githubLogin: false },
+      }),
       snapshot: () => two,
       log: (m) => logs.push(m),
     });

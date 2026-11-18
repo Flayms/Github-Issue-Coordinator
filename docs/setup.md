@@ -34,19 +34,37 @@ Copy `config.example.ts` to `config.ts` and fill in:
 
 **More than one subscription (optional):** when one hits its usage limit, the Coordinator goes on with the next ([spec 004](specs/004-accounts/spec.md)). Log in to each extra one in its own folder (`CLAUDE_CONFIG_DIR=/root/.claude-spare claude`, then `/login`) and list them in `accounts`. A session shows up in the Claude app only under the account it runs on.
 
-## 4. Dashboard (optional)
+## 4. Dashboard
 
-On by default at `127.0.0.1:8080`, read-only ([spec 003](specs/003-dashboard/spec.md)). Reach it over Tailscale (`tailscale serve --bg 8080`) or an SSH tunnel (`ssh -N -L 8080:127.0.0.1:8080 root@<vm>`), never directly from the internet. To require a token:
+On by default at `127.0.0.1:8080`, read-only ([spec 003](specs/003-dashboard/spec.md)). Reach it over Tailscale (`tailscale serve --bg 8080`) or an SSH tunnel (`ssh -N -L 8080:127.0.0.1:8080 root@<vm>`), never directly from the internet. `dashboard: false` turns it off.
+
+**Sign in with GitHub** (on by default): only the Owner gets in. Until it is set up, the pages answer 503. Create an OAuth App: GitHub → Settings → Developer settings → OAuth Apps → New OAuth App:
+
+- Homepage URL: the URL you open the dashboard with, e.g. `https://<vm>.<tailnet>.ts.net` (Tailscale) or `http://127.0.0.1:8080` (SSH tunnel).
+- Authorization callback URL: that URL + `/auth/callback`, e.g. `https://<vm>.<tailnet>.ts.net/auth/callback`. Open the dashboard with exactly that host, or the sign-in ends with 400.
+- Generate a client secret and keep it in a file:
 
 ```sh
-mkdir -p ~/.config/coordinator && (umask 077 && openssl rand -hex 32 > ~/.config/coordinator/dashboard-token)
+mkdir -p ~/.config/coordinator && (umask 077 && cat > ~/.config/coordinator/github-client-secret) # paste, then Ctrl-D
 ```
 
 ```ts
-dashboard: { tokenPath: "/root/.config/coordinator/dashboard-token" },
+dashboard: { githubLogin: { clientId: "Ov23li…", clientSecretPath: "/root/.config/coordinator/github-client-secret" } },
 ```
 
-Open it once as `…/?token=<token>`; a cookie keeps it from then on. `dashboard: false` turns it off.
+The sign-in asks for no scopes: it reads only who you are and drops GitHub's token right after. The session lasts 30 days, also across restarts; its key is `<stateDir>/dashboard-session.key` (deleting it signs everyone out). "Sign out" is in the header. `githubLogin: false` turns the sign-in off, for loopback-only use.
+
+**Token for scripts (optional):**
+
+```sh
+(umask 077 && openssl rand -hex 32 > ~/.config/coordinator/dashboard-token)
+```
+
+```ts
+dashboard: { tokenPath: "/root/.config/coordinator/dashboard-token", githubLogin: { … } },
+```
+
+Send it as `Authorization: Bearer <token>`, or open the dashboard once as `…/?token=<token>` and a cookie keeps it. Off loopback, the dashboard needs the sign-in or a token.
 
 ## 5. Run as a service
 

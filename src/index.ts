@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { loadConfig } from "./config.ts";
 import { Coordinator } from "./coordinator.ts";
+import { loadDashboardLogin } from "./dashboard/auth.ts";
 import { loadDashboardToken, startDashboard } from "./dashboard/server.ts";
 import { Clones } from "./git.ts";
 import { GitHubClient } from "./github/client.ts";
@@ -23,6 +24,8 @@ async function main() {
   mkdirSync(stateDir, { recursive: true });
   // REQ-003-07: an unusable token stops the start, before anything runs.
   const dashboardToken = loadDashboardToken(config);
+  // REQ-003-27: so does an unusable GitHub client secret; the session key is created once in the state dir.
+  const dashboardLogin = loadDashboardLogin(config, stateDir);
   // REQ-005-02: the GitHub CLI's PAT; fails the start early if gh isn't logged in.
   const auth = new GhToken();
   await auth.tokenFor("");
@@ -56,7 +59,13 @@ async function main() {
     }
   }
   // REQ-003-08: it serves the last tick's snapshot and fails on its own.
-  const dashboard = startDashboard({ config, token: dashboardToken, snapshot: () => coordinator.snapshot(), log });
+  const dashboard = startDashboard({
+    config,
+    token: dashboardToken,
+    login: dashboardLogin,
+    snapshot: () => coordinator.snapshot(),
+    log,
+  });
   log(`${NAME}: watching ${config.repos.map((r) => r.name).join(", ")} every ${config.pollIntervalSec}s`);
 
   let stopping = false;

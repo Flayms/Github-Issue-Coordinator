@@ -594,6 +594,7 @@ describe("dashboard html", () => {
     expect(html).toContain("Token required");
     expect(html).toContain("GET only");
     expect(html).toContain("No GitHub calls");
+    expect(html).toContain("GitHub sign-in not set up");
     expect(html).toContain("maxWorktrees");
     expect(html).toMatch(/Reviewer[\s\S]*haiku[\s\S]*low/);
     expect(html).toContain("bun install");
@@ -609,6 +610,26 @@ describe("dashboard html", () => {
       expect(html).toContain('href="/config"');
     }
     expect(configPage()).toMatch(/<a [^>]*href="\/config"[^>]*aria-current="page"/);
+  });
+
+  test("REQ-003-29 with the GitHub sign-in set up, the header has a Sign out button posting to /auth/logout", () => {
+    const signedIn = parseConfig({
+      ...config,
+      dashboard: { githubLogin: { clientId: "Ov23li", clientSecretPath: "/secret/github-client-secret" } },
+    });
+    for (const html of [
+      renderDashboard(dashboardView(snap, signedIn, NOW)),
+      renderConfig(dashboardView(snap, signedIn, NOW)),
+    ]) {
+      const form = /<form [^>]*>[\s\S]*?<\/form>/.exec(html)?.[0] ?? "";
+      expect(form).toContain('action="/auth/logout"');
+      expect(form).toContain('method="post"');
+      expect(form).toMatch(/<button type="submit"[^>]*>[\s\S]*Sign out<\/button>/);
+      expect(html).not.toContain("/secret");
+    }
+    expect(renderConfig(dashboardView(snap, signedIn, NOW))).toContain("GitHub sign-in, Owner only");
+    expect(renderConfig(dashboardView(snap, signedIn, NOW))).toContain("Only the sign-in calls GitHub");
+    for (const html of [overview(), configPage()]) expect(html).not.toContain("/auth/logout");
   });
 
   test("REQ-003-06 a countdown to the next reload, and a meta refresh for browsers without JavaScript", () => {

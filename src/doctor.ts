@@ -3,8 +3,9 @@
  * Setup check: `bun run doctor`. Verifies everything the Coordinator needs before its first start
  * (docs/setup.md) and prints what is missing. Read-only: it changes nothing.
  */
+import { readFileSync } from "node:fs";
 import { DEFAULT_ACCOUNT } from "./accounts.ts";
-import { loadConfig } from "./config.ts";
+import { githubLoginOf, loadConfig } from "./config.ts";
 import { GhToken } from "./github/gh-token.ts";
 import { API, baseHeaders } from "./github/http.ts";
 
@@ -40,6 +41,24 @@ try {
   report("ok", "config valid", `${config.repos.length} repositories, Owner ${config.owner.login} (${config.owner.id})`);
 } catch (e) {
   report("fail", "config valid", e instanceof Error ? e.message : String(e));
+}
+
+// REQ-003-27: the dashboard's GitHub sign-in is on by default; its client secret must be readable.
+if (config?.dashboard && config.dashboard.githubLogin !== false) {
+  const login = githubLoginOf(config);
+  let secret = "";
+  try {
+    secret = login ? readFileSync(login.clientSecretPath, "utf8").trim() : "";
+  } catch {}
+  report(
+    login && secret ? "ok" : "fail",
+    "dashboard GitHub sign-in",
+    !login
+      ? "not set up: set dashboard.githubLogin (docs/setup.md step 4), or githubLogin: false"
+      : secret
+        ? `OAuth App ${login.clientId}`
+        : `cannot read a client secret at ${login.clientSecretPath}`,
+  );
 }
 
 // REQ-004-03: every Account's login (each in its own Claude config folder); without a config, the default one.
