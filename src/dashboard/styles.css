@@ -75,7 +75,7 @@
       opacity: 0.35;
     }
   }
-  /* REQ-003-24: light inside a meter's liquid glides back and forth; nothing else in the tube moves. */
+  /* REQ-003-24: without the shader, light inside a meter's CSS liquid glides back and forth. */
   @keyframes glide {
     from {
       transform: translateX(-30%);
@@ -288,13 +288,16 @@
 
   /*
    * REQ-003-24: a Capacity meter is a glass tube (frosted, a lit top rim, an inner shadow and a
-   * static reflection on top) holding a glossy violet liquid, inset 2px, with rounded ends. Only
-   * light moves, slowly: a highlight glides through the liquid and refracted light moves along its
-   * bottom the other way. Slot marks are faint lines etched into the glass.
+   * static reflection on top) holding a glossy violet liquid, inset 2px, with rounded ends. With
+   * WebGL, `meters.js` draws the moving liquid into `.brew` and marks the tube `.gl`; the CSS liquid
+   * then keeps only its glow (its width still sets where the liquid ends). Without it, light moves in
+   * the CSS liquid: a highlight glides through it and refracted light moves along its bottom the
+   * other way, at a different pace and phase per meter. Slot marks are faint lines etched into the
+   * glass above the liquid, a little whiter where they cross it.
    */
   .tube {
     position: relative;
-    height: 14px;
+    height: 18px;
     padding: 2px;
     border-radius: 9999px;
     background: linear-gradient(180deg, rgb(255 255 255 / 0.03), rgb(255 255 255 / 0.07));
@@ -349,6 +352,64 @@
     background: linear-gradient(90deg, rgb(255 255 255 / 0), rgb(255 255 255 / 0.45), rgb(255 255 255 / 0));
     animation: var(--animate-refract);
   }
+  /* The shader's liquid, over the tube's inside; the CSS liquid keeps only its glow under it. */
+  .brew {
+    position: absolute;
+    inset: 2px;
+    width: calc(100% - 4px);
+    height: calc(100% - 4px);
+    border-radius: 9999px;
+    pointer-events: none;
+  }
+  .tube.gl .liquid {
+    background: none;
+    box-shadow: 0 0 8px rgb(124 114 255 / 0.45);
+  }
+  .tube.gl .liquid::before,
+  .tube.gl .liquid::after {
+    display: none;
+  }
+  /* Each meter's light at its own pace and phase (the 6 meters of Capacity). */
+  #capacity li:nth-child(6n + 2) .liquid::before {
+    animation-duration: 13s;
+    animation-delay: -4s;
+  }
+  #capacity li:nth-child(6n + 3) .liquid::before {
+    animation-duration: 17s;
+    animation-delay: -9s;
+  }
+  #capacity li:nth-child(6n + 4) .liquid::before {
+    animation-duration: 12s;
+    animation-delay: -6.5s;
+  }
+  #capacity li:nth-child(6n + 5) .liquid::before {
+    animation-duration: 15s;
+    animation-delay: -2s;
+  }
+  #capacity li:nth-child(6n + 6) .liquid::before {
+    animation-duration: 19s;
+    animation-delay: -12s;
+  }
+  #capacity li:nth-child(6n + 2) .liquid::after {
+    animation-duration: 18s;
+    animation-delay: -7s;
+  }
+  #capacity li:nth-child(6n + 3) .liquid::after {
+    animation-duration: 11s;
+    animation-delay: -3s;
+  }
+  #capacity li:nth-child(6n + 4) .liquid::after {
+    animation-duration: 16s;
+    animation-delay: -11s;
+  }
+  #capacity li:nth-child(6n + 5) .liquid::after {
+    animation-duration: 13s;
+    animation-delay: -8.5s;
+  }
+  #capacity li:nth-child(6n + 6) .liquid::after {
+    animation-duration: 20s;
+    animation-delay: -5s;
+  }
   .slots {
     position: absolute;
     inset: 2px;
@@ -357,6 +418,9 @@
   }
   .slots > i + i {
     border-left: 1px solid rgb(255 255 255 / 0.12);
+  }
+  .slots > i.wet {
+    border-left-color: rgb(255 255 255 / 0.3);
   }
   /* A running session's bar. */
   .flowing {

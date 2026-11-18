@@ -366,7 +366,8 @@ export class Coordinator {
         this.d.store.patchSession(a.session.id, { state: "closed" });
         return;
       case "fail":
-        await this.fail(a.repo, a.issues, a.reason, a.session, a.pr);
+        // REQ-001-54: a failed session of an Implementer or Reviewer fails its agent PR too.
+        await this.fail(a.repo, a.issues, a.reason, a.session, a.pr ?? (a.session && this.prOf(a.session)));
         // REQ-001-13 / REQ-001-28: give up on a head's failing checks or conflicts once, not on every tick.
         if (a.headSha)
           for (const n of a.issues) {
