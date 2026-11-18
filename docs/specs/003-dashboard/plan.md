@@ -77,3 +77,4 @@ Approach: `scripts/dashboard-screenshots.ts` renders both pages from `test/fixtu
 - [x] Spec: REQ-003-16 amended; REQ-003-23 added
 - [x] Markup: one capped list for Recent, Now and Next, 5 items at every width, the rest behind a `<details>` (REQ-003-23)
 - [x] Mock data with more than 5 queued steps, screenshots regenerated (REQ-003-21)
+- [x] PR #112 feedback: the 5th item fades out, "Show N more" and "Show less" as text links (a checkbox and two labels instead of `<details>`) (REQ-003-23)

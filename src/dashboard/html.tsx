@@ -398,21 +398,34 @@ function Phase({
 const SHOWN = 5;
 
 /**
- * REQ-003-23: the first five items of a part of Activity, the rest in a `<details>` that needs no
- * script and shows them in place, in the same list and row style. Five or fewer: no expander.
+ * REQ-003-23: the first five items of a part of Activity, the last of them fading out, and "Show N
+ * more" under them; open, the rest show in place, in the same list and row style, with "Show less"
+ * under them. A checkbox and two labels, so it needs no script; `.capped` in the stylesheet does the
+ * rest. Five or fewer: just the list.
  */
-function Capped({ items, list }: { items: ReactNode[]; list: (items: ReactNode[]) => ReactNode }) {
+function Capped({ id, items, list }: { id: string; items: ReactNode[]; list: (items: ReactNode[]) => ReactNode }) {
   const more = items.slice(SHOWN);
+  if (!more.length) return list(items);
+  const toggle = `${id}-more`;
+  const link = "cursor-pointer py-3 font-medium text-[13px] text-acc-hi hover:underline";
   return (
-    <>
-      {list(items.slice(0, SHOWN))}
-      {more.length > 0 && (
-        <details className="mt-2 border-line border-t">
-          <summary className="cursor-pointer py-3 font-medium text-[13px] text-acc-hi">Show {more.length} more</summary>
-          {list(more)}
-        </details>
-      )}
-    </>
+    <div className="capped">
+      <input
+        type="checkbox"
+        id={toggle}
+        className="sr-only"
+        data-capped="toggle"
+        aria-label={`Show ${more.length} more`}
+      />
+      <div data-capped="first">{list(items.slice(0, SHOWN))}</div>
+      <div data-capped="rest">{list(more)}</div>
+      <label data-capped="more" className={link} htmlFor={toggle}>
+        Show {more.length} more
+      </label>
+      <label data-capped="less" className={link} htmlFor={toggle}>
+        Show less
+      </label>
+    </div>
   );
 }
 
@@ -421,6 +434,7 @@ const Now = ({ v }: { v: DashboardView }) => (
   <Phase id="now" title="Now" tag="now" current className="order-1 lg:order-none">
     {v.sessions.length ? (
       <Capped
+        id="now"
         items={v.sessions.map((s) => <Session key={s.name} s={s} />)}
         list={(items) => <ul className="grid gap-x-10 gap-y-8 pt-2 sm:grid-cols-2 lg:grid-cols-1">{items}</ul>}
       />
@@ -495,6 +509,7 @@ const Recent = ({ v }: { v: DashboardView }) => (
   <Phase id="recent" title="Recent" tag="done" className="order-3 lg:order-none">
     {v.recent.length ? (
       <Capped
+        id="recent"
         items={v.recent.map((e) => <Event key={`${e.datetime} ${e.text}`} e={e} />)}
         list={(items) => <ul>{items}</ul>}
       />
@@ -580,7 +595,11 @@ function Next({ v }: { v: DashboardView }) {
   ];
   return (
     <Phase id="next" title="Next" tag="next" className="order-2 lg:order-none">
-      {steps.length ? <Capped items={steps} list={(items) => <ol>{items}</ol>} /> : <Empty>Nothing is queued.</Empty>}
+      {steps.length ? (
+        <Capped id="next" items={steps} list={(items) => <ol>{items}</ol>} />
+      ) : (
+        <Empty>Nothing is queued.</Empty>
+      )}
     </Phase>
   );
 }

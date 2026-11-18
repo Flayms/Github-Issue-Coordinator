@@ -469,6 +469,37 @@
     }
   }
 
+  /*
+   * REQ-003-23: a part of Activity with more than five items. Closed, the last item shown fades out
+   * downwards and "Show N more" sits under it; open (the checkbox), the rest shows in place with
+   * "Show less" under it. Plain text links, no disclosure marker, so it doesn't read as a menu.
+   */
+  .capped > [data-capped="more"] {
+    display: inline-block;
+  }
+  .capped > [data-capped="rest"],
+  .capped > [data-capped="less"] {
+    display: none;
+  }
+  .capped > :checked ~ [data-capped="rest"] {
+    display: block;
+  }
+  .capped > :checked ~ [data-capped="less"] {
+    display: inline-block;
+  }
+  .capped > :checked ~ [data-capped="more"] {
+    display: none;
+  }
+  .capped > :not(:checked) ~ [data-capped="first"] > * > :last-child {
+    -webkit-mask-image: linear-gradient(180deg, #000 0, transparent 100%);
+    mask-image: linear-gradient(180deg, #000 0, transparent 100%);
+  }
+  .capped > :focus-visible ~ label {
+    outline: 2px solid var(--color-acc);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
   /* Config page: a dashed, drifting line between the hops from the browser to the Coordinator. */
   .hops > li + li::before {
     content: "";
