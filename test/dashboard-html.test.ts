@@ -708,6 +708,13 @@ describe("dashboard html", () => {
     expect(pipeline).toContain("rounds 1/2");
   });
 
+  test("REQ-003-02 hovering a card doesn't widen the Pipeline: each card clips its own sideways overflow (#121)", () => {
+    const pipeline = overview().slice(overview().indexOf('id="pipeline"'));
+    const cards = pipeline.match(/<li class="[^"]*"[^>]*data-tone=/g) ?? [];
+    expect(cards.length).toBeGreaterThan(0);
+    for (const card of cards) expect(card).toMatch(/[" ]overflow-x-clip[" ]/);
+  });
+
   test("REQ-003-13 the repository filter is a set of plain links that marks the picked one", () => {
     const html = overview({ repo: "octo/lib" });
     expect(html).toContain('href="/?repo=octo%2Fapp#pipeline"');
