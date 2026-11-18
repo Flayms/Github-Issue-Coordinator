@@ -43,7 +43,7 @@ try {
   report("fail", "config valid", e instanceof Error ? e.message : String(e));
 }
 
-// REQ-003-27: the dashboard's GitHub sign-in is on by default; its client secret must be readable.
+// REQ-003-28: the dashboard's GitHub sign-in is on by default; its client secret must be readable.
 if (config?.dashboard && config.dashboard.githubLogin !== false) {
   const login = githubLoginOf(config);
   let secret = "";

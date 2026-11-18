@@ -65,10 +65,10 @@ const accountSchema = z.strictObject({
 const dashboardSchema = z.strictObject({
   host: z.string().min(1).default("127.0.0.1"),
   port: z.number().int().min(0).max(65535).default(8080),
-  /** File holding the access token, for scripts; required off loopback when the GitHub sign-in is off (REQ-003-29). */
+  /** File holding the access token, for scripts; required off loopback when the GitHub sign-in is off (REQ-003-30). */
   tokenPath: z.string().min(1).optional(),
   /**
-   * "Sign in with GitHub" for the Owner (REQ-003-27): on by default, `false` turns it off. Until `clientId` and
+   * "Sign in with GitHub" for the Owner (REQ-003-28): on by default, `false` turns it off. Until `clientId` and
    * `clientSecretPath` (a GitHub OAuth App's) are set, the pages answer 503.
    */
   githubLogin: z
@@ -125,7 +125,7 @@ const configSchema = z
       .transform((d) => d || undefined),
   })
   .superRefine((c, ctx) => {
-    // REQ-003-29: off loopback, the token or the GitHub sign-in (on by default) guards the dashboard.
+    // REQ-003-30: off loopback, the token or the GitHub sign-in (on by default) guards the dashboard.
     if (c.dashboard && !c.dashboard.tokenPath && c.dashboard.githubLogin === false && !isLoopback(c.dashboard.host))
       ctx.addIssue({
         code: "custom",

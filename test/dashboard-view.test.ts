@@ -452,7 +452,7 @@ describe("dashboard view", () => {
     expect(all).not.toContain("app.pem");
   });
 
-  test("REQ-003-27 the Config page knows whether the GitHub sign-in is on, off or not set up yet", () => {
+  test("REQ-003-28 the Config page knows whether the GitHub sign-in is on, off or not set up yet", () => {
     const access = (githubLogin?: false | Record<string, string>) =>
       dashboardView(undefined, parseConfig({ ...config, dashboard: { githubLogin } }), NOW).settings.access
         ?.githubLogin;

@@ -47,7 +47,7 @@ export interface DashboardDeps {
   config: Config;
   /** The configured token (REQ-003-07); without one, no request needs one. */
   token?: string;
-  /** The GitHub sign-in's secrets (REQ-003-27); absent while it is off or not set up. */
+  /** The GitHub sign-in's secrets (REQ-003-28); absent while it is off or not set up. */
   login?: DashboardLogin;
   /** For the sign-in's two GitHub requests; the global fetch by default. */
   fetch?: Fetch;
@@ -113,7 +113,7 @@ async function handle(req: Request, d: DashboardDeps): Promise<Response> {
   try {
     const url = new URL(req.url);
     const now = d.now?.() ?? new Date();
-    // REQ-003-27: on unless `githubLogin: false`; `d.login` is there once it is set up.
+    // REQ-003-28: on unless `githubLogin: false`; `d.login` is there once it is set up.
     const loginOn = d.config.dashboard?.githubLogin !== false;
     const login = loginOn ? d.login : undefined;
     if (login && url.pathname === CALLBACK) return await callback(req, url, login, d, now);
@@ -149,7 +149,7 @@ async function handle(req: Request, d: DashboardDeps): Promise<Response> {
   }
 }
 
-/** A browser opening a page goes to GitHub (REQ-003-27); scripts, assets and other methods get 401. */
+/** A browser opening a page goes to GitHub (REQ-003-28); scripts, assets and other methods get 401. */
 function signInNeeded(req: Request, url: URL, loginOn: boolean, login: DashboardLogin | undefined): Response {
   if (loginOn && !login) return respond(503, `Unavailable: ${NOT_SET_UP}.`);
   const mode = req.headers.get("sec-fetch-mode");
@@ -162,7 +162,7 @@ function signInNeeded(req: Request, url: URL, loginOn: boolean, login: Dashboard
   ]);
 }
 
-/** REQ-003-28: only the Owner gets a session; the state is checked first and used once. */
+/** REQ-003-29: only the Owner gets a session; the state is checked first and used once. */
 async function callback(req: Request, url: URL, login: DashboardLogin, d: DashboardDeps, now: Date) {
   if (req.method !== "GET") return respond(405, "Method not allowed", { allow: "GET" });
   const clearState = `${STATE_COOKIE}=; HttpOnly; SameSite=Lax; Path=${CALLBACK}; Max-Age=0${secure(req, url)}`;
@@ -192,7 +192,7 @@ async function callback(req: Request, url: URL, login: DashboardLogin, d: Dashbo
   ]);
 }
 
-/** REQ-003-29: ends the session (and a token cookie); a page, since `/` would sign in again right away. */
+/** REQ-003-30: ends the session (and a token cookie); a page, since `/` would sign in again right away. */
 function logout(req: Request): Response {
   if (req.method !== "POST") return respond(405, "Method not allowed", { allow: "POST" });
   const site = req.headers.get("sec-fetch-site");

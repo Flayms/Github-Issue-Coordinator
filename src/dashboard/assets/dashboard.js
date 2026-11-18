@@ -1,7 +1,8 @@
 /*
  * Dashboard script (spec 003). Optional: the page reads fully without it. It adds the countdown and
- * reload (REQ-003-06), the "Copy name" buttons (REQ-003-01) and the animated background (REQ-003-14).
- * It reads only the page itself and makes no requests.
+ * reload (REQ-003-06), the "Copy name" buttons (REQ-003-01), the comet scrollbar (REQ-003-27) and
+ * the animated background with its parallax (REQ-003-14, REQ-003-25). It reads only the page
+ * itself and makes no requests.
  */
 (() => {
   // REQ-003-06: count down to the next reload; a hidden tab reloads once it is shown again.
@@ -48,6 +49,128 @@
     }
   }
 
+  // The scroll as the comet and the background see it: position, and speed in pixels per millisecond.
+  const root = document.documentElement;
+  const scrollMax = () => Math.max(0, root.scrollHeight - window.innerHeight);
+  /** REQ-003-14 / REQ-003-25: for reduced motion nothing follows the scroll. The background still draws. */
+  const still = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const METAL = 0.3;
+  const GLOW = 0.15;
+  let scrollSpeed = 0;
+  const scrollListeners = [];
+  {
+    let lastY = window.scrollY;
+    let lastT = performance.now();
+    window.addEventListener(
+      "scroll",
+      () => {
+        const now = performance.now();
+        const y = window.scrollY;
+        const v = (y - lastY) / Math.max(8, now - lastT);
+        scrollSpeed += (v - scrollSpeed) * 0.5;
+        lastY = y;
+        lastT = now;
+        for (const f of scrollListeners) f(y);
+      },
+      { passive: true },
+    );
+  }
+
+  // REQ-003-25: the glows move at about 15 % of the scroll, also without WebGL.
+  let glowFrame = 0;
+  const moveGlow = () => {
+    glowFrame = 0;
+    root.style.setProperty("--glow-y", `${still.matches ? 0 : -Math.round(window.scrollY * GLOW)}px`);
+  };
+  scrollListeners.push(() => {
+    if (!glowFrame) glowFrame = requestAnimationFrame(moveGlow);
+  });
+  moveGlow();
+
+  // REQ-003-27: the comet replaces the browser's scrollbar. Scrolling stays the browser's; the comet
+  // only reads it, plus a drag on its own thumb. It is redrawn at most once a frame and only while
+  // something changes; about a second after the scroll stops it slims and dims (CSS, without .on).
+  {
+    const comet = document.createElement("div");
+    comet.className = "comet";
+    comet.setAttribute("aria-hidden", "true");
+    const thumb = document.createElement("div");
+    thumb.className = "comet-thumb";
+    const tail = document.createElement("i");
+    tail.className = "comet-tail";
+    const head = document.createElement("i");
+    head.className = "comet-head";
+    thumb.append(tail, head);
+    comet.append(thumb);
+    document.body.append(comet);
+    root.classList.add("has-comet");
+
+    let frame = 0;
+    let idle = 0;
+    let thumbH = 0;
+    let trackH = 0;
+    const layout = () => {
+      const max = scrollMax();
+      // Shown first: a hidden comet measures 0 high.
+      comet.hidden = max < 1;
+      trackH = comet.clientHeight;
+      thumbH = Math.max(36, Math.round((trackH * window.innerHeight) / (max + window.innerHeight)));
+      thumb.style.height = `${thumbH}px`;
+    };
+    const draw = () => {
+      frame = 0;
+      const max = scrollMax();
+      const y = max ? (Math.min(max, Math.max(0, window.scrollY)) / max) * (trackH - thumbH) : 0;
+      thumb.style.transform = `translate3d(0, ${y.toFixed(1)}px, 0)`;
+      const speed = Math.abs(scrollSpeed);
+      comet.style.setProperty("--stretch", (1 + Math.min(1.2, speed * 0.35)).toFixed(2));
+      comet.style.setProperty("--tail", Math.min(1, speed * 0.45).toFixed(2));
+      // Without new scroll events the speed decays, so the tail and the stretch settle.
+      scrollSpeed *= 0.85;
+      if (speed > 0.01) frame = requestAnimationFrame(draw);
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(draw);
+    };
+    scrollListeners.push(() => {
+      if (scrollSpeed > 0.02) comet.dataset.dir = "down";
+      else if (scrollSpeed < -0.02) comet.dataset.dir = "up";
+      comet.classList.add("on");
+      clearTimeout(idle);
+      idle = setTimeout(() => comet.classList.remove("on"), 1000);
+      schedule();
+    });
+    const relayout = () => {
+      layout();
+      schedule();
+    };
+    window.addEventListener("resize", relayout);
+    // The page grows and shrinks without a resize too, e.g. when "Show 10 more" opens.
+    if (window.ResizeObserver) new ResizeObserver(relayout).observe(document.body);
+    relayout();
+
+    // Drag: the thumb follows the pointer; the page scrolls in proportion.
+    thumb.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      thumb.setPointerCapture(e.pointerId);
+      comet.classList.add("drag");
+      const startY = e.clientY;
+      const startScroll = window.scrollY;
+      const ratio = scrollMax() / Math.max(1, trackH - thumbH);
+      // "instant": the page scrolls smoothly by default (html), which would lag behind the pointer.
+      const move = (ev) => window.scrollTo({ top: startScroll + (ev.clientY - startY) * ratio, behavior: "instant" });
+      const end = () => {
+        comet.classList.remove("drag");
+        thumb.removeEventListener("pointermove", move);
+        thumb.removeEventListener("pointerup", end);
+        thumb.removeEventListener("pointercancel", end);
+      };
+      thumb.addEventListener("pointermove", move);
+      thumb.addEventListener("pointerup", end);
+      thumb.addEventListener("pointercancel", end);
+    });
+  }
+
   // REQ-003-14: polished dark metal after the v3 mockup in #41 (#87): broad, slow, domain-warped
   // folds that reflect a sharp key light, a highlight strip and a violet fill. The pointer pushes an
   // uneven, lobed dent that smears along its motion. Always on, also for reduced motion (the
@@ -72,6 +195,8 @@ uniform float t;
 uniform vec2 m;
 uniform vec2 vel;
 uniform float energy;
+uniform float scroll;
+uniform float glow;
 const float ZOOM=${ZOOM.toFixed(2)};
 float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
 float noise(vec2 p){
@@ -85,8 +210,9 @@ float fbm(vec2 p){
   return v;
 }
 float height(vec2 p){
-  vec2 q=vec2(fbm(p+vec2(0.,t*.012)),fbm(p+vec2(5.2,1.3)-t*.009));
-  float h=fbm(p*.8+1.4*q);
+  vec2 w=p-vec2(0.,scroll);
+  vec2 q=vec2(fbm(w+vec2(0.,t*.012)),fbm(w+vec2(5.2,1.3)-t*.009));
+  float h=fbm(w*.8+1.4*q);
   vec2 d=p-m;
   d+=.22*(vec2(noise(p*2.3+t*.08),noise(p*2.3+7.1-t*.07))-.5);
   float sp=length(vel);
@@ -115,7 +241,7 @@ void main(){
   float fill=pow(max(dot(rf,normalize(vec3(.5,-.6,.6))),0.),5.);
   float fres=pow(1.-max(n.z,0.),2.);
   vec3 col=vec3(.035,.038,.06)+vec3(.78,.78,.9)*key*.5+vec3(.9,.9,1.)*strip*.3+vec3(.30,.27,.75)*fill*.5+vec3(.24,.22,.55)*fres*.8;
-  col*=.55+.45*smoothstep(1.25,.2,length((uv-vec2(.72,.62))*vec2(1.5,1.)));
+  col*=.55+.45*smoothstep(1.25,.2,length((uv-vec2(.72,.62+glow))*vec2(1.5,1.)));
   gl_FragColor=vec4(col,1.);
 }`;
   const compile = (type, source) => {
@@ -144,6 +270,8 @@ void main(){
   const uMouse = u("m");
   const uVel = u("vel");
   const uEnergy = u("energy");
+  const uScroll = u("scroll");
+  const uGlow = u("glow");
 
   const SCALE = 0.75;
   const resize = () => {
@@ -175,6 +303,11 @@ void main(){
     { passive: true },
   );
 
+  // REQ-003-25: scrolling stirs the metal like the pointer: its speed adds to the dent's energy.
+  scrollListeners.push(() => {
+    if (!still.matches) energy = Math.min(1, energy + Math.abs(scrollSpeed) * 0.04);
+  });
+
   const start = performance.now();
   let frame = 0;
   let last = 0;
@@ -197,6 +330,11 @@ void main(){
     gl.uniform2f(uMouse, cur[0], cur[1]);
     gl.uniform2f(uVel, vel[0], vel[1]);
     gl.uniform1f(uEnergy, energy);
+    // REQ-003-25: the metal follows the scroll at METAL of its speed, the light at GLOW (in shader
+    // units: ZOOM per window height for the metal, a fraction of the height for the light).
+    const y = still.matches ? 0 : window.scrollY / window.innerHeight;
+    gl.uniform1f(uScroll, y * METAL * ZOOM);
+    gl.uniform1f(uGlow, y * GLOW);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     canvas.classList.add("on");
   };

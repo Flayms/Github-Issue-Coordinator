@@ -197,7 +197,7 @@ export function Layout({ v, page, children }: { v: DashboardView; page: "overvie
               <Icon name="lock" />
               Read-only
             </span>
-            {/* REQ-003-29: a plain form, so it works without JavaScript; the server answers with a signed-out page. */}
+            {/* REQ-003-30: a plain form, so it works without JavaScript; the server answers with a signed-out page. */}
             {v.settings.access?.githubLogin === "on" && (
               <form method="post" action="/auth/logout">
                 <button

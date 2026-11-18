@@ -1,5 +1,5 @@
 /**
- * "Sign in with GitHub" for the dashboard (REQ-003-27..29): the OAuth web flow of a GitHub OAuth App, and a
+ * "Sign in with GitHub" for the dashboard (REQ-003-28..30): the OAuth web flow of a GitHub OAuth App, and a
  * signed session cookie for the Owner. The user's access token is used for `GET /user` only and then dropped.
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
@@ -27,7 +27,7 @@ const SESSION_VERSION = "v1";
 
 /**
  * Reads the client secret and the session key (generated on first use, 0600). Undefined when the sign-in is off or
- * not set up yet; throws when the secret can't be used, so the Coordinator refuses to start (REQ-003-27).
+ * not set up yet; throws when the secret can't be used, so the Coordinator refuses to start (REQ-003-28).
  */
 export function loadDashboardLogin(config: Config, stateDir: string): DashboardLogin | undefined {
   const login = githubLoginOf(config);
