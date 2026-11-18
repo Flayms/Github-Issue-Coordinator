@@ -183,12 +183,53 @@ const WIDTH = [
 ];
 const width = (percent: number) => WIDTH[Math.max(0, Math.min(10, Math.round(percent / 10)))];
 
-/** REQ-003-12: used out of the limit, as pips up to 12 and as a bar above. */
+/** Grid columns and spans for a meter's tube, spelled out so Tailwind finds them (index = count). */
+const COLS = [
+  "",
+  "grid-cols-1",
+  "grid-cols-2",
+  "grid-cols-3",
+  "grid-cols-4",
+  "grid-cols-5",
+  "grid-cols-6",
+  "grid-cols-7",
+  "grid-cols-8",
+  "grid-cols-9",
+  "grid-cols-10",
+  "grid-cols-11",
+  "grid-cols-12",
+];
+const SPAN = [
+  "",
+  "col-span-1",
+  "col-span-2",
+  "col-span-3",
+  "col-span-4",
+  "col-span-5",
+  "col-span-6",
+  "col-span-7",
+  "col-span-8",
+  "col-span-9",
+  "col-span-10",
+  "col-span-11",
+  "col-span-12",
+];
+/** Slot marks are etched into the tube up to this many Slots; above it the liquid fills to the nearest tenth. */
+const MAX_SLOT_MARKS = 12;
+
+/**
+ * REQ-003-12, REQ-003-24: used out of the limit, as a glossy liquid in a glass tube. The tube is a
+ * grid of one column per Slot (of tenths above 12 Slots) and the liquid spans the used ones, so its
+ * width needs no inline style (the CSP forbids them).
+ */
 function Meter({ m }: { m: MeterView }) {
   const used = Math.min(m.used, m.limit);
   const full = m.used >= m.limit;
+  const marked = m.limit <= MAX_SLOT_MARKS;
+  const cols = marked ? m.limit : 10;
+  const filled = marked ? used : Math.round((used / m.limit) * 10);
   return (
-    // biome-ignore lint/a11y/useSemanticElements: a <meter> can't hold the label and the pips; the list item carries the role
+    // biome-ignore lint/a11y/useSemanticElements: a <meter> can't hold the label and the tube; the list item carries the role
     <li
       className="grid grid-cols-[1fr_auto] items-baseline gap-x-2 gap-y-1.5 border-line border-t py-3"
       role="meter"
@@ -202,18 +243,17 @@ function Meter({ m }: { m: MeterView }) {
         {m.used}
         <span className="font-medium text-[13px] text-faint"> / {m.limit}</span>
       </span>
-      {m.limit <= 12 ? (
-        <span className="col-span-full flex h-1.5 gap-[3px]">
-          {Array.from({ length: m.limit }, (_, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: the pips are identical and never reorder
-            <i key={i} className={`flex-1 rounded-[3px] ${i < used ? "gauge" : "bg-white/7"}`} />
-          ))}
-        </span>
-      ) : (
-        <span className="col-span-full flex h-1.5 overflow-hidden rounded-[3px] bg-white/7">
-          <span className={`gauge block h-full ${width((used / m.limit) * 100)}`} />
-        </span>
-      )}
+      <span className={`tube col-span-full grid ${COLS[cols]}`}>
+        {filled > 0 && <span className={`liquid ${SPAN[filled]}`} />}
+        {marked && (
+          <span className={`slots grid ${COLS[cols]}`}>
+            {Array.from({ length: m.limit }, (_, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: the Slot marks are identical and never reorder
+              <i key={i} />
+            ))}
+          </span>
+        )}
+      </span>
     </li>
   );
 }
