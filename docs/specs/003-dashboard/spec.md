@@ -124,6 +124,7 @@ The Owner wants to see at a glance, also on a phone, what the Coordinator is doi
 - **And** other animations and transitions are off for reduced motion
 - **And** while the tab is hidden the animated background pauses
 - **And** without WebGL the static gradient stays
+- **And** for reduced motion the background does not move with the scroll (REQ-003-25) and the comet scrollbar is a plain bar (REQ-003-27)
 
 ### REQ-003-15 Event log
 
@@ -202,12 +203,33 @@ The Owner wants to see at a glance, also on a phone, what the Coordinator is doi
 - **And** without WebGL or JavaScript the CSS liquid stays: only light moves in it (a highlight gliding through it, refracted light along its bottom), slowly (no loop shorter than 10 s), at a different pace and phase per meter
 - **And** with reduced motion it is still (REQ-003-14)
 
+### REQ-003-25 Background parallax
+
+- **Given** the animated background is on (REQ-003-14)
+- **When** the Owner scrolls
+- **Then** the metal moves at about 30 % of the page's speed and the soft light and the indigo glows behind it at about 15 %, so the page reads as layers: content, metal, glow
+- **And** scrolling stirs the metal the way moving the pointer does: the faster the scroll, the stronger the ripple, settling once the scrolling stops
+- **And** the pointer's dent stays under the pointer and does not move with the scroll
+- **And** without WebGL the glows still move at about 15 %
+- **And** with reduced motion nothing moves with the scroll (REQ-003-14)
+
 ### REQ-003-26 Stirring
 
 - **Given** a meter with liquid drawn with WebGL (REQ-003-24) and no reduced motion
 - **When** the pointer moves over it, or it is tapped on a phone
 - **Then** the liquid swirls around the pointer, its front sloshes and more bubbles rise, more with faster movement
 - **And** it calms down in about 2 s
+
+### REQ-003-27 Comet scrollbar
+
+- **Given** a dashboard page taller than the window and the dashboard script running
+- **When** the Owner scrolls
+- **Then** a comet replaces the browser's scrollbar: a thin, flowing indigo bar whose head is a white-hot plasma drop, round in front and pointed behind in the direction of the scroll, stretching as the scroll gets faster, with a tail behind it while scrolling
+- **And** about a second after the scrolling stops it slims and dims
+- **And** it can be dragged with the mouse or a finger, and it catches no clicks or touches except on itself; the wheel, trackpad, keys and touch scroll as before
+- **And** it is hidden when there is nothing to scroll
+- **And** without the script the browser's own scrollbar stays
+- **And** with reduced motion it is a plain bar: no flow, no tail and no stretch (REQ-003-14)
 
 ## Out of scope
 
@@ -254,5 +276,7 @@ The Owner wants to see at a glance, also on a phone, what the Coordinator is doi
 | REQ-003-22 | `dashboard screenshots > REQ-003-22 the fingerprint is stable for the same input and changes with the HTML or an asset`, `… REQ-003-22 the committed screenshots were made from the current dashboard …` (seen failing after a change to `styles.css` and to `html.tsx`, passing after `bun run screenshots`)                                                                                                                                                                                                                                                                                                                                                                                              | pass                                                                                                               |
 | REQ-003-23 | `dashboard html > REQ-003-16 / REQ-003-23 Recent shows 5 of its 15 Events at every width …`, `… REQ-003-23 Next shows its first 5 steps …`, `… REQ-003-23 Now shows its first 5 sessions …`, `… REQ-003-23 a part with exactly 5 items has no expander`, `… REQ-003-23 the last item shown fades out until the rest is open …` (checks the stylesheet; each seen failing first); desktop and phone screenshots closed and open and no horizontal scroll at 360px on the PR (#109)                                                                                                                                                                                                                          | pass                                                                                                               |
 | REQ-003-24 | `dashboard html > REQ-003-24 liquid glass meters > …` (8 tests: tube, liquid span and Slot marks for 4 of 5 with the aria values; empty, full and over-full; above 12 Slots no marks and tenths; an 18 px tube with a decorative canvas that the CSS liquid gives way to; Slot marks keep the faint line and are whiter over the liquid; the CSS fallback's light moves by transforms of 10 s or more, with its own pace and phase per meter; still for reduced motion; one WebGL context, about 30 frames a second, paused when hidden or out of view, a seed per meter); judged in Chrome (SwiftShader) by captures at 0, 4 and 8 s at real size and zoomed, desktop and phone, and without WebGL (#116) | pass; on a real GPU and phone: open                                                                                |
+| REQ-003-25 | `dashboard html > REQ-003-25 background parallax > …` (3 tests: the shader shifts the folds by `scroll` at `METAL = 0.3` and the light by `GLOW = 0.15` while the dent stays at `p-m`; the scroll speed feeds the dent's energy; the glows sit on their own fixed layer moved by `--glow-y`, set before the WebGL check, and reduced motion stops it); in Chrome: screenshots at scroll 0 and 450 on the PR, and without WebGL the glows moved (#110)                                                                                                                                                                                                                                                      | pass                                                                                                               |
 | REQ-003-26 | `dashboard html > REQ-003-26 the pointer stirs a meter's liquid, a tap on a phone too, and it calms down` (checks the script); a stir captured in Chrome (#116)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | pass (static); real pointer and tap: open                                                                          |
+| REQ-003-27 | `dashboard html > REQ-003-27 comet scrollbar > …` (5 tests: the native bar is hidden only via the `has-comet` class the script sets; pointers caught only by the thumb, drag via pointer capture, passive scroll listener and no wheel/key/touch handlers; plasma-drop head stretched by `--stretch`, tail by `--tail`, flow only while scrolling, hidden with nothing to scroll; scrolling up the drop turns round but stays on the bar's end; reduced motion: no tail, no stretch, no flow); in Chrome: zoomed captures of the head at rest, slow, fast, up and reduced motion, drag and the speed decay checked, desktop and phone screenshots on the PR (#110)                                         | pass                                                                                                               |
 | Acceptance | #72: desktop, phone and Config screenshots from fixture data before and after the React migration look the same; manual: open it on a phone over Tailscale and on desktop, compare with the mockup in #41, screenshots on the PR; without a `dashboard` block, an SSH tunnel to `127.0.0.1:8080` loads the page                                                                                                                                                                                                                                                                                                                                                                                            | #87: desktop and phone screenshots from fixture data match the mockup; on a real phone and the hover effects: open |

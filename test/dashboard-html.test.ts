@@ -634,7 +634,10 @@ describe("dashboard html", () => {
     const css = asset("dashboard.css");
     const rule = (selector: string) => css.match(new RegExp(`(?:^|\\n)\\s*${selector} \\{([^}]*)\\}`))?.[1] ?? "";
     // The page backdrop sits on the root, which paints below #bg (z-index: -1); a body background would cover it.
-    expect(rule("html")).toContain("radial-gradient");
+    // Its glows sit on their own fixed layer below #bg, so they can move with the scroll (REQ-003-25).
+    expect(rule("html")).toContain("linear-gradient");
+    expect(rule("body::?before")).toContain("radial-gradient");
+    expect(rule("body::?before")).toContain("z-index: -1");
     expect(rule("body")).not.toContain("background");
     expect(rule("#bg")).toContain("z-index: -1");
     const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
@@ -642,9 +645,102 @@ describe("dashboard html", () => {
     expect(reduced).toContain("transition: none");
     expect(reduced).not.toContain("#bg");
     const js = asset("dashboard.js");
-    expect(js).not.toContain("prefers-reduced-motion");
+    // Reduced motion only stops the background following the scroll (REQ-003-25); it never stops the drawing.
+    expect(js.match(/prefers-reduced-motion/g)?.length ?? 0).toBeLessThanOrEqual(1);
     expect(js).toContain("visibilitychange");
     expect(js).toContain('getContext("webgl"');
+  });
+
+  describe("REQ-003-27 comet scrollbar", () => {
+    const css = () => asset("dashboard.css");
+    /** The declarations of a rule; `::` also matches the single colon the minifier writes. */
+    const rule = (selector: string) =>
+      css().match(
+        new RegExp(`(?:^|\\n)\\s*${selector.replace(/[.[\]()]/g, "\\$&").replaceAll("::", "::?")} \\{([^}]*)\\}`),
+      )?.[1] ?? "";
+    const reduced = () => css().slice(css().indexOf("@media (prefers-reduced-motion: reduce)"));
+
+    test("the browser's scrollbar is hidden only once the script has marked the page, so without it the page keeps its own", () => {
+      expect(rule("html.has-comet")).toContain("scrollbar-width: none");
+      expect(rule("html.has-comet::-webkit-scrollbar")).toContain("display: none");
+      expect(css()).not.toMatch(/(?:^|[\s,}])(html|body|:root) \{[^}]*scrollbar-width: none/);
+      for (const html of [overview(), configPage()]) expect(html).not.toContain("has-comet");
+      const js = asset("dashboard.js");
+      expect(js).toContain('classList.add("has-comet")');
+    });
+
+    test("the comet catches pointers only on itself, can be dragged, and leaves scrolling to the browser", () => {
+      expect(rule(".comet")).toContain("position: fixed");
+      expect(rule(".comet")).toContain("pointer-events: none");
+      expect(rule(".comet-thumb")).toContain("pointer-events: auto");
+      expect(rule(".comet-thumb")).toContain("touch-action: none");
+      const js = asset("dashboard.js");
+      expect(js).toContain("setPointerCapture");
+      expect(js).toMatch(/addEventListener\(\s*"scroll",[\s\S]*?\{ passive: true \}/);
+      // The comet never takes over the wheel, keys or touch scrolling.
+      expect(js).not.toMatch(/addEventListener\(\s*"(wheel|keydown|touchmove|mousewheel)"/);
+      expect(js).not.toContain("preventDefault");
+    });
+
+    test("a plasma-drop head, a tail while scrolling, slim and dim at rest, hidden with nothing to scroll", () => {
+      expect(rule(".comet-head")).toContain("var(--stretch");
+      expect(rule(".comet-tail")).toContain("var(--tail");
+      expect(css()).toMatch(/\.comet\.on \.comet-thumb::?before \{[^}]*animation/);
+      expect(rule(".comet-thumb::before")).toContain("opacity");
+      const js = asset("dashboard.js");
+      expect(js).toContain("scrollHeight");
+      expect(js).toMatch(/\.hidden = /);
+    });
+
+    test("a comet shown after a page grows measures its track once visible (review of #122)", () => {
+      // A hidden comet measures 0 high; measured before it is shown, the thumb sat above the track.
+      const js = asset("dashboard.js");
+      const layout = js.slice(js.indexOf("const layout = () =>"), js.indexOf("const draw = () =>"));
+      expect(layout).toContain("comet.hidden = ");
+      expect(layout).toContain("comet.clientHeight");
+      expect(layout.indexOf("comet.hidden = ")).toBeLessThan(layout.indexOf("comet.clientHeight"));
+    });
+
+    test("scrolling up, the drop turns round but stays on the bar's end", () => {
+      // Turning the whole head about its top edge would lift it off the bar; only the drop inside turns.
+      const up = rule('.comet[data-dir="up"] .comet-head');
+      expect(up).toContain("top: -5px");
+      expect(up).toContain("transform-origin: 50% 0");
+      expect(up).not.toContain("rotate");
+      expect(rule('.comet[data-dir="up"] .comet-head::before')).toContain("rotate(225deg)");
+    });
+
+    test("with reduced motion the comet is a plain bar: no flow, no tail, no stretch", () => {
+      expect(reduced()).toMatch(/\.comet-tail \{[^}]*display: none/);
+      expect(reduced()).toMatch(/\.comet-head \{[^}]*--stretch: 1/);
+      expect(reduced()).toContain("animation: none");
+    });
+  });
+
+  describe("REQ-003-25 background parallax", () => {
+    const js = () => asset("dashboard.js");
+
+    test("the metal and the light follow the scroll at about 30 % and 15 %, and the pointer's dent stays put", () => {
+      expect(js()).toContain("uniform float scroll;");
+      expect(js()).toMatch(/const METAL = 0\.3\b/);
+      expect(js()).toMatch(/const GLOW = 0\.15\b/);
+      // The dent is measured from the unshifted point on the screen, the folds from the shifted one.
+      expect(js()).toMatch(/vec2 d=p-m;/);
+      expect(js()).toMatch(/vec2 w=p-vec2\(0\.,scroll\);/);
+    });
+
+    test("scrolling stirs the metal like the pointer: its speed feeds the dent's energy", () => {
+      expect(js()).toMatch(/energy = Math\.min\(1, energy \+ [^;]*scroll/i);
+    });
+
+    test("without WebGL the glows move too, on their own layer; with reduced motion nothing follows the scroll", () => {
+      const css = asset("dashboard.css");
+      expect(css).toMatch(/body::?before \{[^}]*transform: translate3d\(0, var\(--glow-y/);
+      expect(js()).toContain("--glow-y");
+      // The glows are set before the WebGL check, so they move without it.
+      expect(js().indexOf("--glow-y")).toBeLessThan(js().indexOf('getContext("webgl"'));
+      expect(js()).toContain('matchMedia("(prefers-reduced-motion: reduce)")');
+    });
   });
 
   test("REQ-003-19 the stylesheet is built from its Tailwind source and has a rule for every class the pages use", () => {
