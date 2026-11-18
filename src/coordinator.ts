@@ -373,7 +373,8 @@ export class Coordinator {
     const now = this.now().toISOString();
     switch (a.type) {
       case "mark-closed":
-        this.d.store.patchSession(a.session.id, { state: "closed" });
+        // REQ-001-62: through the runner, so the session's temp folder goes too.
+        this.d.runner.close(a.session.id);
         return;
       case "fail":
         // REQ-001-54: a failed session of an Implementer or Reviewer fails its agent PR too.

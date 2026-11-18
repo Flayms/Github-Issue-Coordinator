@@ -224,6 +224,8 @@
       trackH = comet.clientHeight;
       thumbH = Math.max(36, Math.round((trackH * window.innerHeight) / (max + window.innerHeight)));
       thumb.style.height = `${thumbH}px`;
+      // The head glides between the thumb's ends by this (CSS translate).
+      comet.style.setProperty("--thumb-h", `${thumbH}px`);
     };
     const draw = () => {
       frame = 0;
