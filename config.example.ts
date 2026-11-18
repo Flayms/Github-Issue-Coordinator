@@ -32,7 +32,14 @@ export default defineConfig({
   // Claude subscriptions in priority order (optional; default: the login in ~/.claude). Sessions run on the first one
   // that isn't paused by a usage limit. Log in to each once: CLAUDE_CONFIG_DIR=<configDir> claude, then /login.
   // accounts: [{ name: "main" }, { name: "spare", configDir: "/root/.claude-spare" }],
-  // Read-only dashboard (docs/setup.md step 4), on by default at 127.0.0.1:8080 without a token; `dashboard: false` turns it off.
-  // Any host other than loopback needs a tokenPath.
-  // dashboard: { port: 8080, tokenPath: "/root/.config/coordinator/dashboard-token" },
+  // Read-only dashboard (docs/setup.md step 4), on by default at 127.0.0.1:8080; `dashboard: false` turns it off.
+  // "Sign in with GitHub" lets only the Owner in; it is on by default and the pages answer 503 until it is set up with
+  // a GitHub OAuth App (callback URL: the dashboard's URL + /auth/callback). `githubLogin: false` turns it off.
+  // tokenPath (optional): a token for scripts, sent as `Authorization: Bearer <token>`. Off loopback, the dashboard
+  // needs the sign-in or a token.
+  dashboard: {
+    port: 8080,
+    githubLogin: { clientId: "Ov23li…", clientSecretPath: "/root/.config/coordinator/github-client-secret" },
+    // tokenPath: "/root/.config/coordinator/dashboard-token",
+  },
 });

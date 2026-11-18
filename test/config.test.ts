@@ -23,20 +23,40 @@ const issuesOf = (raw: unknown): string[] => {
 
 describe("config", () => {
   test("REQ-003-07 the dashboard is on by default on 127.0.0.1:8080 without a token, and `dashboard: false` turns it off", () => {
-    expect(parseConfig(valid()).dashboard).toEqual({ host: "127.0.0.1", port: 8080 });
-    expect(parseConfig({ ...valid(), dashboard: {} }).dashboard).toEqual({ host: "127.0.0.1", port: 8080 });
+    expect(parseConfig(valid()).dashboard).toEqual({ host: "127.0.0.1", port: 8080, githubLogin: {} });
+    expect(parseConfig({ ...valid(), dashboard: {} }).dashboard).toEqual({
+      host: "127.0.0.1",
+      port: 8080,
+      githubLogin: {},
+    });
     expect(parseConfig({ ...valid(), dashboard: false }).dashboard).toBeUndefined();
     expect(issuesOf({ ...valid(), dashboard: true })).not.toEqual([]);
   });
 
-  test("REQ-003-07 a dashboard on a host other than loopback needs a token", () => {
+  test("REQ-003-31 off loopback, a dashboard needs a token unless the GitHub sign-in is on", () => {
     for (const host of ["127.0.0.1", "127.1.2.3", "localhost", "::1"])
-      expect(issuesOf({ ...valid(), dashboard: { host } })).toEqual([]);
-    for (const host of ["0.0.0.0", "100.64.0.1", "::", "example.com"])
-      expect(issuesOf({ ...valid(), dashboard: { host } })).toEqual([
-        "dashboard.tokenPath: required when the dashboard listens on a host other than loopback",
+      expect(issuesOf({ ...valid(), dashboard: { host, githubLogin: false } })).toEqual([]);
+    for (const host of ["0.0.0.0", "100.64.0.1", "::", "example.com"]) {
+      expect(issuesOf({ ...valid(), dashboard: { host, githubLogin: false } })).toEqual([
+        "dashboard.tokenPath: required when the dashboard listens on a host other than loopback and the GitHub sign-in is off",
       ]);
-    expect(issuesOf({ ...valid(), dashboard: { host: "0.0.0.0", tokenPath: "/etc/c/token" } })).toEqual([]);
+      // The sign-in is on by default; until it is set up, the dashboard answers 503 (REQ-003-29).
+      expect(issuesOf({ ...valid(), dashboard: { host } })).toEqual([]);
+    }
+    expect(
+      issuesOf({ ...valid(), dashboard: { host: "0.0.0.0", tokenPath: "/etc/c/token", githubLogin: false } }),
+    ).toEqual([]);
+  });
+
+  test("REQ-003-29 the GitHub sign-in is on by default; it takes a client id and a secret file together, or `false`", () => {
+    const login = { clientId: "Ov23liAbc", clientSecretPath: "/etc/c/github-client-secret" };
+    expect(parseConfig({ ...valid(), dashboard: { githubLogin: login } }).dashboard?.githubLogin).toEqual(login);
+    expect(parseConfig({ ...valid(), dashboard: { githubLogin: false } }).dashboard?.githubLogin).toBe(false);
+    expect(issuesOf({ ...valid(), dashboard: { githubLogin: { clientId: "Ov23liAbc" } } })).toEqual([
+      "dashboard.githubLogin: set clientId and clientSecretPath together",
+    ]);
+    expect(issuesOf({ ...valid(), dashboard: { githubLogin: true } })).not.toEqual([]);
+    expect(issuesOf({ ...valid(), dashboard: { githubLogin: { ...login, extra: 1 } } })).not.toEqual([]);
   });
 
   test("REQ-004-01 without accounts there is one implicit Account, Claude's default folder", () => {

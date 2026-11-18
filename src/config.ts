@@ -65,9 +65,32 @@ const accountSchema = z.strictObject({
 const dashboardSchema = z.strictObject({
   host: z.string().min(1).default("127.0.0.1"),
   port: z.number().int().min(0).max(65535).default(8080),
-  /** File holding the access token; required unless the host is loopback (REQ-003-07). */
+  /** File holding the access token, for scripts; required off loopback when the GitHub sign-in is off (REQ-003-31). */
   tokenPath: z.string().min(1).optional(),
+  /**
+   * "Sign in with GitHub" for the Owner (REQ-003-29): on by default, `false` turns it off. Until `clientId` and
+   * `clientSecretPath` (a GitHub OAuth App's) are set, the pages answer 503.
+   */
+  githubLogin: z
+    .union([
+      z.literal(false),
+      z
+        .strictObject({ clientId: z.string().min(1).optional(), clientSecretPath: z.string().min(1).optional() })
+        .refine((l) => (l.clientId === undefined) === (l.clientSecretPath === undefined), {
+          message: "set clientId and clientSecretPath together",
+        }),
+    ])
+    .default({}),
 });
+
+export type GitHubLoginConfig = { clientId: string; clientSecretPath: string };
+
+/** The GitHub sign-in's settings when it is on and set up; undefined when it is off or not set up yet. */
+export const githubLoginOf = (config: Config): GitHubLoginConfig | undefined => {
+  const l = config.dashboard?.githubLogin || {};
+  const { clientId, clientSecretPath } = l;
+  return clientId && clientSecretPath ? { clientId, clientSecretPath } : undefined;
+};
 
 /** `localhost`, `127.0.0.0/8` or `::1`. */
 export const isLoopback = (host: string): boolean =>
@@ -102,11 +125,12 @@ const configSchema = z
       .transform((d) => d || undefined),
   })
   .superRefine((c, ctx) => {
-    if (c.dashboard && !c.dashboard.tokenPath && !isLoopback(c.dashboard.host))
+    // REQ-003-31: off loopback, the token or the GitHub sign-in (on by default) guards the dashboard.
+    if (c.dashboard && !c.dashboard.tokenPath && c.dashboard.githubLogin === false && !isLoopback(c.dashboard.host))
       ctx.addIssue({
         code: "custom",
         path: ["dashboard", "tokenPath"],
-        message: "required when the dashboard listens on a host other than loopback",
+        message: "required when the dashboard listens on a host other than loopback and the GitHub sign-in is off",
       });
     const seen = new Set<string>();
     c.repos.forEach((r, i) => {

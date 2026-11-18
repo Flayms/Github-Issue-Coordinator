@@ -15,7 +15,11 @@ const config = parseConfig({
     { name: "octo/app", setup: "bun install", roles: { reviewer: { model: "haiku", effort: "low" } } },
     { name: "octo/lib" },
   ],
-  dashboard: { host: "0.0.0.0", tokenPath: "/secret/dash/token" },
+  dashboard: {
+    host: "0.0.0.0",
+    tokenPath: "/secret/dash/token",
+    githubLogin: { clientId: "Ov23liClient", clientSecretPath: "/secret/dash/github-client-secret" },
+  },
 });
 
 const NOW = new Date("2026-11-15T10:30:00Z");
@@ -442,10 +446,19 @@ describe("dashboard view", () => {
       { role: "Implementer", model: "sonnet", effort: null },
       { role: "Reviewer", model: "opus", effort: null },
     ]);
-    expect(v.settings.access).toEqual({ host: "0.0.0.0", port: 8080, tokenRequired: true });
+    expect(v.settings.access).toEqual({ host: "0.0.0.0", port: 8080, tokenRequired: true, githubLogin: "on" });
     const all = JSON.stringify(v) + renderDashboard(v) + renderConfig(v);
     expect(all).not.toContain("/secret");
     expect(all).not.toContain("app.pem");
+  });
+
+  test("REQ-003-29 the Config page knows whether the GitHub sign-in is on, off or not set up yet", () => {
+    const access = (githubLogin?: false | Record<string, string>) =>
+      dashboardView(undefined, parseConfig({ ...config, dashboard: { githubLogin } }), NOW).settings.access
+        ?.githubLogin;
+    expect(access()).toBe("not set up");
+    expect(access(false)).toBe("off");
+    expect(access({ clientId: "Ov23li", clientSecretPath: "/s" })).toBe("on");
   });
 
   test("REQ-003-05 counts each repository's open issues, agent PRs and Worktrees from the last tick", () => {

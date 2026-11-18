@@ -13,6 +13,12 @@ const Fact = ({ ok, children }: { ok: boolean; children: string }) => (
   </li>
 );
 
+const SIGN_IN = {
+  on: "GitHub sign-in, Owner only",
+  off: "No GitHub sign-in",
+  "not set up": "GitHub sign-in not set up",
+} as const;
+
 function Access({ s }: { s: SettingsView }) {
   const a = s.access;
   if (!a) return null;
@@ -40,10 +46,11 @@ function Access({ s }: { s: SettingsView }) {
         </li>
       </ol>
       <ul className="mt-4 flex flex-wrap gap-x-[22px] gap-y-2 text-[13px]">
-        <Fact ok={a.tokenRequired}>{a.tokenRequired ? "Token required" : "No token"}</Fact>
-        <Fact ok>GET only</Fact>
+        <Fact ok={a.githubLogin === "on"}>{SIGN_IN[a.githubLogin]}</Fact>
+        <Fact ok={a.tokenRequired || a.githubLogin === "on"}>{a.tokenRequired ? "Token required" : "No token"}</Fact>
+        <Fact ok>GET only, besides Sign out</Fact>
         <Fact ok={loopback}>{loopback ? "Loopback only" : `Listens on ${a.host}`}</Fact>
-        <Fact ok>No GitHub calls</Fact>
+        <Fact ok>{a.githubLogin === "on" ? "Only the sign-in calls GitHub" : "No GitHub calls"}</Fact>
       </ul>
     </section>
   );

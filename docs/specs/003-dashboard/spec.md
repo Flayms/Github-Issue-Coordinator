@@ -4,7 +4,7 @@
 
 ## Goal
 
-The Owner wants to see at a glance, also on a phone, what the Coordinator is doing: which agents are running, what it did recently, where each issue stands, which agent PRs are ready to merge, what runs next and with which settings. Today that means opening GitHub, the Claude app and an SSH session. The dashboard is a read-only web page served by the Coordinator itself. It changes nothing, so approving, giving feedback and merging stay on GitHub, where only the Owner's actions count (REQ-001-01). Because the server runs agents that can push code, the page is private by default.
+The Owner wants to see at a glance, also on a phone, what the Coordinator is doing: which agents are running, what it did recently, where each issue stands, which agent PRs are ready to merge, what runs next and with which settings. Today that means opening GitHub, the Claude app and an SSH session. The dashboard is a read-only web page served by the Coordinator itself. It changes nothing, so approving, giving feedback and merging stay on GitHub, where only the Owner's actions count (REQ-001-01). Because the server runs agents that can push code, the page is private by default: only the Owner gets in, by signing in with GitHub (#115).
 
 ## Requirements
 
@@ -45,9 +45,9 @@ The Owner wants to see at a glance, also on a phone, what the Coordinator is doi
 - **Given** the Coordinator's config
 - **When** the Owner opens the Config page (`/config`, a plain link in the page header)
 - **Then** it shows a headline with the poll interval and the number of repositories
-- **And** how the page is reached, taken from the config: host and port, whether a token is required, that it answers only GET and makes no GitHub calls
+- **And** how the page is reached, taken from the config: host and port, whether the GitHub sign-in is on, off or not set up (REQ-003-29), whether a token is required, that it answers only GET (besides Sign out) and makes no GitHub calls besides the sign-in's
 - **And** the limits, the model and effort per Role with each repository's overrides, and each repository with its setup command and its counts of open issues, agent PRs and Worktrees from the last tick
-- **And** no secrets are shown: no private key (content or path) and no dashboard token (content or path)
+- **And** no secrets are shown: no private key (content or path), no dashboard token (content or path) and no GitHub client secret (content or path)
 
 ### REQ-003-06 Freshness
 
@@ -61,26 +61,26 @@ The Owner wants to see at a glance, also on a phone, what the Coordinator is doi
 
 - **Given** no `dashboard` block in the config
 - **When** the Coordinator starts
-- **Then** the dashboard listens on `127.0.0.1:8080` without a token
+- **Then** the dashboard listens on `127.0.0.1:8080` without a token, with the GitHub sign-in on (REQ-003-29)
 - **Given** `dashboard: false` in the config
 - **When** the Coordinator starts
 - **Then** no server is started and nothing is logged as a failure
 - **Given** a `dashboard` block without a host
 - **Then** the server listens on `127.0.0.1` only
 - **Given** a host other than a loopback address
-- **When** no token is configured
-- **Then** the Coordinator refuses to start
+- **When** no token is configured and the GitHub sign-in is off (`githubLogin: false`)
+- **Then** the Coordinator refuses to start (REQ-003-31)
 - **Given** a configured token
 - **When** a request does not carry the token
 - **Then** it gets 401 and no dashboard content
-- **And** the server answers only GET requests (others get 405), and serving a request changes nothing in the store, on GitHub or in the sessions
+- **And** the server answers only GET requests (others get 405) and `POST /auth/logout` (REQ-003-31), and serving a request changes nothing in the store, on GitHub or in the sessions
 
 ### REQ-003-08 Isolation
 
 - **Given** a running dashboard
 - **When** serving a request fails (a bad request, an exception while rendering) or the server cannot be started
 - **Then** the request gets an error response and the reconcile loop keeps running
-- **And** the dashboard makes no GitHub requests of its own; it shows the state of the last tick
+- **And** the dashboard makes no GitHub requests of its own besides the GitHub sign-in's: the code exchange and `GET /user` (REQ-003-30), after which the user's access token is dropped; it shows the state of the last tick
 
 ### REQ-003-09 Untrusted text
 
@@ -231,7 +231,6 @@ The Owner wants to see at a glance, also on a phone, what the Coordinator is doi
 - **And** it is hidden when there is nothing to scroll
 - **And** without the script the browser's own scrollbar stays
 - **And** with reduced motion it is a plain bar: no flow, no tail and no stretch (REQ-003-14)
-
 ### REQ-003-28 In-place refresh
 
 - **Given** the Overview or the Config page is open with JavaScript
@@ -241,10 +240,40 @@ The Owner wants to see at a glance, also on a phone, what the Coordinator is doi
 - **And** if the request fails, the shown content stays, the countdown turns red and says the refresh failed, and it tries again in the next interval
 - **And** a 401, or a page made by another version of the Coordinator (other assets), reloads the whole page
 
+### REQ-003-29 GitHub sign-in
+
+- **Given** the dashboard is on and `dashboard.githubLogin` is not `false` (it is on by default)
+- **When** a browser without a valid session opens a dashboard page
+- **Then** it is sent to GitHub to sign in, with a random `state` kept in a short-lived cookie, and comes back to the page it asked for
+- **And** a request that isn't a page navigation (a script's fetch, an asset) gets 401 instead
+- **Given** the sign-in is on but has no client id and client secret file yet
+- **Then** the pages answer 503 and say how to set it up, the Coordinator logs it, and `bun run doctor` reports it
+- **Given** a configured client secret file that can't be read or is empty
+- **When** the Coordinator starts
+- **Then** it refuses to start
+
+### REQ-003-30 Only the Owner
+
+- **Given** a GitHub sign-in came back to the dashboard
+- **When** the `state` matches and the GitHub user's id is `owner.id`
+- **Then** the browser gets a session: an HttpOnly, SameSite=Strict cookie, signed with a key kept in the state dir, that ends after 30 days and survives a Coordinator restart; Secure when the browser came over HTTPS
+- **And** any other user gets 403 and no dashboard content
+- **And** a wrong or missing `state` (or code) gets 400 and nothing is asked of GitHub; a code GitHub refuses gets 400, GitHub out of reach 502
+- **And** a tampered or expired session, one signed with another key, or one for another `owner.id` counts as none
+
+### REQ-003-31 Sign out and other ways in
+
+- **Given** a session
+- **When** the Owner clicks "Sign out" in the header
+- **Then** the session ends and a page offers to sign in again; a cross-site sign-out is refused
+- **And** a configured token still works next to the sign-in, as a `Bearer` header (scripts) or the cookie set by `?token=`
+- **And** off loopback, the Coordinator refuses to start when neither a token nor the GitHub sign-in is configured (REQ-003-07)
+
 ## Out of scope
 
 - Write actions (approve, retry, merge, edit settings). Approval stays on GitHub, where the Owner's identity is checked.
-- Exposing the dashboard on the public internet with its own login. Remote access goes through Tailscale or an SSH tunnel (`docs/setup.md`).
+- Exposing the dashboard on the public internet. The GitHub sign-in (REQ-003-29) is the login it would need, but remote access still goes through Tailscale or an SSH tunnel (`docs/setup.md`).
+- More users than the Owner (an allow-list), and GitHub Apps' user tokens beyond what the OAuth web flow needs.
 - HTTPS in the Coordinator itself; `tailscale serve` provides it.
 - Full logs, tick history and transcripts. Recent Events are in scope (REQ-003-15, REQ-003-16); a "PR merged" Event is not, since the Coordinator does not act on merges.
 - PR line counts and "time since review": the Tick snapshot doesn't carry them.
@@ -256,7 +285,8 @@ The Owner wants to see at a glance, also on a phone, what the Coordinator is doi
 - The page is rendered only on the server and must work without JavaScript (#72). With JavaScript it fetches its own HTML and patches the page in place (REQ-003-28), so there is no client build and no second data contract; without, it reloads every poll interval and an opened "Show N more" closes again, which is fine for a glance view.
 - A view of the last tick (every `pollIntervalSec`) is fresh enough.
 - 200 kept and 15 shown Events (5 at first, REQ-003-23) are enough to see what happened since the Owner last looked; no setting for either.
-- The Owner reaches the server over Tailscale or an SSH tunnel, so the page needs no login of its own beyond the token.
+- The Owner reaches the server over Tailscale or an SSH tunnel; the GitHub sign-in guards it on top, so it is ready to be exposed later.
+- The OAuth App's registered callback URL is the dashboard's URL + `/auth/callback`; the sign-in sends no `redirect_uri`, so GitHub always uses it.
 - The fonts (Plus Jakarta Sans, Inter, JetBrains Mono) are served from the Coordinator under the SIL Open Font License; other scripts than Latin fall back to system fonts.
 
 ## Verification
@@ -269,7 +299,7 @@ The Owner wants to see at a glance, also on a phone, what the Coordinator is doi
 | REQ-003-04 | `scheduler > REQ-003-04 …` (2 tests: order and reasons, the pause); `dashboard view > REQ-003-04 …`; `dashboard html > REQ-003-04 the first step is marked next …`; `reconcile loop > REQ-003-01 / REQ-003-02 / REQ-003-04 …`, `REQ-003-04 an implement job without room …`                                                                                                                                                                                                                                                                                                                                                                                                                                | pass                                                                                                               |
 | REQ-003-05 | `dashboard view > REQ-003-05 …` (2 tests: settings per Role and repository with overrides and access, without secrets; counts per repository); `dashboard html > REQ-003-05 …` (2 tests: the Config page, header links); `dashboard server > REQ-003-05 serves the Config page at /config`                                                                                                                                                                                                                                                                                                                                                                                                                 | pass                                                                                                               |
 | REQ-003-06 | `dashboard view > REQ-003-06 …` (2 tests: the last tick in the countdown's tooltip and the poll interval, no tick yet); `dashboard html > REQ-003-06 a countdown to the next refresh, and a meta refresh …` (both pages), `… REQ-003-06 no Last tick line …`; `reconcile loop > REQ-003-06 a repository whose poll failed …`                                                                                                                                                                                                                                                                                                                                                                               | pass                                                                                                               |
-| REQ-003-07 | `config > REQ-003-07 …` (2 tests: on by default on loopback and `false` turns it off, token required off loopback); `dashboard server > REQ-003-07 …` (7 tests: no server with `false`, 127.0.0.1:8080 without a block, 127.0.0.1, 401, token via header/cookie, GET only, unusable token file)                                                                                                                                                                                                                                                                                                                                                                                                            | pass                                                                                                               |
+| REQ-003-07 | `config > REQ-003-07 …` (on by default on loopback and `false` turns it off; off loopback see REQ-003-31); `dashboard GitHub sign-in > REQ-003-07 … form-action 'self'`; `dashboard server > REQ-003-07 …` (7 tests: no server with `false`, 127.0.0.1:8080 without a block, 127.0.0.1, 401, token via header/cookie, GET only, unusable token file)                                                                                                                                                                                                                                                                                                                                                       | pass                                                                                                               |
 | REQ-003-08 | `dashboard server > REQ-003-08 …` (3 tests: render exception, port in use, default port in use)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | pass                                                                                                               |
 | REQ-003-09 | `dashboard view > REQ-003-09 text from GitHub and agents is escaped`; `dashboard html > REQ-003-09 both pages load only same-origin assets …`; `dashboard server > REQ-003-09 …` (2 tests: assets from a fixed list behind the token, the CSP)                                                                                                                                                                                                                                                                                                                                                                                                                                                             | pass                                                                                                               |
 | REQ-003-10 | Deprecated by spec 005; its tests were removed with the behaviour                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | —                                                                                                                  |
@@ -290,4 +320,7 @@ The Owner wants to see at a glance, also on a phone, what the Coordinator is doi
 | REQ-003-26 | `dashboard html > REQ-003-26 the pointer stirs a meter's liquid, a tap on a phone too, and it calms down` (checks the script); a stir captured in Chrome (#116)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | pass (static); real pointer and tap: open                                                                          |
 | REQ-003-27 | `dashboard html > REQ-003-27 comet scrollbar > …` (5 tests: the native bar is hidden only via the `has-comet` class the script sets; pointers caught only by the thumb, drag via pointer capture, passive scroll listener and no wheel/key/touch handlers; plasma-drop head stretched by `--stretch`, tail by `--tail`, flow only while scrolling, hidden with nothing to scroll; scrolling up the drop turns round but stays on the bar's end; reduced motion: no tail, no stretch, no flow); in Chrome: zoomed captures of the head at rest, slow, fast, up and reduced motion, drag and the speed decay checked, desktop and phone screenshots on the PR (#110)                                         | pass                                                                                                               |
 | REQ-003-28 | `dashboard refresh > REQ-003-28 …` (7 tests in happy-dom running the real script on rendered pages: own URL with `?repo=`, changed text updated, `#bg`, header, comet, meters and a ticked "Show N more" kept; meter canvases untouched and `dashboard:refreshed` sent; network error and HTTP 500 keep the content and mark the countdown, the next interval recovers; 401 and other assets reload; a hidden tab waits); `dashboard html > REQ-003-28 a failed refresh turns the countdown red`; `dashboard server > REQ-003-09 / REQ-003-28 … fetches only itself …` (`connect-src 'self'`, no other directive); in Chrome: several refreshes, server stopped once (#117)                                | pass                                                                                                               |
+| REQ-003-29 | `dashboard GitHub sign-in > REQ-003-29 …` (4 tests: sent to GitHub with a random state in a Lax cookie, 401 for fetches and assets, unreadable or empty client secret refuses the start, 503 until set up); `config > REQ-003-29 …` (on by default, client id and secret file together, or `false`); `dashboard view > REQ-003-29 …` (on, off, not set up)                                                                                                                                                                                                                                                                                                                                                 | pass; with a real OAuth App: open                                                                                  |
+| REQ-003-30 | `dashboard GitHub sign-in > REQ-003-29 / REQ-003-30 the Owner signs in …` and `REQ-003-30 …` (7 tests: another user 403, wrong or missing state 400, refused code 400 and GitHub out of reach 502, tampered/expired/foreign session, the key generated once (0600), a restart keeps the session unless `owner.id` changed, Secure behind HTTPS)                                                                                                                                                                                                                                                                                                                                                            | pass; with a real OAuth App: open                                                                                  |
+| REQ-003-31 | `dashboard GitHub sign-in > REQ-003-31 …` (2 tests: Sign out ends the session and refuses a cross-site POST, the token next to the sign-in as Bearer, `?token=` and its cookie, also before the sign-in is set up); `dashboard html > REQ-003-31 …` (the Sign out form in the header); `config > REQ-003-31 …` (off loopback a token or the sign-in)                                                                                                                                                                                                                                                                                                                                                       | pass                                                                                                               |
 | Acceptance | #72: desktop, phone and Config screenshots from fixture data before and after the React migration look the same; manual: open it on a phone over Tailscale and on desktop, compare with the mockup in #41, screenshots on the PR; without a `dashboard` block, an SSH tunnel to `127.0.0.1:8080` loads the page                                                                                                                                                                                                                                                                                                                                                                                            | #87: desktop and phone screenshots from fixture data match the mockup; on a real phone and the hover effects: open |

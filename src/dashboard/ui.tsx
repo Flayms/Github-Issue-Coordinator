@@ -197,6 +197,18 @@ export function Layout({ v, page, children }: { v: DashboardView; page: "overvie
               <Icon name="lock" />
               Read-only
             </span>
+            {/* REQ-003-31: a plain form, so it works without JavaScript; the server answers with a signed-out page. */}
+            {v.settings.access?.githubLogin === "on" && (
+              <form method="post" action="/auth/logout">
+                <button
+                  type="submit"
+                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-line-2 px-[9px] py-[3px] text-muted hover:border-acc hover:text-fg"
+                >
+                  <Icon name="user" />
+                  Sign out
+                </button>
+              </form>
+            )}
           </div>
         </header>
         <div className="wrap">

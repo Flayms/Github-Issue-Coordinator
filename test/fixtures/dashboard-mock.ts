@@ -23,7 +23,12 @@ export const MOCK_CONFIG = parseConfig({
     { name: "acme/payments-api", setup: "go mod download", roles: { reviewer: { model: "opus" } } },
     { name: "acme/design-system" },
   ],
-  dashboard: { host: "127.0.0.1", port: 8080, tokenPath: "/etc/coordinator/dashboard-token" },
+  dashboard: {
+    host: "127.0.0.1",
+    port: 8080,
+    tokenPath: "/etc/coordinator/dashboard-token",
+    githubLogin: { clientId: "Ov23liMock", clientSecretPath: "/etc/coordinator/github-client-secret" },
+  },
 });
 
 const at = (minutesAgo: number) => new Date(MOCK_NOW.getTime() - minutesAgo * 60_000).toISOString();
