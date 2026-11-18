@@ -9,7 +9,8 @@
     "lint:fix": "biome check --write .",
     "typecheck": "tsc --noEmit",
     "doctor": "bun src/doctor.ts",
-    "screenshots": "bun scripts/dashboard-screenshots.ts"
+    "screenshots": "bun scripts/dashboard-screenshots.ts",
+    "check:pipeline-hover": "bun scripts/pipeline-hover-check.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.6",
