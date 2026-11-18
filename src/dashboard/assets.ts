@@ -20,6 +20,7 @@ const TYPES = {
 const LIST = new Map<string, string>([
   ["dashboard.css", TYPES.css],
   ["dashboard.js", TYPES.js],
+  ["meters.js", TYPES.js],
   ["fonts/plus-jakarta-sans.woff2", TYPES.woff2],
   ["fonts/inter.woff2", TYPES.woff2],
   ["fonts/jetbrains-mono.woff2", TYPES.woff2],

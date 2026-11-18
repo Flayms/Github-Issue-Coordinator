@@ -238,6 +238,7 @@ describe("dashboard server", () => {
     const types: Record<string, string> = {
       "/assets/dashboard.css?v=1": "text/css; charset=utf-8",
       "/assets/dashboard.js": "text/javascript; charset=utf-8",
+      "/assets/meters.js": "text/javascript; charset=utf-8",
       "/assets/fonts/inter.woff2": "font/woff2",
       "/assets/fonts/plus-jakarta-sans.woff2": "font/woff2",
       "/assets/fonts/jetbrains-mono.woff2": "font/woff2",

@@ -577,9 +577,9 @@ describe("dashboard view", () => {
       config,
       NOW,
     );
-    // The page's own script (REQ-003-09) is the only one.
+    // The page's own scripts (REQ-003-09) are the only ones.
     const html = renderDashboard(v).replace(
-      /<script src="\/assets\/dashboard\.js\?v=[0-9a-f]+" defer=""><\/script>/,
+      /<script src="\/assets\/(dashboard|meters)\.js\?v=[0-9a-f]+" defer=""><\/script>/g,
       "",
     );
     expect(html).not.toContain("<script");
@@ -677,7 +677,7 @@ describe("dashboard view", () => {
       NOW,
     );
     const html = renderDashboard(v).replace(
-      /<script src="\/assets\/dashboard\.js\?v=[0-9a-f]+" defer=""><\/script>/,
+      /<script src="\/assets\/(dashboard|meters)\.js\?v=[0-9a-f]+" defer=""><\/script>/g,
       "",
     );
     expect(html).not.toContain("<script");
