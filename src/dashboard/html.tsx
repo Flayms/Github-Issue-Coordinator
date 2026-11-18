@@ -27,6 +27,8 @@ import type {
   EventView,
   IssueView,
   MeterView,
+  MoveItem,
+  MoveKind,
   PullView,
   SessionView,
   Tone,
@@ -69,100 +71,136 @@ function PrDetails({ p }: { p: PullView }) {
   );
 }
 
-/** A ready PR: title, a line of facts, and a corner arrow that turns green on hover. */
-function ReadyPr({ p }: { p: PullView }) {
-  const c = checksText(p);
-  const fact = "inline-flex items-center gap-1.5 wrap-anywhere";
-  return (
-    <li className="border-line border-t first:border-t-0">
-      <a
-        className="group accent relative flex items-center gap-5 px-[18px] py-4 text-fg transition-[background] duration-600 ease-calm [--accent:var(--color-ok)] hover:bg-linear-to-r hover:from-ok/7 hover:to-transparent hover:to-70% hover:text-fg sm:px-6 sm:py-5"
-        href={p.url}
-        rel="noreferrer"
+/**
+ * A row of Your move (REQ-003-32), the hover of the ready PRs (#87): the green accent line grows in
+ * at the left edge, a green wash, the text nudges, and the grey arrow circle turns green. From sm on
+ * the row lines up with its group's name; on a phone it isn't indented and the hint is hidden.
+ */
+const MoveRow = ({ m }: { m: MoveItem }) => (
+  <li>
+    <a
+      className="group accent relative flex items-center gap-4 py-3 pr-[18px] pl-[18px] text-fg transition-[background] duration-600 ease-calm [--accent:var(--color-ok)] hover:bg-linear-to-r hover:from-ok/7 hover:to-transparent hover:to-70% hover:text-fg sm:pr-6 sm:pl-[52px]"
+      href={m.url}
+      rel="noreferrer"
+    >
+      <span className="flex min-w-0 flex-1 flex-col transition-transform duration-450 ease-calm group-hover:translate-x-1.5">
+        <span className="font-display font-semibold text-[15px] text-white leading-[1.35] wrap-anywhere">
+          {m.title}
+        </span>
+        <span className="mt-1 text-[13px] text-white/50 wrap-anywhere">
+          {m.repo} · {m.label}
+          <span className="hidden sm:inline"> · {m.hint}</span>
+        </span>
+      </span>
+      <span
+        className="flex size-9 flex-none items-center justify-center rounded-full bg-white/6 text-white/70 transition-[translate,color,background-color] duration-450 ease-calm group-hover:translate-x-[3px] group-hover:-translate-y-[3px] group-hover:bg-ok group-hover:text-ink"
+        title="Open on GitHub"
       >
-        <span className="flex min-w-0 flex-1 flex-col transition-transform duration-450 ease-calm group-hover:translate-x-1.5">
-          <span className="font-display font-semibold text-[17px] text-white leading-[1.35] wrap-anywhere">
-            {p.title}
-          </span>
-          <span className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-white/50">
-            <span className={fact}>
-              <Icon name="repo" className="size-[13px]" />
-              {p.repo}
-            </span>
-            <span className={fact}>
-              <Icon name="pr" className="size-[13px]" />#{p.number}
-            </span>
-            <span className={fact}>
-              <Icon name="shield" className={`size-[13px] ${TONE_TEXT[c.tone]}`} />
-              {c.text}
-            </span>
-          </span>
-        </span>
-        <span
-          className="flex size-10 flex-none items-center justify-center rounded-full bg-white/6 text-white/70 transition-[translate,color,background-color] duration-450 ease-calm group-hover:translate-x-[3px] group-hover:-translate-y-[3px] group-hover:bg-ok group-hover:text-ink"
-          title="Open on GitHub"
-        >
-          <Icon name="arrow" />
-        </span>
-      </a>
-    </li>
-  );
-}
-
-const SummaryCount = ({ n, label, tone }: { n: number; label: string; tone: Tone }) => (
-  <li className="flex items-baseline gap-2">
-    <b className={`font-bold font-display text-[26px] leading-none ${TONE_TEXT[n ? tone : "muted"]}`}>{n}</b>
-    {label}
+        <Icon name="arrow" />
+      </span>
+    </a>
   </li>
 );
 
-/** REQ-003-11: the headline, the counts and the ready PRs next to them. */
+/** REQ-003-32 / REQ-003-17: a bare icon per group; the PR green, Failed red, the others in the accent. */
+const MOVE_ICONS: Record<MoveKind, { icon: IconName; tone: Tone }> = {
+  merge: { icon: "pr", tone: "ok" },
+  failed: { icon: "alert", tone: "bad" },
+  questions: { icon: "user", tone: "acc" },
+  approve: { icon: "doc", tone: "acc" },
+  close: { icon: "cross", tone: "acc" },
+};
+
+/** REQ-003-32: everything that needs the Owner, in groups split by a plain hairline. */
+const YourMove = ({ v }: { v: DashboardView }) => (
+  <div className="panel">
+    <Label className="px-6 pt-[18px] pb-3">Your move</Label>
+    {v.yourMove.length ? (
+      <ul>
+        {v.yourMove.map((g) => {
+          const { icon, tone } = MOVE_ICONS[g.kind];
+          return (
+            <li key={g.kind} className="border-line border-t" data-move={g.kind}>
+              <h3 className="flex items-center gap-3 px-[18px] pt-3.5 pb-1 font-semibold text-[13px] text-white/80 sm:px-6">
+                <Icon name={icon} className={`size-4 ${TONE_TEXT[tone]}`} />
+                {g.title}
+                <span className="font-medium text-muted tabular-nums">{g.items.length}</span>
+              </h3>
+              <ul className="pb-2">
+                {g.items.map((m) => (
+                  <MoveRow key={m.url} m={m} />
+                ))}
+              </ul>
+            </li>
+          );
+        })}
+      </ul>
+    ) : (
+      <Empty className="px-6 pt-3 pb-5">
+        Nothing needs you. A PR shows up here when its Review passes and the checks are green, an issue when the Planner
+        has a plan or questions for you, or when it failed.
+      </Empty>
+    )}
+  </div>
+);
+
+/** REQ-003-11: a count with what it means, under the headline. */
+const Stat = ({ icon, n, label, why }: { icon: IconName; n: number; label: string; why: string }) => (
+  <li className="flex items-start gap-3.5 border-line border-t py-3.5">
+    <Icon name={icon} className="mt-0.5 size-4 text-muted" />
+    <div>
+      <p className="text-[15px] text-fg">
+        <b className="font-bold text-white">{n}</b> {label}
+      </p>
+      <p className="mt-0.5 text-[13px] text-muted">{why}</p>
+    </div>
+  </li>
+);
+
+/** REQ-003-11: the headline, the explained counts, and Your move next to them (REQ-003-32). */
 function Summary({ v }: { v: DashboardView }) {
   const s = v.summary;
   return (
     <section
       id="summary"
-      className="grid items-start gap-6 pt-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] md:gap-10"
+      className="grid items-start gap-8 pt-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] md:gap-10"
     >
       <div>
         <p className="mb-2.5 font-mono font-semibold text-[12px] text-acc-hi uppercase leading-none tracking-[0.16em]">
           Overview
         </p>
-        {/* Plain white, only the number in green (#87). */}
+        {/* Plain white, only the number in accent purple (#111: no gold on the purple page). */}
         <h1 className="font-extrabold text-[clamp(40px,6vw,60px)] text-white leading-[1.02] tracking-[-0.03em]">
-          {s.ready ? (
+          {s.needYou ? (
             <>
-              <span className="text-ok">{s.ready}</span> {s.ready === 1 ? "PR" : "PRs"} ready to merge
+              <span className="text-acc-hi">{s.needYou}</span> {s.needYou === 1 ? "thing needs" : "things need"} you
             </>
           ) : (
-            "Nothing to merge right now"
+            "Nothing needs you right now"
           )}
         </h1>
-        <ul className="mt-[22px] flex flex-wrap gap-x-7 gap-y-2 text-[13px] text-muted">
-          <SummaryCount n={s.working} label="working" tone="acc" />
-          <SummaryCount n={s.needYou} label="need you" tone="warn" />
-          {/* REQ-003-17: stuck counts blocked issues too, so it is not red; failures are red in the Pipeline and Recent. */}
-          <SummaryCount n={s.stuck} label="stuck" tone="muted" />
-          <SummaryCount n={s.queued} label="queued" tone="muted" />
+        <ul className="mt-6">
+          <Stat
+            icon="bolt"
+            n={s.working}
+            label={s.working === 1 ? "agent working" : "agents working"}
+            why="Planner, Implementer or Reviewer running now"
+          />
+          <Stat
+            icon="hourglass"
+            n={s.queued}
+            label={s.queued === 1 ? "job waiting for a slot" : "jobs waiting for a slot"}
+            why={s.queued === 1 ? "Starts when a session frees up" : "Start when a session frees up"}
+          />
+          <Stat
+            icon="pause"
+            n={s.blocked}
+            label="blocked"
+            why={s.blocked === 1 ? "Waits for another issue to finish" : "Wait for another issue to finish"}
+          />
         </ul>
       </div>
-      <div className="panel">
-        <Label className="px-6 pt-[18px] pb-1">
-          <Icon name="merge" className="size-4 text-ok" />
-          Ready to merge
-        </Label>
-        {v.readyToMerge.length ? (
-          <ul>
-            {v.readyToMerge.map((p) => (
-              <ReadyPr key={p.url} p={p} />
-            ))}
-          </ul>
-        ) : (
-          <Empty className="px-6 pt-1 pb-5">
-            When a Review finds nothing and the checks pass, the PR shows up here.
-          </Empty>
-        )}
-      </div>
+      <YourMove v={v} />
     </section>
   );
 }

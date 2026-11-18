@@ -145,7 +145,8 @@ describe("dashboard html", () => {
   test("REQ-003-11 / REQ-003-12 / REQ-003-20 / REQ-003-02 the Overview shows its sections in order", () => {
     const html = overview();
     const at = order(html, [
-      "PR ready to merge",
+      "things need you",
+      "Your move",
       "Capacity",
       'id="activity"',
       'id="recent"',
@@ -197,19 +198,133 @@ describe("dashboard html", () => {
     expect(pipeline).toMatch(/data-tone="muted"[\s\S]*?bg-muted[\s\S]*?Blocked by #6/);
   });
 
-  test("REQ-003-11 lists the ready PRs next to the headline with title, repository, number, checks and link", () => {
-    const html = overview();
-    const summary = html.slice(html.indexOf('id="summary"'), html.indexOf('id="capacity"'));
-    expect(summary).toContain("Fix the login form");
-    expect(summary).toContain("octo/app");
-    expect(summary).toContain("#70");
-    expect(summary).toContain("checks passed");
-    expect(summary).toContain('href="https://github.com/octo/app/pull/70"');
-    for (const label of ["working", "need you", "stuck", "queued"]) expect(summary).toContain(label);
-    // #87: a plain headline with only the number in green, and the "Ready to merge" header over the PRs.
-    expect(summary).toMatch(/<h1 class="[^"]*text-white[^"]*"><span class="text-ok">1<\/span> PR ready to merge<\/h1>/);
-    expect(summary).toMatch(/<div class="panel"><h2 [^>]*>(?:(?!<\/h2>)[\s\S])*Ready to merge<\/h2>/);
+  /** The Summary's markup: from its section to Capacity. */
+  const summaryOf = (html: string) => html.slice(html.indexOf('id="summary"'), html.indexOf('id="capacity"'));
+
+  test("REQ-003-11 the headline says how many things need the Owner, in accent purple, with three explained counts", () => {
+    const summary = summaryOf(overview());
+    // The fixture: PR #70 is ready to merge, #6 waits for approval.
+    expect(summary).toMatch(
+      /<h1 class="[^"]*text-white[^"]*"><span class="text-acc-hi">2<\/span> things need you<\/h1>/,
+    );
+    for (const [n, label, why] of [
+      [1, "agent working", "Planner, Implementer or Reviewer running now"],
+      [1, "job waiting for a slot", "Starts when a session frees up"],
+      [1, "blocked", "Waits for another issue to finish"],
+    ])
+      expect(summary).toMatch(new RegExp(`<b[^>]*>${n}</b> ${label}</[^>]+>[\\s\\S]*?${why}`));
+    // The old row of bare counts is gone, and so is the Ready to merge panel.
+    expect(summary).not.toContain("stuck");
+    expect(summary).not.toContain("Ready to merge");
     expect(asset("dashboard.css")).not.toContain("background-clip: text");
+  });
+
+  test("REQ-003-11 one thing needs the Owner, or nothing", () => {
+    const one = summaryOf(
+      renderDashboard(
+        dashboardView(
+          {
+            ...snap,
+            repos: [
+              repo({
+                repo: "octo/app",
+                issues: [{ number: 6, title: "A", labels: ["agent:proposed"], blockedBy: [] }],
+              }),
+            ],
+          },
+          config,
+          NOW,
+        ),
+      ),
+    );
+    expect(one).toContain('<span class="text-acc-hi">1</span> thing needs you</h1>');
+    const none = summaryOf(renderDashboard(dashboardView({ ...snap, repos: [] }, config, NOW)));
+    expect(none).toMatch(/<h1 [^>]*>Nothing needs you right now<\/h1>/);
+  });
+
+  test("REQ-003-32 Your move lists the groups with an icon, a name and a count, each row linked with title, repository, number and hint", () => {
+    const summary = summaryOf(overview());
+    expect(summary).toMatch(/<div class="panel[^"]*"><h2 [^>]*>(?:(?!<\/h2>)[\s\S])*Your move<\/h2>/);
+    const groups = [...summary.matchAll(/<li [^>]*data-move="(\w+)"/g)].map((m) => m[1]);
+    expect(groups).toEqual(["merge", "approve"]);
+    expect(summary).toMatch(/data-move="merge"[\s\S]*?<h3[^>]*>[\s\S]*?Merge PRs[\s\S]*?>1<[\s\S]*?<\/h3>/);
+    expect(summary).toMatch(/data-move="approve"[\s\S]*?<h3[^>]*>[\s\S]*?Approve plans[\s\S]*?>1<[\s\S]*?<\/h3>/);
+    const pr = summary.slice(summary.indexOf('href="https://github.com/octo/app/pull/70"'));
+    expect(pr).toMatch(
+      /^[^>]*>[\s\S]*?Fix the login form[\s\S]*?octo\/app[\s\S]*?PR #70[\s\S]*?Reviewed, checks passed/,
+    );
+    expect(summary).toContain('href="https://github.com/octo/app/issues/6"');
+    expect(summary).toContain("Assessment ready: approve or reply");
+    // On a phone the hint is hidden and rows are not indented; from sm on they line up with the group name.
+    expect(summary).toMatch(/<span class="hidden sm:inline"> · Reviewed, checks passed<\/span>/);
+  });
+
+  test("REQ-003-32 every row has the ready-PR hover: the green accent line, a green wash, a nudge and the arrow turning green", () => {
+    const summary = summaryOf(overview());
+    const rows = [...summary.matchAll(/<a class="([^"]*)" href="https:\/\/github.com[^"]*"/g)].map((m) => m[1] ?? "");
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      for (const cls of ["group", "accent", "relative", "[--accent:var(--color-ok)]", "hover:from-ok/7"])
+        expect(row.split(" ")).toContain(cls);
+    }
+    expect(summary.match(/group-hover:translate-x-1\.5/g)).toHaveLength(2);
+    expect(summary.match(/rounded-full bg-white\/6[^"]*group-hover:bg-ok group-hover:text-ink/g)).toHaveLength(2);
+  });
+
+  test("REQ-003-32 / REQ-003-17 the PR icon is green, Failed red, the others in the accent, no gold, and groups split by a hairline only", () => {
+    const issue = (number: number, label: string) => ({ number, title: `I${number}`, labels: [label], blockedBy: [] });
+    const app = snap.repos.find((r) => r.repo === "octo/app") ?? repo({ repo: "octo/app" });
+    const html = renderDashboard(
+      dashboardView(
+        {
+          ...snap,
+          repos: [
+            {
+              ...app,
+              issues: [
+                ...app.issues,
+                issue(9, "agent:failed"),
+                issue(10, "agent:needs-refinement"),
+                issue(11, "agent:wontfix-proposed"),
+              ],
+            },
+          ],
+        },
+        config,
+        NOW,
+      ),
+    );
+    const summary = summaryOf(html);
+    const head = (kind: string) =>
+      summary.match(new RegExp(`data-move="${kind}"[^>]*>\\s*<h3[\\s\\S]*?</h3>`))?.[0] ?? "";
+    const icon = (kind: string) =>
+      head(kind)
+        .match(/<svg class="([^"]*)"/)?.[1]
+        ?.split(" ") ?? [];
+    expect(icon("merge")).toContain("text-ok");
+    expect(icon("failed")).toContain("text-bad");
+    for (const kind of ["questions", "approve", "close"]) expect(icon(kind)).toContain("text-acc-hi");
+    expect([...summary.matchAll(/data-move="(\w+)"/g)].map((m) => m[1])).toEqual([
+      "merge",
+      "failed",
+      "questions",
+      "approve",
+      "close",
+    ]);
+    expect(summary).toContain("Close?");
+    expect(summary).not.toMatch(/\b(?:text|bg|border|from)-warn\b/);
+    // Bare icons: no circle or box around them; the groups are split by a plain hairline.
+    expect(head("merge")).not.toMatch(/rounded|bg-/);
+    const groupClasses = [...summary.matchAll(/<li class="([^"]*)" data-move=/g)].map((m) => m[1]);
+    for (const c of groupClasses) expect(c).toBe("border-line border-t");
+  });
+
+  test("REQ-003-32 with nothing to do Your move says so and when items will appear", () => {
+    const summary = summaryOf(renderDashboard(dashboardView({ ...snap, repos: [] }, config, NOW)));
+    expect(summary).toContain("Your move");
+    expect(summary).toContain("Nothing needs you.");
+    expect(summary).toMatch(/Nothing needs you\. [^<]*Review passes[^<]*Planner/);
+    expect(summary).not.toContain("data-move=");
   });
 
   test("REQ-003-12 shows each meter as used out of the limit", () => {
