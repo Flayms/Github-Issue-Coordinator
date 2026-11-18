@@ -632,10 +632,13 @@ const TONE_ACCENT: Record<Tone, string> = {
   muted: "[--accent:rgb(255_255_255/0.5)]",
 };
 
-/** An issue in the Pipeline; a hover grows its accent line in, washes the row and nudges its content (#87). */
+/**
+ * An issue in the Pipeline; a hover grows its accent line in, washes the row and nudges its content
+ * (#87). The card clips its own sideways overflow, so the nudge never widens the Pipeline (REQ-003-02, #121).
+ */
 const Item = ({ i }: { i: IssueView }) => (
   <li
-    className={`group accent relative border-line border-b py-3.5 pr-1 pl-3 transition-[background] duration-600 ease-calm hover:bg-linear-to-r hover:from-acc/7 hover:to-transparent hover:to-70% ${TONE_ACCENT[i.tone]}`}
+    className={`group accent relative overflow-x-clip border-line border-b py-3.5 pr-1 pl-3 transition-[background] duration-600 ease-calm hover:bg-linear-to-r hover:from-acc/7 hover:to-transparent hover:to-70% ${TONE_ACCENT[i.tone]}`}
     data-tone={i.tone}
   >
     <div className="transition-transform duration-450 ease-calm group-hover:translate-x-1.5">
