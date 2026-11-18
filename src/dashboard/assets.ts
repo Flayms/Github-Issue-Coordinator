@@ -25,6 +25,9 @@ const LIST = new Map<string, string>([
   ["fonts/jetbrains-mono.woff2", TYPES.woff2],
 ]);
 
+/** The published paths of every asset, e.g. for the README screenshots' fingerprint (REQ-003-22). */
+export const ASSET_NAMES: readonly string[] = [...LIST.keys()];
+
 export interface Asset {
   body: Uint8Array;
   type: string;

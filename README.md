@@ -19,6 +19,20 @@ A self-hosted Bun daemon that polls GitHub and runs Claude Code agents. They tri
 
 **Dashboard (read-only, on by default).** A mobile-friendly page leads with what is ready to merge and how many issues need you, then shows capacity (running and live sessions, Slots, Worktrees), Activity as one timeline: what the Coordinator did recently (PRs opened, Reviews, failures with their reason), the agent sessions now (running ones first, with their model and Remote Control names; idle ones say when they close), and what runs next and why each item waits; then a pipeline of every issue's phase and PR (checks, mergeability, Feedback rounds) that says what each one needs, filterable by repository. A Config page shows the settings without secrets. It works without JavaScript and loads nothing from other origins (its fonts are self-hosted). It changes nothing; it is on by default (`dashboard: false` turns it off), listens on loopback, and is meant to be reached over Tailscale or an SSH tunnel with a token ([setup](docs/setup.md#6-dashboard-on-by-default), [spec 003](docs/specs/003-dashboard/spec.md)).
 
+<p>
+  <img src="docs/images/dashboard-desktop.png" alt="The dashboard's Overview on a wide screen: PRs ready to merge, capacity, Activity and the Pipeline" width="68%">
+  <img src="docs/images/dashboard-phone.png" alt="The top of the Overview on a phone" width="28%">
+</p>
+
+<details>
+<summary>The Config page</summary>
+
+![The Config page: limits, models per Role and the repositories](docs/images/dashboard-config.png)
+
+</details>
+
+<sub>Made-up data from <code>test/fixtures/dashboard-mock.ts</code>; <code>bun run screenshots</code> renders them again.</sub>
+
 ## Commands (comments by you)
 
 | Command            | Where             | Effect                                                                                                                                                 |
@@ -157,6 +171,6 @@ bun start                        # or run it as the systemd service
 
 ## Development
 
-`bun test` · `bun run lint` · `bun scripts/smoke-runner.ts` (real tmux + claude). See `AGENTS.md` and `docs/`.
+`bun test` · `bun run lint` · `bun scripts/smoke-runner.ts` (real tmux + claude) · `bun run screenshots` (the dashboard screenshots above, needs Chrome or Chromium; `bun test` fails when they are older than the dashboard). See `AGENTS.md` and `docs/`.
 
 CI (`.github/workflows/ci.yml`) runs `bun install --frozen-lockfile`, `bun run lint` and `bun test` on every push to `main` and every PR, drafts included, so agent PRs here are checked before their Review. The smoke runner needs a subscription and doesn't run in CI.
