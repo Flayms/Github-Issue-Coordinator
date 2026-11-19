@@ -66,7 +66,9 @@ export interface Harness {
   readonly bin: string;
   /** The oldest CLI version the adapter was checked against; `bun run doctor` warns below it. */
   readonly minVersion: string;
-  readonly features: Readonly<Record<CoreFeature, FeatureSupport & { has: true }> & Record<OptionalFeature, FeatureSupport>>;
+  readonly features: Readonly<
+    Record<CoreFeature, FeatureSupport & { has: true }> & Record<OptionalFeature, FeatureSupport>
+  >;
   /** The variable naming an Account's config folder, e.g. `CLAUDE_CONFIG_DIR`. */
   readonly accountEnv: string;
   /** The config folder of an Account without its own, under the home folder (e.g. `.claude`). */

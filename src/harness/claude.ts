@@ -34,7 +34,12 @@ export function parentInstructionFiles(cwd: string, home: string): string[] {
 }
 
 /** The arguments before the prompt, which the runner appends from the session's prompt file (REQ-001-45). */
-export function claudeArgs(o: { name: string; settingsPath: string; model: RoleSettings; resumeId?: string }): string[] {
+export function claudeArgs(o: {
+  name: string;
+  settingsPath: string;
+  model: RoleSettings;
+  resumeId?: string;
+}): string[] {
   const args: string[] = [];
   if (o.resumeId) args.push("--resume", o.resumeId);
   // REQ-005-01: agents run unrestricted on the Coordinator's VM.

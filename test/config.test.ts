@@ -229,3 +229,36 @@ describe("config", () => {
     expect(loadConfig(`${dir}/missing.ts`)).rejects.toThrow("config file not found");
   });
 });
+
+describe("Harnesses (spec 006)", () => {
+  const codexRoles = (c: ReturnType<typeof valid>) => ({
+    ...c.roles,
+    reviewer: { model: "gpt-6.2-sol", effort: "high" as const },
+  });
+
+  test("REQ-006-02 an Account names its Harness; without one it is Claude Code's", () => {
+    const c = parseConfig({
+      ...valid(),
+      accounts: [{ name: "main" }, { name: "gpt", harness: "codex" }],
+    });
+    expect(c.accounts).toEqual([{ name: "main" }, { name: "gpt", harness: "codex" }]);
+    expect(issuesOf({ ...valid(), accounts: [{ name: "x", harness: "copilot" }] })).not.toEqual([]);
+  });
+
+  test("REQ-006-02 Accounts of different Harnesses may use their default folders side by side", () => {
+    expect(issuesOf({ ...valid(), accounts: [{ name: "main" }, { name: "gpt", harness: "codex" }] })).toEqual([]);
+  });
+
+  test("REQ-006-01 a Role whose model's Harness has no Account is a config error", () => {
+    const v = valid();
+    expect(issuesOf({ ...v, roles: codexRoles(v) })).toEqual([
+      'roles.reviewer.model: gpt-6.2-sol runs on Codex CLI, which has no Account (add one with harness: "codex")',
+    ]);
+    expect(
+      issuesOf({ ...v, roles: codexRoles(v), accounts: [{ name: "main" }, { name: "gpt", harness: "codex" }] }),
+    ).toEqual([]);
+    expect(issuesOf({ ...v, repos: [{ name: "octo/app", roles: { planner: { model: "gpt-5.5" } } }] })).toEqual([
+      'repos.0.roles.planner.model: gpt-5.5 runs on Codex CLI, which has no Account (add one with harness: "codex")',
+    ]);
+  });
+});

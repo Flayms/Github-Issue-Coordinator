@@ -609,3 +609,111 @@ describe("Accounts", () => {
     expect(readFileSync(join(project, "c1.jsonl"), "utf8")).toBe("turns\nmore turns\n");
   });
 });
+
+describe("Harnesses (spec 006)", () => {
+  let home: string;
+  let multi: SessionRunner;
+  const codexHome = () => join(home, ".codex-gpt");
+  beforeEach(() => {
+    home = join(dir, "home");
+    multi = new SessionRunner({
+      store,
+      tmux,
+      stateDir: dir,
+      dbPath: join(dir, "state.db"),
+      hookCommand: ["bun", "/app/src/hook.ts"],
+      accounts: [
+        { name: "main" },
+        { name: "gpt", harness: "codex", configDir: join(dir, "home", ".codex-gpt") },
+        { name: "gpt2", harness: "codex" },
+      ],
+      home,
+    });
+  });
+  const start = (model: string) =>
+    multi.start({
+      repo: "octo/app",
+      role: "reviewer",
+      kind: "issue",
+      issues: [5],
+      cwd: "/work/app",
+      prompt: "p",
+      model: { model },
+    });
+  const commandOf = (id: number) => tmux.windows.get(`s${id}`)?.command ?? "";
+
+  test("REQ-006-01 a Codex model starts `codex` on the first Codex Account, with its folder and the hooks", () => {
+    const id = start("gpt-6.2-sol");
+    const cmd = commandOf(id);
+    expect(cmd).toStartWith(`TMPDIR=${shellQuote([tmpOf(id)])} CODEX_HOME=${shellQuote([codexHome()])} 'codex' `);
+    expect(cmd).toContain("'--dangerously-bypass-approvals-and-sandbox'");
+    expect(cmd).toContain("'--model' 'gpt-6.2-sol'");
+    expect(cmd).toContain(`hooks.Stop=[{hooks=[{type="command",command=`);
+    expect(cmd).not.toContain("IS_SANDBOX");
+    expect(store.session(id)).toMatchObject({ harness: "codex", account: "gpt" });
+  });
+
+  test("REQ-006-01 a Claude model still starts `claude` on the first Claude Account", () => {
+    const id = start("opus");
+    expect(commandOf(id)).toStartWith(`${tmpEnv(id)}IS_SANDBOX=1 'claude' `);
+    expect(store.session(id)).toMatchObject({ harness: "claude", account: "main" });
+  });
+
+  test("REQ-006-02 a usage limit pauses only that Account: the next Codex Account takes over, in Codex's default folder", () => {
+    store.setPausedUntil("gpt", new Date(Date.now() + 60_000).toISOString());
+    const id = start("gpt-6.2-sol");
+    expect(commandOf(id)).not.toContain("CODEX_HOME");
+    expect(store.session(id)?.account).toBe("gpt2");
+  });
+
+  test("REQ-006-02 a Harness without an Account cannot start a session", () => {
+    const only = new SessionRunner({
+      store,
+      tmux,
+      stateDir: dir,
+      dbPath: join(dir, "state.db"),
+      hookCommand: ["bun", "/app/src/hook.ts"],
+    });
+    expect(() =>
+      only.start({
+        repo: "octo/app",
+        role: "reviewer",
+        kind: "issue",
+        issues: [5],
+        cwd: "/w",
+        prompt: "p",
+        model: { model: "gpt-5.5" },
+      }),
+    ).toThrow("no Account of Codex CLI");
+  });
+
+  test("REQ-006-03 a resume stays on the session's Harness, even after its Role's model moved to another one", () => {
+    const id = start("gpt-6.2-sol");
+    store.setAgentSessionId(id, "01a1f4fb");
+    store.patchSession(id, { state: "idle" });
+    multi.resume(id, "go on", { model: "opus" });
+    const cmd = commandOf(id);
+    expect(cmd).toContain("'codex' 'resume' '01a1f4fb'");
+    expect(cmd).toContain("'--model' 'opus'");
+  });
+
+  test("REQ-006-04 / REQ-001-17 a Codex turn that ended on the usage limit without a Stop hook is marked", () => {
+    const id = start("gpt-6.2-sol");
+    store.patchSession(id, { coordinatorPromptPending: false });
+    store.setTranscriptPath(id, join(import.meta.dir, "fixtures", "codex", "rollout-usage-limit.jsonl"));
+    const claudeId = start("opus");
+    store.patchSession(claudeId, { coordinatorPromptPending: false });
+    store.setTranscriptPath(claudeId, join(import.meta.dir, "fixtures", "codex", "rollout-usage-limit.jsonl"));
+    expect(multi.detectEndedTurns()).toEqual([id]);
+    expect(store.session(id)).toMatchObject({ state: "idle", usageLimited: true, usageLimitResetsAt: null });
+    expect(store.session(claudeId)?.state).toBe("running");
+  });
+
+  test("REQ-006-01 the Codex trust dialog is answered with Enter", () => {
+    const id = start("gpt-6.2-sol");
+    const w = tmux.windows.get(`s${id}`);
+    if (w) w.pane = "Trust this folder? Codex can read, edit…\n› 1. Trust and continue\n  2. Back";
+    multi.answerDialogs();
+    expect(tmux.keys).toEqual([[`s${id}`, ["Enter"]]]);
+  });
+});

@@ -3,8 +3,8 @@
  * (spec 006). A usage limit pauses one Account; work moves on to the next of the same Harness (REQ-001-17, REQ-006-02).
  */
 import { join } from "node:path";
-import { HARNESSES } from "./harness/index.ts";
 import type { HarnessName } from "./harness/harness.ts";
+import { HARNESSES } from "./harness/index.ts";
 
 export { copyTranscript } from "./harness/claude.ts";
 

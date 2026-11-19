@@ -208,3 +208,21 @@ describe("scheduler", () => {
     ]);
   });
 });
+
+describe("Harnesses (spec 006)", () => {
+  const later = new Date(NOW.getTime() + 3_600_000).toISOString();
+  const claudeWork: Work = { key: "a#1 plan", kind: "plan", role: "planner", queuedAt: NOW.toISOString() };
+  const codexWork: Work = { ...claudeWork, key: "a#2 review", kind: "review", role: "reviewer", harness: "codex" };
+
+  test("REQ-006-02 while every Claude Account is paused, work on Codex still starts", () => {
+    const plan = schedule({
+      queue: [claudeWork, codexWork],
+      sessions: [],
+      limits: limits({ maxRunning: 2, maxLiveSessions: 2 }),
+      now: NOW,
+      pausedUntilFor: { claude: later },
+    });
+    expect(plan.start.map((w) => w.key)).toEqual(["a#2 review"]);
+    expect(plan.queue.find((q) => q.work.key === "a#1 plan")?.wait).toEqual({ kind: "paused", until: later });
+  });
+});

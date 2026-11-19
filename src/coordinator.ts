@@ -3,13 +3,15 @@
  * schedules them across repositories and executes them. State lives in labels and the store, so a
  * tick can start from scratch after a restart (REQ-001-16).
  */
-import { allPausedUntil } from "./accounts.ts";
+import { accountsOf, allPausedUntil } from "./accounts.ts";
 import { autoMergeMode, type Config, type Role, roleSettings } from "./config.ts";
 import { recordEvent, refs } from "./events.ts";
 import type { Clones } from "./git.ts";
 import type { Actor, Comment, GitHubClient, Item } from "./github/client.ts";
+import { HARNESS_NAMES, type HarnessName } from "./harness/harness.ts";
 import { Implementer, type ImplementerDeps } from "./implementer.ts";
 import { labelPr } from "./labels.ts";
+import { harnessOfModel } from "./models.ts";
 import { agentNote, isAgentNote, ROLE_NAMES } from "./note.ts";
 import { bodyHash, Planner, type PlannerDeps } from "./planner.ts";
 import { Reviewer, type ReviewerDeps } from "./reviewer.ts";
@@ -172,6 +174,19 @@ export class Coordinator {
   /** REQ-001-17: while every Account is paused, when the first one is free again. */
   private allPausedUntil(): string | undefined {
     return allPausedUntil(this.d.config.accounts, (n) => this.d.store.pausedUntil(n), this.now());
+  }
+
+  /** REQ-006-02: per Harness with Accounts, while every Account of it is paused, when the first is free again. */
+  private pausedUntilFor(): Partial<Record<HarnessName, string>> {
+    const out: Partial<Record<HarnessName, string>> = {};
+    for (const h of HARNESS_NAMES) {
+      const accounts = accountsOf(this.d.config.accounts, h);
+      const until = accounts.length
+        ? allPausedUntil(accounts, (n) => this.d.store.pausedUntil(n), this.now())
+        : undefined;
+      if (until) out[h] = until;
+    }
+    return out;
   }
 
   /** The last tick's snapshot; undefined before the first tick ended (REQ-003-06). */
@@ -429,43 +444,49 @@ export class Coordinator {
         const own = this.d.store.latestSession(a.repo, a.issues[0] ?? 0, "implementer");
         const sessionId = own && own.state !== "closed" ? own.id : undefined;
         const key = `${a.repo} PR #${a.pr} feedback`;
-        this.add(queue, jobs, { key, kind: "feedback", role: "implementer", queuedAt: now, sessionId }, async () => {
-          // REQ-001-28 / REQ-001-37: before the round is recorded, so a failed fetch is retried on the next tick.
-          if (a.conflicted) await this.implementer.fetchBase(a.repo, a.issues);
-          for (const n of a.issues) {
-            const rec = this.d.store.issue(a.repo, n);
-            this.d.store.updateIssue(a.repo, n, {
-              pendingFeedback: null,
-              feedbackRounds: rec.feedbackRounds + (a.counted ? 1 : 0),
-              failedChecksSha: a.checksFailed ? a.headSha : rec.failedChecksSha,
-              conflictSha: a.conflicted ? a.headSha : rec.conflictSha,
+        this.add(
+          a.repo,
+          queue,
+          jobs,
+          { key, kind: "feedback", role: "implementer", queuedAt: now, sessionId },
+          async () => {
+            // REQ-001-28 / REQ-001-37: before the round is recorded, so a failed fetch is retried on the next tick.
+            if (a.conflicted) await this.implementer.fetchBase(a.repo, a.issues);
+            for (const n of a.issues) {
+              const rec = this.d.store.issue(a.repo, n);
+              this.d.store.updateIssue(a.repo, n, {
+                pendingFeedback: null,
+                feedbackRounds: rec.feedbackRounds + (a.counted ? 1 : 0),
+                failedChecksSha: a.checksFailed ? a.headSha : rec.failedChecksSha,
+                conflictSha: a.conflicted ? a.headSha : rec.conflictSha,
+              });
+            }
+            const pr = this.d.store.issue(a.repo, a.pr);
+            this.d.store.updateIssue(a.repo, a.pr, {
+              lastHandledCommentId: Math.max(pr.lastHandledCommentId, a.upToCommentId),
+              lastHandledReviewId: Math.max(pr.lastHandledReviewId, a.upToReviewId),
             });
-          }
-          const pr = this.d.store.issue(a.repo, a.pr);
-          this.d.store.updateIssue(a.repo, a.pr, {
-            lastHandledCommentId: Math.max(pr.lastHandledCommentId, a.upToCommentId),
-            lastHandledReviewId: Math.max(pr.lastHandledReviewId, a.upToReviewId),
-          });
-          view.prFeedback.delete(a.pr);
-          const auto = a.causes.length ? { headSha: a.headSha, causes: a.causes } : undefined;
-          for (const n of a.issues) {
-            // REQ-003-33: a round the Owner started by commenting ends their time on the PR.
-            if (!auto) this.d.store.recordWait(a.repo, n, { phase: "review", kind: "owner", end: now });
-            this.beginStep(a.repo, n, view, { phase: "review", role: "implementer" });
-          }
-          const id = await this.implementer.feedbackRound(a.repo, a.pr, a.issues, a.text, auto);
-          const rounds = this.d.store.issue(a.repo, a.issues[0] ?? 0).feedbackRounds;
-          this.event(
-            a.repo,
-            "feedback-round",
-            a.issues,
-            a.pr,
-            a.counted
-              ? `Feedback round ${rounds}/${this.d.config.limits.maxFeedbackRounds} on PR #${a.pr}`
-              : `Feedback round on PR #${a.pr} (not counted)`,
-          );
-          this.log(`${a.repo}: Feedback round on PR #${a.pr}${a.counted ? "" : " (from the Owner)"} (session ${id})`);
-        });
+            view.prFeedback.delete(a.pr);
+            const auto = a.causes.length ? { headSha: a.headSha, causes: a.causes } : undefined;
+            for (const n of a.issues) {
+              // REQ-003-33: a round the Owner started by commenting ends their time on the PR.
+              if (!auto) this.d.store.recordWait(a.repo, n, { phase: "review", kind: "owner", end: now });
+              this.beginStep(a.repo, n, view, { phase: "review", role: "implementer" });
+            }
+            const id = await this.implementer.feedbackRound(a.repo, a.pr, a.issues, a.text, auto);
+            const rounds = this.d.store.issue(a.repo, a.issues[0] ?? 0).feedbackRounds;
+            this.event(
+              a.repo,
+              "feedback-round",
+              a.issues,
+              a.pr,
+              a.counted
+                ? `Feedback round ${rounds}/${this.d.config.limits.maxFeedbackRounds} on PR #${a.pr}`
+                : `Feedback round on PR #${a.pr} (not counted)`,
+            );
+            this.log(`${a.repo}: Feedback round on PR #${a.pr}${a.counted ? "" : " (from the Owner)"} (session ${id})`);
+          },
+        );
         return;
       }
       case "wake": {
@@ -487,6 +508,7 @@ export class Coordinator {
         }
         const key = `${a.repo}#${a.issue} wake`;
         this.add(
+          a.repo,
           queue,
           jobs,
           { key, kind: "wake", role: target.role, queuedAt: now, sessionId: target.id },
@@ -550,31 +572,37 @@ export class Coordinator {
       case "implement": {
         const members = a.issues.map((n) => view.items.find((i) => i.number === n)).filter((i) => i !== undefined);
         const key = `${a.repo}#${a.issues[0]} implement`;
-        this.add(queue, jobs, { key, kind: "implement", role: "implementer", queuedAt: a.approvedAt }, async () => {
-          if (!this.d.worktrees.hasRoom()) {
-            this.log(`${key}: waiting, maxWorktrees reached`);
-            return { kind: "max-worktrees" };
-          }
-          for (const n of a.issues)
-            this.beginStep(a.repo, n, view, { phase: "building", role: "implementer", queuedAt: a.approvedAt });
-          try {
-            const id = await this.implementer.start(a.repo, members);
-            this.log(`${a.repo}: implementing ${a.issues.map((n) => `#${n}`).join(", ")} (session ${id})`);
-          } catch (e) {
-            if (e instanceof SessionStartError) throw e; // reported by run() (REQ-001-44)
-            await this.fail(
-              a.repo,
-              a.issues,
-              `could not start the Implementer: ${e instanceof Error ? e.message : String(e)}`,
-            );
-          }
-        });
+        this.add(
+          a.repo,
+          queue,
+          jobs,
+          { key, kind: "implement", role: "implementer", queuedAt: a.approvedAt },
+          async () => {
+            if (!this.d.worktrees.hasRoom()) {
+              this.log(`${key}: waiting, maxWorktrees reached`);
+              return { kind: "max-worktrees" };
+            }
+            for (const n of a.issues)
+              this.beginStep(a.repo, n, view, { phase: "building", role: "implementer", queuedAt: a.approvedAt });
+            try {
+              const id = await this.implementer.start(a.repo, members);
+              this.log(`${a.repo}: implementing ${a.issues.map((n) => `#${n}`).join(", ")} (session ${id})`);
+            } catch (e) {
+              if (e instanceof SessionStartError) throw e; // reported by run() (REQ-001-44)
+              await this.fail(
+                a.repo,
+                a.issues,
+                `could not start the Implementer: ${e instanceof Error ? e.message : String(e)}`,
+              );
+            }
+          },
+        );
         return;
       }
       case "review": {
         const issues = a.issues.map((n) => view.items.find((i) => i.number === n)).filter((i) => i !== undefined);
         const key = `${a.repo} PR #${a.pr} review`;
-        this.add(queue, jobs, { key, kind: "review", role: "reviewer", queuedAt: now }, async () => {
+        this.add(a.repo, queue, jobs, { key, kind: "review", role: "reviewer", queuedAt: now }, async () => {
           for (const n of a.issues) this.beginStep(a.repo, n, view, { phase: "review", role: "reviewer" });
           const id = await this.reviewer.start(a.repo, a.pr, issues, a.headSha);
           this.log(`${a.repo}: reviewing PR #${a.pr} at ${a.headSha.slice(0, 7)} (session ${id})`);
@@ -621,6 +649,7 @@ export class Coordinator {
       case "resume-interrupted": {
         const s = a.session;
         this.add(
+          s.repo,
           queue,
           jobs,
           {
@@ -644,17 +673,23 @@ export class Coordinator {
       case "plan": {
         const assess = view.items.filter((i) => a.issues.includes(i.number));
         const oldest = assess.map((i) => i.createdAt).sort()[0] ?? now;
-        this.add(queue, jobs, { key: `${a.repo} plan`, kind: "plan", role: "planner", queuedAt: oldest }, async () => {
-          const dir = await this.d.clones.mainClone(a.repo);
-          const splitOffs = this.d.store.splitOffNumbers(a.repo);
-          const issues = view.items.filter((i) => inScope(i, this.d.config.owner.id, splitOffs));
-          const pulls = view.items.filter((i) => i.isPullRequest);
-          // REQ-003-33: waiting for the Planner starts at the issue's creation.
-          for (const i of assess)
-            this.beginStep(a.repo, i.number, view, { phase: "planning", role: "planner", queuedAt: i.createdAt });
-          const id = await this.planner.startPass(a.repo, dir, assess, { issues, pulls });
-          this.log(`${a.repo}: Planner pass over ${a.issues.map((n) => `#${n}`).join(", ")} (session ${id})`);
-        });
+        this.add(
+          a.repo,
+          queue,
+          jobs,
+          { key: `${a.repo} plan`, kind: "plan", role: "planner", queuedAt: oldest },
+          async () => {
+            const dir = await this.d.clones.mainClone(a.repo);
+            const splitOffs = this.d.store.splitOffNumbers(a.repo);
+            const issues = view.items.filter((i) => inScope(i, this.d.config.owner.id, splitOffs));
+            const pulls = view.items.filter((i) => i.isPullRequest);
+            // REQ-003-33: waiting for the Planner starts at the issue's creation.
+            for (const i of assess)
+              this.beginStep(a.repo, i.number, view, { phase: "planning", role: "planner", queuedAt: i.createdAt });
+            const id = await this.planner.startPass(a.repo, dir, assess, { issues, pulls });
+            this.log(`${a.repo}: Planner pass over ${a.issues.map((n) => `#${n}`).join(", ")} (session ${id})`);
+          },
+        );
         return;
       }
       case "revise": {
@@ -663,6 +698,7 @@ export class Coordinator {
         const own = this.d.store.latestSession(a.repo, a.issue, "planner");
         const sessionId = own?.kind === "issue" && own.state !== "closed" ? own.id : undefined;
         this.add(
+          a.repo,
           queue,
           jobs,
           { key: `${a.repo}#${a.issue} revise`, kind: "revise", role: "planner", queuedAt: now, sessionId },
@@ -781,6 +817,7 @@ export class Coordinator {
   private queueUsageLimited(repo: string, queue: Work[], jobs: Map<string, Job>) {
     for (const s of this.d.store.usageLimitedSessions(repo).filter((x) => x.state !== "running")) {
       this.add(
+        s.repo,
         queue,
         jobs,
         {
@@ -802,13 +839,17 @@ export class Coordinator {
   }
 
   private add(
+    repo: string,
     queue: Work[],
     jobs: Map<string, Job>,
     w: Work,
     job: () => Promise<WaitReason | undefined> | Promise<void>,
   ) {
     if (jobs.has(w.key)) return;
-    queue.push(w);
+    // REQ-006-03: a resume stays on its session's Harness; new work runs on its model's (REQ-006-01).
+    const session = w.sessionId === undefined ? undefined : this.d.store.session(w.sessionId);
+    const harness = session?.harness ?? harnessOfModel(roleSettings(this.d.config, repo, w.role).model);
+    queue.push({ ...w, harness });
     jobs.set(w.key, async () => (await job()) ?? undefined);
   }
 
@@ -827,6 +868,7 @@ export class Coordinator {
       limits: this.d.config.limits,
       now: this.now(),
       pausedUntil: this.allPausedUntil(),
+      pausedUntilFor: this.pausedUntilFor(),
     });
     for (const id of plan.close) {
       try {
