@@ -328,7 +328,7 @@ describe("dashboard settings", () => {
   const textareaOf = (html: string, name: string) =>
     new RegExp(`<textarea [^>]*name="${name.replace(/[./]/g, "\\$&")}"[^>]*>([^<]*)</textarea>`, "s").exec(html)?.[1];
 
-  test("REQ-003-42 each Role's Extra instructions are a textarea, globally and in each repository", async () => {
+  test("REQ-003-44 each Role's Extra instructions are a textarea, globally and in each repository", async () => {
     const { url } = start({ instructions: { reviewer: "Be <brief>." } });
     const html = await (await fetch(`${url}/config`, { headers: { cookie: owner.cookie } })).text();
     for (const role of ["planner", "implementer", "reviewer"]) {
@@ -340,7 +340,7 @@ describe("dashboard settings", () => {
     expect(html).toContain("At most 4,000 characters each");
   });
 
-  test("REQ-003-42 saving Extra instructions stores them and applies them to sessions started from then on; Reset removes them", async () => {
+  test("REQ-003-44 saving Extra instructions stores them and applies them to sessions started from then on; Reset removes them", async () => {
     const { url, settings, path } = start({ instructions: { implementer: "Use pnpm." } });
     const res = await post(url, {
       formToken: FORM_TOKEN,
@@ -372,7 +372,7 @@ describe("dashboard settings", () => {
     expect(settings.overrides.instructions).toEqual({ planner: "Always answer in German.\nUse {{x}} literally." });
   });
 
-  test("REQ-003-42 Extra instructions over the size limit are refused, kept in the form, and nothing is saved", async () => {
+  test("REQ-003-44 Extra instructions over the size limit are refused, kept in the form, and nothing is saved", async () => {
     const { url, settings, path } = start();
     const long = "x".repeat(4_001);
     const res = await post(url, {
@@ -388,7 +388,7 @@ describe("dashboard settings", () => {
     expect(existsSync(path)).toBe(false);
   });
 
-  test("REQ-003-42 a token sees the Extra instructions but gets no field to change them", async () => {
+  test("REQ-003-44 a token sees the Extra instructions but gets no field to change them", async () => {
     const { url } = start({
       token: TOKEN,
       overrides: { instructions: { planner: "Always answer in German." } },

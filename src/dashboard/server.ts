@@ -1,13 +1,14 @@
 /**
- * Dashboard server (spec 003), inside the Coordinator process. It serves the last tick's snapshot, and
- * the Timings page the recorded Timings (REQ-003-34): no store writes, and no GitHub calls besides the
- * sign-in's (REQ-003-07, REQ-003-08). Its one write is the Owner's Settings overrides (REQ-003-36).
+ * Dashboard server (spec 003), inside the Coordinator process. It serves the last tick's snapshot, the
+ * sessions' transcripts read for the Now line (REQ-003-42), and the Timings page the recorded Timings
+ * (REQ-003-34): no store writes, and no GitHub calls besides the sign-in's (REQ-003-07, REQ-003-08). Its one write is the Owner's Settings overrides (REQ-003-36).
  */
 import { readFileSync } from "node:fs";
 import type { Config } from "../config.ts";
 import type { TickSnapshot } from "../coordinator.ts";
 import type { Fetch } from "../github/http.ts";
 import type { SettingsEditor } from "../overrides.ts";
+import { TranscriptReader } from "../transcript.ts";
 import { asset } from "./assets.ts";
 import {
   authorizeUrl,
@@ -67,6 +68,8 @@ export interface DashboardDeps {
   reportedModels?: () => string[];
   /** The recorded Timings for the Timings page, read only (REQ-003-34); the store in the Coordinator. */
   timings?: TimingSource;
+  /** Reads the sessions' transcripts for the Now line and Open chat (REQ-003-42, REQ-003-43); its own by default. */
+  transcripts?: TranscriptReader;
   log: (message: string) => void;
   now?: () => Date;
 }
@@ -94,12 +97,14 @@ const NOT_SET_UP =
 export function startDashboard(d: DashboardDeps): DashboardServer | undefined {
   const dash = d.config.dashboard;
   if (!dash) return undefined;
+  // One reader per server, so its scans for the Remote Control URL are remembered across requests (REQ-003-43).
+  const deps = { ...d, transcripts: d.transcripts ?? new TranscriptReader() };
   try {
     const server = Bun.serve({
       hostname: dash.host,
       port: dash.port,
       maxRequestBodySize: MAX_BODY_BYTES,
-      fetch: (req) => handle(req, d),
+      fetch: (req) => handle(req, deps),
       error: (e) => {
         d.log(`dashboard: ${e.message}`);
         return respond(500, "Internal error");
@@ -161,8 +166,11 @@ async function handle(req: Request, d: DashboardDeps): Promise<Response> {
     }
     const page = PAGES.get(url.pathname);
     if (!page) return respond(404, "Not found");
+    // REQ-003-42: only the Overview shows the Now line, so only it reads transcripts, at request time.
+    const reader = url.pathname === "/" ? d.transcripts : undefined;
     const view = dashboardView(d.snapshot(), d.settings?.current ?? d.config, now, {
       repo: url.searchParams.get("repo"),
+      transcript: reader && ((path) => reader.read(path)),
     });
     const form = settingsForm(d, login, session, url.searchParams.get("saved") === "1");
     return respond(200, page(view, url, d, now, form), { "content-type": "text/html; charset=utf-8" });

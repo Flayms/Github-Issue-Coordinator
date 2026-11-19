@@ -35,7 +35,7 @@ const roleSchema = z.strictObject({
 
 const roleOverrideSchema = roleSchema.partial();
 
-/** REQ-003-42: the most characters of one Role's Extra instructions, since they go into every session's prompt. */
+/** REQ-003-44: the most characters of one Role's Extra instructions, since they go into every session's prompt. */
 export const EXTRA_INSTRUCTIONS_LIMIT = 4_000;
 const instructionText = z
   .string()

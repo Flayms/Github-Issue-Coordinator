@@ -5,6 +5,7 @@ import { renderConfig } from "../src/dashboard/config-html.tsx";
 import { renderDashboard } from "../src/dashboard/html.tsx";
 import { dashboardView, RECENT_SHOWN } from "../src/dashboard/view.ts";
 import type { CoordinatorEvent, SessionRecord } from "../src/store.ts";
+import type { TranscriptTail } from "../src/transcript.ts";
 
 const config = parseConfig({
   owner: { login: "octo", id: 42 },
@@ -41,6 +42,7 @@ const session = (s: Partial<SessionRecord & { live: boolean }> & Pick<SessionRec
   title: null,
   startedAt: "2026-11-15T09:00:00.000Z",
   account: null,
+  transcriptPath: null,
   live: true,
   ...s,
 });
@@ -117,6 +119,8 @@ describe("dashboard view", () => {
         name: "#5 Fix login · Implementer · app",
         model: "sonnet",
         modelName: "Sonnet (latest)",
+        now: null,
+        chatUrl: null,
       },
       {
         role: "Planner",
@@ -134,8 +138,72 @@ describe("dashboard view", () => {
         name: "Planner · #6, #7 · app",
         model: "opus",
         modelName: "Opus (latest)",
+        now: null,
+        chatUrl: null,
       },
     ]);
+  });
+
+  describe("REQ-003-42 / REQ-003-43 Now line and Open chat", () => {
+    const tails: Record<string, TranscriptTail | undefined> = {
+      "/t/run.jsonl": {
+        step: { kind: "tool", text: "Bash · bun test", at: "2026-11-15T10:29:48.000Z" },
+        lastText: { kind: "says", text: "Now the tests.", at: "2026-11-15T10:29:40.000Z" },
+        chatUrl: "https://claude.ai/code/session_01Run",
+      },
+      "/t/think.jsonl": { step: { kind: "thinking", text: "", at: "2026-11-15T10:25:00.000Z" } },
+      "/t/says.jsonl": { step: { kind: "says", text: "Found it.", at: "2026-11-15T08:30:00.000Z" } },
+      "/t/idle.jsonl": {
+        step: { kind: "tool", text: "Write · result.json", at: "2026-11-15T10:20:00.000Z" },
+        lastText: { kind: "says", text: "PR is ready.", at: "2026-11-15T10:19:00.000Z" },
+      },
+      "/t/idle-no-text.jsonl": { step: { kind: "thinking", text: "", at: "2026-11-15T10:20:00.000Z" } },
+      "/t/empty.jsonl": {},
+    };
+    const read = (path: string) => tails[path];
+    const view = (transcriptPath: string | null, state: "running" | "idle" = "running") =>
+      dashboardView(
+        snapshot({ sessions: [session({ id: 1, role: "implementer", issues: [5], state, transcriptPath })] }),
+        config,
+        NOW,
+        {
+          transcript: read,
+        },
+      ).sessions[0];
+
+    test("REQ-003-42 a running session shows its latest step and how long ago it happened", () => {
+      expect(view("/t/run.jsonl")?.now).toEqual({ label: "Tool", text: "Bash · bun test", ago: "12 s ago" });
+      expect(view("/t/think.jsonl")?.now).toEqual({ label: "Thinking", text: "", ago: "5 min ago" });
+      expect(view("/t/says.jsonl")?.now).toEqual({ label: "Says", text: "Found it.", ago: "2 h 0 min ago" });
+    });
+
+    test("REQ-003-42 an idle session shows Turn ended with its last text", () => {
+      expect(view("/t/idle.jsonl", "idle")?.now).toEqual({
+        label: "Turn ended",
+        text: "PR is ready.",
+        ago: "11 min ago",
+      });
+      expect(view("/t/idle-no-text.jsonl", "idle")?.now).toEqual({ label: "Turn ended", text: "", ago: "10 min ago" });
+    });
+
+    test("REQ-003-42 no transcript, an unreadable one or no step: no line", () => {
+      expect(view(null)?.now).toBeNull();
+      expect(view("/t/missing.jsonl")?.now).toBeNull();
+      expect(view("/t/empty.jsonl")?.now).toBeNull();
+      // Without a reader (e.g. the Config page) nothing is read.
+      const plain = dashboardView(
+        snapshot({ sessions: [session({ id: 1, role: "implementer", issues: [5], transcriptPath: "/t/run.jsonl" })] }),
+        config,
+        NOW,
+      );
+      expect(plain.sessions[0]).toMatchObject({ now: null, chatUrl: null });
+    });
+
+    test("REQ-003-43 the Remote Control URL becomes the Open chat link; without one there is none", () => {
+      expect(view("/t/run.jsonl")?.chatUrl).toBe("https://claude.ai/code/session_01Run");
+      expect(view("/t/think.jsonl")?.chatUrl).toBeNull();
+      expect(view(null)?.chatUrl).toBeNull();
+    });
   });
 
   test("REQ-003-01 running sessions come first, then idle ones, then those whose window is gone", () => {
@@ -445,7 +513,7 @@ describe("dashboard view", () => {
     ]);
   });
 
-  test("REQ-003-42 lists the Extra instructions that are set, globally first, then per repository", () => {
+  test("REQ-003-44 lists the Extra instructions that are set, globally first, then per repository", () => {
     const c = parseConfig({
       ...config,
       instructions: { reviewer: "Be brief.", planner: " " },

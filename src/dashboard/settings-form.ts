@@ -1,5 +1,5 @@
 /**
- * The Config page's form (REQ-003-36, Extra instructions REQ-003-42): one field per editable setting, and the Settings overrides a
+ * The Config page's form (REQ-003-36, Extra instructions REQ-003-44): one field per editable setting, and the Settings overrides a
  * submitted form makes. Only these fields exist, so nothing else can be set from the dashboard.
  */
 import {
@@ -96,7 +96,7 @@ function textField(
   };
 }
 
-/** REQ-003-42: a Role's Extra instructions; empty means none, also over a text in `config.ts`. */
+/** REQ-003-44: a Role's Extra instructions; empty means none, also over a text in `config.ts`. */
 function instructionsField(
   name: string,
   get: (c: Config) => string | undefined,
@@ -314,7 +314,7 @@ export function saveSettings(
 ): { errors: string[]; fields: SettingField[] } {
   const fields = settingFields(editor.base, editor.current);
   const reset = form.get("reset");
-  // A textarea sends line breaks as CRLF (REQ-003-42); they are kept as LF, like config.ts's text.
+  // A textarea sends line breaks as CRLF (REQ-003-44); they are kept as LF, like config.ts's text.
   const submitted = (name: string) => {
     const v = form.get(name);
     return typeof v === "string" ? v.replace(/\r\n?/g, "\n") : undefined;

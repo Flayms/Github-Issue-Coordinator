@@ -135,7 +135,7 @@ The Owner gets plans they can approve on a phone, code that matches those plans,
 
 ### REQ-002-17 Extra instructions are appended
 
-- **Given** Extra instructions for a Role, set globally and/or for the issue's repository (in `config.ts` or on the Config page, REQ-003-42)
+- **Given** Extra instructions for a Role, set globally and/or for the issue's repository (in `config.ts` or on the Config page, REQ-003-44)
 - **When** a session of that Role starts
 - **Then** its prompt is the Role prompt (the default or the repository's `.github/coordinator/<role>.md`, with its placeholders filled in) followed by a section headed "Additional instructions from the Owner" with the global text first, then the repository's
 - **And** the text is inserted literally: `{{…}}` in it is no placeholder

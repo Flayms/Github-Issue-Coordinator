@@ -2,7 +2,7 @@
  * The Config page (REQ-003-05): the effective settings as React components rendered on the server
  * (REQ-003-19). It renders only the allow-listed `SettingsView` and the editable fields, so no secret
  * reaches it. For the signed-in Owner the editable settings are a form (REQ-003-36), with the Extra instructions
- * (REQ-003-42).
+ * (REQ-003-44).
  */
 import type { ReactNode } from "react";
 import {
@@ -135,7 +135,7 @@ function Models({ s }: { s: SettingsView }) {
 
 const INSTRUCTIONS_HINT = `Added after the Role prompt of sessions started from now on, under "Additional instructions from the Owner"; running sessions keep their prompt. At most ${EXTRA_INSTRUCTIONS_LIMIT.toLocaleString("en")} characters each. They can't change the Result or the Coordinator's own gates (approval, labels, merges).`;
 
-/** REQ-003-42: the Extra instructions that are set, read-only. */
+/** REQ-003-44: the Extra instructions that are set, read-only. */
 function Instructions({ s }: { s: SettingsView }) {
   return (
     <section id="instructions" className="mt-10">
@@ -468,7 +468,7 @@ function EditModels({ form, s }: { form: SettingsForm; s: SettingsView }) {
   );
 }
 
-/** REQ-003-42: a Role's Extra instructions, globally (`prefix` `instructions`) or in a repository. */
+/** REQ-003-44: a Role's Extra instructions, globally (`prefix` `instructions`) or in a repository. */
 function InstructionFields({ form, prefix, where }: { form: SettingsForm; prefix: string; where?: string }) {
   return (
     <div className="grid gap-x-6 gap-y-4 lg:grid-cols-3">

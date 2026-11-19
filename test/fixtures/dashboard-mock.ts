@@ -6,6 +6,7 @@
 import { type ConfigInput, parseConfig, type Role } from "../../src/config.ts";
 import type { RepoSnapshot, TickSnapshot } from "../../src/coordinator.ts";
 import type { SessionRecord, TimedIssue, Timing, TimingKind, TimingPhase } from "../../src/store.ts";
+import type { TranscriptTail } from "../../src/transcript.ts";
 
 export const MOCK_NOW = new Date("2026-11-18T14:30:00Z");
 
@@ -100,8 +101,31 @@ const session = (
   title: s.title,
   startedAt: at(s.startedMinutesAgo),
   account: null,
+  transcriptPath: `/mock/transcripts/${s.id}.jsonl`,
   live: true,
 });
+
+/** What the mock sessions' transcripts hold, by session id, for the Now line and Open chat (REQ-003-42, REQ-003-43). */
+const TRANSCRIPTS: Record<number, TranscriptTail> = {
+  31: {
+    step: { kind: "tool", text: "Bash · bun test test/header.test.ts", at: at(0.2) },
+    chatUrl: "https://claude.ai/code/session_01MockImplementer",
+  },
+  32: {
+    step: { kind: "tool", text: "Read · src/cart/badge.tsx", at: at(0.05) },
+    chatUrl: "https://claude.ai/code/session_01MockReviewer",
+  },
+  33: { step: { kind: "thinking", text: "", at: at(0.5) }, chatUrl: "https://claude.ai/code/session_01MockPlanner" },
+  28: {
+    step: { kind: "tool", text: "Write · result.json", at: at(18) },
+    lastText: { kind: "says", text: "The PR stores a token per customer and card; the tests cover both.", at: at(18) },
+    chatUrl: "https://claude.ai/code/session_01MockPayments",
+  },
+};
+
+/** The dashboard's transcript reader over the mock transcripts. */
+export const mockTranscript = (path: string): TranscriptTail | undefined =>
+  TRANSCRIPTS[Number(path.match(/(\d+)\.jsonl$/)?.[1])];
 
 export const MOCK_SNAPSHOT: TickSnapshot = {
   finishedAt: at(0.5),

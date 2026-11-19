@@ -1,6 +1,6 @@
 /**
  * Settings overrides (REQ-003-36): what the Owner changes on the Config page, kept in
- * `<stateDir>/config.overrides.json` and laid over `config.ts`, with the Extra instructions (REQ-003-42). Only an allow-list of keys can be set;
+ * `<stateDir>/config.overrides.json` and laid over `config.ts`, with the Extra instructions (REQ-003-44). Only an allow-list of keys can be set;
  * repositories, Accounts, access settings and `setup` commands stay in `config.ts`.
  */
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -28,7 +28,7 @@ const effort = z.enum(EFFORTS).nullable();
 const autoMerge = z.enum(AUTO_MERGE_MODES);
 const perRole = <T extends z.ZodType>(r: T) =>
   z.strictObject({ planner: r.optional(), implementer: r.optional(), reviewer: r.optional() });
-/** REQ-003-42: an empty text replaces `config.ts`'s; the size limit is checked with the merged config. */
+/** REQ-003-44: an empty text replaces `config.ts`'s; the size limit is checked with the merged config. */
 const instructions = perRole(z.string());
 
 const overridesSchema = z.strictObject({

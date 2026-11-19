@@ -94,7 +94,7 @@ describe("Settings overrides", () => {
     expect(autoMergeMode(c, "octo/lib")).toBe("off");
   });
 
-  test("REQ-003-42 Extra instructions are set per Role globally and per repository; an empty one replaces config.ts's", () => {
+  test("REQ-003-44 Extra instructions are set per Role globally and per repository; an empty one replaces config.ts's", () => {
     const { dir } = setup({
       instructions: { planner: "Answer in German.", reviewer: "" },
       repos: { "octo/app": { instructions: { planner: "Mention the ticket." } } },
@@ -111,7 +111,7 @@ describe("Settings overrides", () => {
     expect(extraInstructions(c, "octo/app", "implementer")).toEqual(["Use pnpm."]);
   });
 
-  test("REQ-003-42 Extra instructions over the size limit are refused, and nothing is saved", () => {
+  test("REQ-003-44 Extra instructions over the size limit are refused, and nothing is saved", () => {
     const { input, path } = setup();
     const live = new LiveConfig(input, "config.ts");
     expect(issuesOf(() => live.save({ instructions: { planner: "x".repeat(4_001) } }))).toEqual([
