@@ -11,10 +11,10 @@ export default defineConfig({
   // A reviewed PR head without check runs leaves draft only this long after it appeared, so CI can register first.
   checksGraceSeconds: 120,
   stateDir: ".coordinator", // store, session files, clones and Worktrees (outside the managed repos)
-  // What the Coordinator merges itself once a PR passed its Review and checks: "off" (default, you merge everything),
-  // "evaluated" (recommended: PRs the Reviewer rated low risk) or "all". A repository can set its own `autoMerge`.
+  // What the Coordinator merges itself once a PR passed its Review and checks: "evaluated" (default: PRs the Reviewer
+  // rated low risk), "off" (you merge everything) or "all". A repository can set its own `autoMerge`.
   // Also editable on the dashboard's Config page.
-  autoMerge: "off",
+  autoMerge: "evaluated",
   // All optional; these are the defaults. maxLiveSessions counts running and idle sessions.
   limits: {
     maxRunning: 1,

@@ -97,12 +97,13 @@ Any new commit pushed after a Review turns the PR back into a draft until that c
 
 Optional. Every Review names a **Risk tier** (`low`, `medium` or `high`) with a one-line reason, shown in the Review. `autoMerge` decides what the Coordinator merges itself, at the moment the PR would otherwise leave draft for you (no findings, checks passed):
 
-| `autoMerge`               | Merges                                   |
-| ------------------------- | ---------------------------------------- |
-| `off` (default)           | nothing                                  |
-| `evaluated` (recommended) | PRs rated `low`; the rest is left to you |
-| `all`                     | every such PR                            |
+| `autoMerge`           | Merges                                     |
+| --------------------- | ------------------------------------------ |
+| `evaluated` (default) | PRs rated `low`; the rest is left to you   |
+| `off`                 | nothing: set it to merge every PR yourself |
+| `all`                 | every such PR                              |
 
+- `evaluated` applies when nothing sets `autoMerge`, so an existing `config.ts` without it starts merging `low` PRs after an update: set `autoMerge: "off"` to keep merging by hand.
 - Set it globally or per repository, in `config.ts` or on the dashboard's Config page. `risk-evaluated`, its old name, still works, and `bun run doctor` warns about it.
 - **No gate is skipped:** PRs with findings, declined findings, failing checks, conflicts or your `/agent` comment waiting are never merged.
 - A PR that changes `.github/workflows/` is always rated `high`.

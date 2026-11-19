@@ -264,36 +264,36 @@ describe("dashboard settings", () => {
       ["all", "all"],
     ]);
     expect(options(select(before, "repos.octo/app.autoMerge"))).toEqual([
-      ["", "global (off)"],
+      ["", "global (evaluated)"], // REQ-001-65: the default
       ["off", "off"],
       ["evaluated", "evaluated (low risk only)"],
       ["all", "all"],
     ]);
 
-    const res = await post(url, { formToken: FORM_TOKEN, autoMerge: "evaluated", "repos.octo/app.autoMerge": "all" });
+    const res = await post(url, { formToken: FORM_TOKEN, autoMerge: "off", "repos.octo/app.autoMerge": "all" });
     expect(res.status).toBe(303);
-    expect(settings.current.autoMerge).toBe("evaluated");
+    expect(settings.current.autoMerge).toBe("off");
     expect(settings.current.repos[0]?.autoMerge).toBe("all");
     expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
-      autoMerge: "evaluated",
+      autoMerge: "off",
       repos: { "octo/app": { autoMerge: "all" } },
     });
     const after = await page();
-    expect(select(after, "autoMerge")).toMatch(/<option value="evaluated" selected/);
+    expect(select(after, "autoMerge")).toMatch(/<option value="off" selected/);
     expect(select(after, "repos.octo/app.autoMerge")).toMatch(/<option value="all" selected/);
     expect(resets(after)).toEqual(["autoMerge", "repos.octo/app.autoMerge"]);
-    expect(after).toContain("config.ts: off");
+    expect(after).toContain("config.ts: evaluated");
     expect(after).toContain("config.ts: the global mode");
 
     // Back to the global mode: the repository's override goes away.
-    await post(url, { formToken: FORM_TOKEN, autoMerge: "evaluated", "repos.octo/app.autoMerge": "" });
-    expect(settings.overrides).toEqual({ autoMerge: "evaluated" });
+    await post(url, { formToken: FORM_TOKEN, autoMerge: "off", "repos.octo/app.autoMerge": "" });
+    expect(settings.overrides).toEqual({ autoMerge: "off" });
     expect(settings.current.repos[0]?.autoMerge).toBeUndefined();
 
     const bad = await post(url, { formToken: FORM_TOKEN, autoMerge: "risky" });
     expect(bad.status).toBe(400);
     expect(await bad.text()).toContain("autoMerge:");
-    expect(settings.current.autoMerge).toBe("evaluated");
+    expect(settings.current.autoMerge).toBe("off");
   });
 
   test("REQ-003-36 an invalid value shows the error, keeps the entered values and saves nothing", async () => {

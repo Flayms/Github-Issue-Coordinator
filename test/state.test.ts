@@ -591,16 +591,15 @@ describe("deriveActions", () => {
       risk,
     });
 
-    test("off (and no mode at all) marks every tier ready for the Owner, as before", () => {
-      for (const risk of ["low", "medium", "high", null] as const) {
-        expect(at("off", risk)).toEqual([ready]);
-        expect(at(undefined, risk)).toEqual([ready]);
-      }
+    test("off marks every tier ready for the Owner", () => {
+      for (const risk of ["low", "medium", "high", null] as const) expect(at("off", risk)).toEqual([ready]);
     });
 
-    test("evaluated merges a low tier only; medium, high or no tier on record go to the Owner", () => {
-      expect(at("evaluated", "low")).toEqual([merge("evaluated", "low")]);
-      for (const risk of ["medium", "high", null] as const) expect(at("evaluated", risk)).toEqual([ready]);
+    test("evaluated (and no mode at all, the default) merges a low tier only; medium, high or no tier on record go to the Owner", () => {
+      for (const mode of ["evaluated", undefined] as const) {
+        expect(at(mode, "low")).toEqual([merge("evaluated", "low")]);
+        for (const risk of ["medium", "high", null] as const) expect(at(mode, risk)).toEqual([ready]);
+      }
     });
 
     test("all merges every tier", () => {

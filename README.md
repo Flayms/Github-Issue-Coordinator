@@ -214,7 +214,7 @@ Copy [`config.example.ts`](config.example.ts) to `config.ts`; every option is ex
 
 ### Auto-merge
 
-- `autoMerge`: `off` (default), `evaluated` (recommended: PRs the Reviewer rated `low` risk) or `all`; globally or per repository.
+- `autoMerge`: `evaluated` (default: PRs the Reviewer rated `low` risk), `off` (you merge every PR) or `all`; globally or per repository.
 - No gate is skipped: PRs with findings, failing checks or conflicts are never merged, and a PR that changes `.github/workflows/` is always rated `high`.
 - More in [docs/how-it-works.md](docs/how-it-works.md#auto-merge).
 

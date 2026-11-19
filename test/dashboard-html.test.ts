@@ -960,7 +960,7 @@ describe("dashboard html", () => {
     expect(html).toContain("maxWorktrees");
     expect(html).toMatch(/Reviewer[\s\S]*title="haiku">Haiku \(latest\)<[\s\S]*low/);
     expect(html).toContain("bun install");
-    expect(html).toMatch(/Auto-merge<\/dt>\s*<dd[^>]*>(<code[^>]*>)?off/); // REQ-001-65
+    expect(html).toMatch(/Auto-merge<\/dt>\s*<dd[^>]*>(<code[^>]*>)?evaluated/); // REQ-001-65: the default
     expect(html).not.toContain("Sandbox domains");
     expect(html).toMatch(/1<\/b>\s*Worktree/);
     expect(html).not.toContain("/secret");
