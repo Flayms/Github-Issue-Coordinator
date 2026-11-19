@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { autoMergeMode, ConfigError, loadConfig, parseConfig, roleSettings } from "../src/config.ts";
+import {
+  autoMergeMode,
+  ConfigError,
+  deprecatedSettings,
+  loadConfig,
+  parseConfig,
+  roleSettings,
+} from "../src/config.ts";
 
 const valid = () => ({
   owner: { login: "octo", id: 42 },
@@ -180,13 +187,31 @@ describe("config", () => {
     expect(autoMergeMode(parseConfig(valid()), "octo/app")).toBe("off");
     const c = parseConfig({
       ...valid(),
-      autoMerge: "risk-evaluated",
+      autoMerge: "evaluated",
       repos: [{ name: "octo/app", autoMerge: "all" }, { name: "octo/lib" }, { name: "octo/web", autoMerge: "off" }],
     });
     expect(autoMergeMode(c, "OCTO/app")).toBe("all");
-    expect(autoMergeMode(c, "octo/lib")).toBe("risk-evaluated");
+    expect(autoMergeMode(c, "octo/lib")).toBe("evaluated");
     expect(autoMergeMode(c, "octo/web")).toBe("off");
     expect(() => autoMergeMode(c, "octo/other")).toThrow("not configured");
+  });
+
+  test("REQ-001-65 the deprecated `risk-evaluated` is read as `evaluated`, globally and per repository, and named as deprecated", () => {
+    const raw = {
+      ...valid(),
+      autoMerge: "risk-evaluated",
+      repos: [{ name: "octo/app", autoMerge: "risk-evaluated" }, { name: "octo/lib" }],
+    };
+    const c = parseConfig(raw);
+    expect(c.autoMerge).toBe("evaluated");
+    expect(autoMergeMode(c, "octo/app")).toBe("evaluated");
+    expect(autoMergeMode(c, "octo/lib")).toBe("evaluated");
+    expect(deprecatedSettings(raw)).toEqual([
+      'autoMerge: "risk-evaluated" is now "evaluated"',
+      'repos.0.autoMerge: "risk-evaluated" is now "evaluated"',
+    ]);
+    expect(deprecatedSettings({ ...valid(), autoMerge: "evaluated" })).toEqual([]);
+    expect(deprecatedSettings(undefined)).toEqual([]);
   });
 
   test("REQ-001-65 rejects an unknown autoMerge mode, globally and per repository", () => {

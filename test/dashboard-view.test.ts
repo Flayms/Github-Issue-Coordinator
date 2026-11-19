@@ -431,12 +431,12 @@ describe("dashboard view", () => {
   test("REQ-001-65 / REQ-003-05 shows each repository's effective auto-merge mode", () => {
     const c = parseConfig({
       ...config,
-      autoMerge: "risk-evaluated",
+      autoMerge: "evaluated",
       repos: [{ name: "octo/app", autoMerge: "off" }, { name: "octo/lib" }],
     });
     expect(dashboardView(snapshot(), c, NOW).settings.repos.map((r) => [r.name, r.autoMerge])).toEqual([
       ["octo/app", "off"],
-      ["octo/lib", "risk-evaluated"],
+      ["octo/lib", "evaluated"],
     ]);
   });
 

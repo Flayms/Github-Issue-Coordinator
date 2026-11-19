@@ -834,17 +834,17 @@ describe("reconcile loop", () => {
       gh.calls = [];
     };
 
-    test("risk-evaluated squash-merges a low-risk PR once its checks pass, says why, and cleans up once GitHub reports it merged", async () => {
-      await reviewedAt("risk-evaluated", "low");
+    test("evaluated squash-merges a low-risk PR once its checks pass, says why, and cleans up once GitHub reports it merged", async () => {
+      await reviewedAt("evaluated", "low");
       await coordinator.tick();
       expect(gh.calls.filter((c) => c[0] === "mergePull")).toEqual([]); // checks pending
       gh.checkState = "success";
       await coordinator.tick();
       expect(gh.calls.filter((c) => c[0] === "mergePull")).toEqual([["mergePull", 70, "h1", "squash"]]);
-      expect(
-        gh.calls.some((c) => c[0] === "createComment" && c[1] === 70 && String(c[2]).includes("risk-evaluated")),
-      ).toBe(true);
-      expect(events()[0]).toEqual(["auto-merged", [5], 70, "PR #70 auto-merged (risk-evaluated, Risk tier low)"]);
+      expect(gh.calls.some((c) => c[0] === "createComment" && c[1] === 70 && String(c[2]).includes("evaluated"))).toBe(
+        true,
+      );
+      expect(events()[0]).toEqual(["auto-merged", [5], 70, "PR #70 auto-merged (evaluated, Risk tier low)"]);
       await coordinator.tick();
       expect(gh.calls.filter((c) => c[0] === "mergePull")).toHaveLength(1); // once per head
       gh.pullStates.set(70, "merged");
@@ -852,8 +852,8 @@ describe("reconcile loop", () => {
       expect(store.issue("octo/app", 5).worktreePath).toBeNull(); // REQ-001-14
     });
 
-    test("risk-evaluated leaves a medium-risk PR to the Owner, as off does", async () => {
-      await reviewedAt("risk-evaluated", "medium");
+    test("evaluated leaves a medium-risk PR to the Owner, as off does", async () => {
+      await reviewedAt("evaluated", "medium");
       gh.checkState = "success";
       await coordinator.tick();
       expect(gh.calls.filter((c) => ["setDraft", "addAssignees", "mergePull"].includes(c[0] as string))).toEqual([

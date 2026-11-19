@@ -63,7 +63,7 @@ const implementerSchema = z.strictObject({
     ),
 });
 
-/** REQ-002-16: how risky the Reviewer rates the change; in `risk-evaluated` mode only `low` is auto-merged (REQ-001-65). */
+/** REQ-002-16: how risky the Reviewer rates the change; in `evaluated` mode only `low` is auto-merged (REQ-001-65). */
 export const RISK_TIERS = ["low", "medium", "high"] as const;
 export type RiskTier = (typeof RISK_TIERS)[number];
 

@@ -18,11 +18,15 @@ const positiveInt = z.number().int().positive();
 
 /**
  * REQ-001-65: what the Coordinator merges itself once a PR passed the gates to leave draft (REQ-001-31). `off`: nothing,
- * the Owner merges; `risk-evaluated`: PRs whose Review rated the Risk tier `low`; `all`: every such PR.
+ * the Owner merges; `evaluated`: PRs whose Review rated the Risk tier `low`; `all`: every such PR.
  */
-export const AUTO_MERGE_MODES = ["off", "risk-evaluated", "all"] as const;
+export const AUTO_MERGE_MODES = ["off", "evaluated", "all"] as const;
 export type AutoMergeMode = (typeof AUTO_MERGE_MODES)[number];
-const autoMergeSchema = z.enum(AUTO_MERGE_MODES);
+/** REQ-001-65: the old name of `evaluated`, still read from `config.ts` so an update doesn't stop the service. */
+const DEPRECATED_AUTO_MERGE: Record<string, AutoMergeMode> = { "risk-evaluated": "evaluated" };
+const autoMergeSchema = z
+  .enum([...AUTO_MERGE_MODES, "risk-evaluated"])
+  .transform((m): AutoMergeMode => DEPRECATED_AUTO_MERGE[m] ?? (m as AutoMergeMode));
 
 const roleSchema = z.strictObject({
   model: z.string().min(1),
@@ -209,6 +213,21 @@ export async function importConfig(path: string): Promise<{ raw: unknown; source
 export async function loadConfig(path: string): Promise<Config> {
   const { raw, source } = await importConfig(path);
   return parseConfig(raw, source);
+}
+
+/** REQ-001-65: deprecated values in `config.ts`'s default export, each with its new name, for `bun run doctor`. */
+export function deprecatedSettings(raw: unknown): string[] {
+  const c = raw as { autoMerge?: unknown; repos?: { autoMerge?: unknown }[] } | undefined;
+  const found: [string, unknown][] = [
+    ["autoMerge", c?.autoMerge],
+    ...(Array.isArray(c?.repos) ? c.repos : []).map((r, i): [string, unknown] => [
+      `repos.${i}.autoMerge`,
+      r?.autoMerge,
+    ]),
+  ];
+  return found.flatMap(([path, v]) =>
+    typeof v === "string" && DEPRECATED_AUTO_MERGE[v] ? [`${path}: "${v}" is now "${DEPRECATED_AUTO_MERGE[v]}"`] : [],
+  );
 }
 
 const repoOf = (config: Config, repo: string) => {

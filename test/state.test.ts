@@ -581,7 +581,7 @@ describe("deriveActions", () => {
         }),
       );
     const ready: Action = { type: "ready", repo: "octo/app", pr: 9, issues: [5], headSha: "h2" };
-    const merge = (mode: "risk-evaluated" | "all", risk: WorktreeRecord["reviewRisk"]): Action => ({
+    const merge = (mode: "evaluated" | "all", risk: WorktreeRecord["reviewRisk"]): Action => ({
       type: "merge",
       repo: "octo/app",
       pr: 9,
@@ -598,9 +598,9 @@ describe("deriveActions", () => {
       }
     });
 
-    test("risk-evaluated merges a low tier only; medium, high or no tier on record go to the Owner", () => {
-      expect(at("risk-evaluated", "low")).toEqual([merge("risk-evaluated", "low")]);
-      for (const risk of ["medium", "high", null] as const) expect(at("risk-evaluated", risk)).toEqual([ready]);
+    test("evaluated merges a low tier only; medium, high or no tier on record go to the Owner", () => {
+      expect(at("evaluated", "low")).toEqual([merge("evaluated", "low")]);
+      for (const risk of ["medium", "high", null] as const) expect(at("evaluated", risk)).toEqual([ready]);
     });
 
     test("all merges every tier", () => {

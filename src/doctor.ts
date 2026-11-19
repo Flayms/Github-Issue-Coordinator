@@ -6,7 +6,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DEFAULT_ACCOUNT } from "./accounts.ts";
-import { githubLoginOf, importConfig, loadConfig } from "./config.ts";
+import { deprecatedSettings, githubLoginOf, importConfig, loadConfig } from "./config.ts";
 import { GhToken } from "./github/gh-token.ts";
 import { API, baseHeaders } from "./github/http.ts";
 import { LiveConfig, OVERRIDES_FILE } from "./overrides.ts";
@@ -44,6 +44,12 @@ try {
   report("ok", "config valid", `${config.repos.length} repositories, Owner ${config.owner.login} (${config.owner.id})`);
 } catch (e) {
   report("fail", "config valid", e instanceof Error ? e.message : String(e));
+}
+
+// REQ-001-65: old names still work, but should be renamed before they go away.
+if (config) {
+  const { raw } = await importConfig(process.env.COORDINATOR_CONFIG ?? "config.ts");
+  for (const d of deprecatedSettings(raw)) report("warn", "deprecated config value", d);
 }
 
 // REQ-003-36: the settings saved from the dashboard, laid over config.ts, must still make a valid config.

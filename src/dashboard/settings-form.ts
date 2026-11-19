@@ -2,12 +2,12 @@
  * The Config page's form (REQ-003-36): one field per editable setting, and the Settings overrides a
  * submitted form makes. Only these fields exist, so nothing else can be set from the dashboard.
  */
-import { type Config, ConfigError, type Effort, LIMIT_KEYS, ROLES, type Role } from "../config.ts";
+import { type AutoMergeMode, type Config, ConfigError, type Effort, LIMIT_KEYS, ROLES, type Role } from "../config.ts";
 import type { Overrides, SettingsEditor } from "../overrides.ts";
 
-export type FieldKind = "number" | "model" | "effort";
+export type FieldKind = "number" | "model" | "effort" | "autoMerge";
 
-/** A form field; values are the form's strings, `""` for an effort or a repository's model means "not set". */
+/** A form field; values are the form's strings, `""` for an effort or a repository's model or auto-merge mode means "not set". */
 export interface SettingField {
   /** The field's `name` in the form, e.g. `limits.maxRunning` or `repos.octo/app.roles.planner.model`. */
   name: string;
@@ -58,7 +58,7 @@ function numberField(
 
 function textField(
   name: string,
-  kind: "model" | "effort",
+  kind: "model" | "effort" | "autoMerge",
   get: (c: Config) => string | undefined,
   put: (o: Overrides, v: string | null) => void,
   base: Config,
@@ -75,7 +75,7 @@ function textField(
     changed: v !== b,
     set: (o, value) => {
       const t = value.trim();
-      if (!t && required) return `${name}: needs a model`;
+      if (!t && required) return `${name}: needs a ${kind === "model" ? "model" : "value"}`;
       put(o, t || null);
     },
   };
@@ -87,11 +87,17 @@ const globalRole = (o: Overrides, role: Role) => {
   return o.roles[role];
 };
 
-const repoRole = (o: Overrides, repo: string, role: Role) => {
+const repoEntry = (o: Overrides, repo: string) => {
   o.repos ??= {};
-  o.repos[repo] ??= { roles: {} };
-  o.repos[repo].roles[role] ??= {};
-  return o.repos[repo].roles[role];
+  o.repos[repo] ??= {};
+  return o.repos[repo];
+};
+
+const repoRole = (o: Overrides, repo: string, role: Role) => {
+  const r = repoEntry(o, repo);
+  r.roles ??= {};
+  r.roles[role] ??= {};
+  return r.roles[role];
 };
 
 const repoOf = (c: Config, name: string) => c.repos.find((r) => r.name === name);
@@ -118,6 +124,19 @@ export function settingFields(base: Config, current: Config): SettingField[] {
       current,
     ),
   ];
+  fields.push(
+    textField(
+      "autoMerge",
+      "autoMerge",
+      (c) => c.autoMerge,
+      (o, v) => {
+        if (v) o.autoMerge = v as AutoMergeMode;
+      },
+      base,
+      current,
+      true,
+    ),
+  );
   for (const k of LIMIT_KEYS)
     fields.push(
       numberField(
@@ -156,7 +175,20 @@ export function settingFields(base: Config, current: Config): SettingField[] {
       ),
     );
   }
-  for (const { name } of base.repos)
+  for (const { name } of base.repos) {
+    fields.push(
+      textField(
+        `repos.${name}.autoMerge`,
+        "autoMerge",
+        (c) => repoOf(c, name)?.autoMerge,
+        (o, v) => {
+          repoEntry(o, name).autoMerge = v as AutoMergeMode | null;
+        },
+        base,
+        current,
+        false,
+      ),
+    );
     for (const role of ROLES) {
       const prefix = `repos.${name}.roles.${role}`;
       fields.push(
@@ -184,6 +216,7 @@ export function settingFields(base: Config, current: Config): SettingField[] {
         ),
       );
     }
+  }
   return fields;
 }
 
