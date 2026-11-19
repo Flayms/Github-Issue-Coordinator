@@ -179,6 +179,32 @@ describe("store", () => {
     }
   });
 
+  test("REQ-001-67 keeps each Account's latest Usage quota across a restart", () => {
+    const dir = mkdtempSync(join(tmpdir(), "store-"));
+    try {
+      const a = new Store(join(dir, "state.db"), at("2026-11-10T12:00:00Z"));
+      expect(a.usageQuota("main")).toBeUndefined();
+      a.recordUsageQuota("main", { fiveHour: { usedPercent: 38, resetsAt: "2026-11-10T15:00:00.000Z" } });
+      a.close();
+      const b = new Store(join(dir, "state.db"), at("2026-11-10T12:05:00Z"));
+      expect(b.usageQuota("main")).toEqual({
+        fiveHour: { usedPercent: 38, resetsAt: "2026-11-10T15:00:00.000Z" },
+        sevenDay: null,
+        seenAt: "2026-11-10T12:00:00.000Z",
+      });
+      b.recordUsageQuota("main", { sevenDay: { usedPercent: 24, resetsAt: "2026-11-13T09:00:00.000Z" } });
+      expect(b.usageQuota("main")).toEqual({
+        fiveHour: { usedPercent: 38, resetsAt: "2026-11-10T15:00:00.000Z" },
+        sevenDay: { usedPercent: 24, resetsAt: "2026-11-13T09:00:00.000Z" },
+        seenAt: "2026-11-10T12:05:00.000Z",
+      });
+      expect(b.usageQuota("spare")).toBeUndefined();
+      b.close();
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
   test("REQ-001-17 the single pause of an older store becomes the first Account's", () => {
     const dir = mkdtempSync(join(tmpdir(), "store-"));
     try {

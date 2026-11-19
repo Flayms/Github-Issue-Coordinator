@@ -180,4 +180,77 @@ describe("hook", () => {
       { phase: "review", round: 1, start: "2026-11-10T12:05:00.000Z", end: "2026-11-10T12:30:00.000Z" },
     ]);
   });
+
+  describe("REQ-001-67 status line", () => {
+    const rateLimits = {
+      five_hour: { used_percentage: 38.4, resets_at: Date.parse("2026-11-10T15:12:00Z") / 1000 },
+      seven_day: { used_percentage: 24, resets_at: Date.parse("2026-11-13T09:00:00Z") / 1000 },
+    };
+    beforeEach(() => store.setAccount(id, "main"));
+
+    test("stores the Account's 5-hour and weekly use with when they reset and when they were seen", () => {
+      const out = hook("StatusLine", { rate_limits: rateLimits });
+      expect(store.usageQuota("main")).toEqual({
+        fiveHour: { usedPercent: 38.4, resetsAt: "2026-11-10T15:12:00.000Z" },
+        sevenDay: { usedPercent: 24, resetsAt: "2026-11-13T09:00:00.000Z" },
+        seenAt: "2026-11-10T12:00:00.000Z",
+      });
+      expect(out.stdout).toBe("5-hour 38% · weekly 24% used");
+    });
+
+    test("a window missing from an update keeps its last values; the other is updated", () => {
+      hook("StatusLine", { rate_limits: rateLimits });
+      now = "2026-11-10T12:30:00Z";
+      hook("StatusLine", {
+        rate_limits: { seven_day: { used_percentage: 30, resets_at: rateLimits.seven_day.resets_at } },
+      });
+      expect(store.usageQuota("main")).toMatchObject({
+        fiveHour: { usedPercent: 38.4 },
+        sevenDay: { usedPercent: 30 },
+        seenAt: "2026-11-10T12:30:00.000Z",
+      });
+    });
+
+    test("a missing or malformed payload changes nothing and prints nothing", () => {
+      for (const payload of [
+        {},
+        { raw: "not json" },
+        { rate_limits: null },
+        { rate_limits: "full" },
+        { rate_limits: { five_hour: { used_percentage: "38", resets_at: 1 } } },
+        { rate_limits: { five_hour: { used_percentage: 38 } } },
+        { rate_limits: { seven_day: { used_percentage: Number.NaN, resets_at: 1 } } },
+        { rate_limits: { seven_day: { used_percentage: 140, resets_at: 1 } } },
+      ]) {
+        expect(hook("StatusLine", payload)).toEqual({});
+      }
+      expect(store.usageQuota("main")).toBeUndefined();
+    });
+
+    test("is stored per Account", () => {
+      hook("StatusLine", { rate_limits: rateLimits });
+      const other = store.createSession({ repo: "octo/app", role: "planner", kind: "issue", issues: [6] });
+      store.setAccount(other, "spare");
+      handleHook({
+        event: "StatusLine",
+        payload: { rate_limits: { five_hour: { used_percentage: 91, resets_at: rateLimits.five_hour.resets_at } } },
+        store,
+        sessionId: other,
+        sessionDir,
+      });
+      expect(store.usageQuota("main")?.fiveHour?.usedPercent).toBe(38.4);
+      expect(store.usageQuota("spare")).toMatchObject({ fiveHour: { usedPercent: 91 }, sevenDay: null });
+    });
+
+    test("is not appended to the hook log, since it runs after every message", () => {
+      hook("StatusLine", { rate_limits: rateLimits });
+      expect(existsSync(join(sessionDir, "events.jsonl"))).toBe(false);
+    });
+
+    test("a session without a recorded Account stores nothing", () => {
+      const other = store.createSession({ repo: "octo/app", role: "planner", kind: "issue", issues: [6] });
+      handleHook({ event: "StatusLine", payload: { rate_limits: rateLimits }, store, sessionId: other, sessionDir });
+      expect(store.usageQuota("main")).toBeUndefined();
+    });
+  });
 });

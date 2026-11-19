@@ -4,7 +4,8 @@
  * Starts a session in a throwaway git repo, waits for a valid Result, resumes it with a second
  * prompt, then closes it. Usage: bun scripts/smoke-runner.ts [--role implementer|reviewer] [--model haiku] [--keep]
  * Checks that the session runs with skipped permissions (REQ-005-01): no permission prompt, and the Implementer's
- * commands and commit work. Exits 1 on a mismatch.
+ * commands and commit work. Exits 1 on a mismatch. Prints the Usage quota the status line recorded (REQ-001-67); it is
+ * missing on plans without rate limits, so that is no mismatch.
  */
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -109,6 +110,10 @@ try {
   if (role === "implementer") {
     if (!log.includes("smoke")) mismatches.push("no smoke commit in the repo");
   }
+
+  // REQ-001-67: the status line ran after the first response and stored the Account's Usage quota.
+  const account = store.session(id)?.account ?? "";
+  console.log(`  usage quota of ${account}: ${JSON.stringify(store.usageQuota(account) ?? "none recorded")}`);
 
   runner.resume(id, SECOND[role], model);
   const second = await waitIdle(id, "resumed turn");

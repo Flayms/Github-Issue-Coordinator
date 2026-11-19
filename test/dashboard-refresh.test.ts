@@ -27,6 +27,7 @@ const URL_ = "http://127.0.0.1:8080/?repo=octo%2Fapp";
 const snap = (label: string, n = 8, worktrees = 1): TickSnapshot => ({
   finishedAt: "2026-11-15T10:29:00.000Z",
   pausedUntil: null,
+  accounts: [],
   repos: [
     { repo: "octo/app", error: null, issues: [], pulls: [], worktrees },
     { repo: "octo/lib", error: null, issues: [], pulls: [], worktrees: 0 },

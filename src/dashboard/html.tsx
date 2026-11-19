@@ -3,7 +3,7 @@
  * fully without JavaScript; `assets/dashboard.js` only adds the countdown, the copy buttons and the
  * background.
  */
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import type { WorkKind } from "../scheduler.ts";
 import type { EventKind } from "../store.ts";
 import {
@@ -31,6 +31,7 @@ import type {
   MoveItem,
   MoveKind,
   PullView,
+  QuotaView,
   SessionView,
   Tone,
 } from "./view.ts";
@@ -223,7 +224,7 @@ const Stat = ({ icon, n, label, why }: { icon: IconName; n: number; label: strin
 
 /**
  * REQ-003-11: the headline with Your move (REQ-003-32) under it on the left, the explained counts with
- * Capacity (REQ-003-12) under them on the right; a phone stacks them in that order.
+ * Capacity (REQ-003-12) and the Usage quota (REQ-003-37) under them on the right; a phone stacks them in that order.
  */
 function Summary({ v }: { v: DashboardView }) {
   const s = v.summary;
@@ -267,6 +268,7 @@ function Summary({ v }: { v: DashboardView }) {
           />
         </ul>
         <Capacity v={v} />
+        <UsageQuota v={v} />
       </div>
     </section>
   );
@@ -379,6 +381,73 @@ const Capacity = ({ v }: { v: DashboardView }) => (
         <Meter key={m.label} m={m} />
       ))}
     </ul>
+  </div>
+);
+
+/** REQ-003-37: a small violet bar in the capsule; hidden on a phone, where only the percentages stay. */
+const QuotaBar = ({ percent }: { percent: number | null }) => (
+  <span className="quota-bar mx-1 hidden h-1 w-10 overflow-hidden rounded-full bg-white/10 align-middle sm:inline-block">
+    <span className={`block h-full rounded-full bg-acc ${width(percent ?? 0)}`} />
+  </span>
+);
+
+/** REQ-003-37 / REQ-003-38: an Account's capsule, like the header pills; its tooltip says how old the values are. */
+const QuotaCapsule = ({ q }: { q: QuotaView }) => (
+  <li
+    title={q.asOf ?? undefined}
+    className="inline-block max-w-full rounded-full border border-line-2 px-[11px] py-[3px] text-[12px] text-muted"
+  >
+    {q.account && (
+      <>
+        <span className="font-medium text-fg">{q.account}</span> ·{" "}
+      </>
+    )}
+    {q.pausedUntil ? (
+      <>
+        paused until <b className="font-semibold text-fg">{q.pausedUntil}</b>
+      </>
+    ) : (
+      <>
+        {q.windows.map((w, i) => (
+          <Fragment key={w.label}>
+            {i > 0 && " · "}
+            {w.label} <QuotaBar percent={w.percent} />{" "}
+            <b className={`font-semibold tabular-nums ${w.high ? "text-acc-hi" : "text-fg"}`}>
+              {w.percent === null ? "–" : `${w.percent}%`}
+            </b>
+          </Fragment>
+        ))}{" "}
+        used
+      </>
+    )}
+  </li>
+);
+
+/**
+ * REQ-003-37: the Usage quota under the Capacity meters, with a heading like Capacity's; the capsules sit beside the
+ * heading when they fit (a phone) and wrap under it otherwise. REQ-003-38: the note while nothing was reported.
+ */
+const UsageQuota = ({ v }: { v: DashboardView }) => (
+  <div id="usage-quota" className="mt-6 border-line border-t pt-5">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5 md:flex-col md:items-start">
+      <Label className="mb-0">Usage quota</Label>
+      {v.usageQuota.length > 0 && (
+        <ul className="flex max-w-full flex-wrap gap-2">
+          {v.usageQuota.map((q) => (
+            <QuotaCapsule key={q.account ?? ""} q={q} />
+          ))}
+        </ul>
+      )}
+    </div>
+    {v.usageQuota.length > 0 ? (
+      <ul className="mt-2.5 text-[12px] text-faint">
+        {v.usageQuota.map((q) => (
+          <li key={q.account ?? ""}>{q.line}</li>
+        ))}
+      </ul>
+    ) : (
+      <Empty className="mt-2.5">Shown once a session has reported its usage</Empty>
+    )}
   </div>
 );
 

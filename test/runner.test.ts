@@ -202,10 +202,10 @@ describe("session runner", () => {
     }
   });
 
-  test("REQ-005-01 session settings hold only the hooks and the CLAUDE.md excludes, for every Role", () => {
+  test("REQ-005-01 session settings hold only the hooks, the status line and the CLAUDE.md excludes, for every Role", () => {
     for (const role of ["planner", "implementer", "reviewer"] as const) {
       const id = startRole(role);
-      expect(Object.keys(settingsOf(id))).toEqual(["hooks", "claudeMdExcludes"]);
+      expect(Object.keys(settingsOf(id))).toEqual(["hooks", "statusLine", "claudeMdExcludes"]);
       expect(existsSync(join(dir, "sessions", String(id), "gh"))).toBe(false);
     }
   });
@@ -223,10 +223,18 @@ describe("session runner", () => {
     );
     runner.resume(id, "more", { model: "opus" });
     const settings = JSON.parse(readFileSync(path, "utf8"));
-    expect(Object.keys(settings)).toEqual(["hooks", "claudeMdExcludes"]);
+    expect(Object.keys(settings)).toEqual(["hooks", "statusLine", "claudeMdExcludes"]);
     expect(settings.hooks.Stop).toHaveLength(1);
     expect(tmux.windows.get(`s${id}`)?.cwd).toBe("/work/app-5");
     expect(tmux.windows.get(`s${id}`)?.command).toContain("'--dangerously-skip-permissions'");
+  });
+
+  test("REQ-001-67 every session's status line runs the hook, which records the Usage quota", () => {
+    const id = startRole("reviewer");
+    expect(settingsOf(id).statusLine).toEqual({
+      type: "command",
+      command: `'bun' '/app/src/hook.ts' 'StatusLine' '${join(dir, "state.db")}' '${id}' '${join(dir, "sessions", String(id))}'`,
+    });
   });
 
   test("REQ-005-07 a session loads no CLAUDE.md from the folders above its own", () => {
