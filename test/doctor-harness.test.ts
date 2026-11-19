@@ -48,4 +48,31 @@ describe("setup check per Harness (spec 006)", () => {
       { status: "fail", check: "codex logged in", detail: "run `codex` with the `login` subcommand" },
     ]);
   });
+
+  test("REQ-006-05 Antigravity CLI: its version and whether `agy models` finds a login", () => {
+    const signedIn = harnessChecks(
+      [{ name: "gemini", harness: "antigravity" }],
+      fakeRun({
+        "agy --version": { ok: true, out: "1.5.12" },
+        "agy models": { ok: true, out: "Fetching available models...\ngemini-4-neon-high\tGemini 4 Neon (High)" },
+      }),
+      {},
+    );
+    expect(signedIn).toEqual([
+      { status: "ok", check: "agy installed", detail: "1.5.12" },
+      { status: "ok", check: "agy logged in", detail: "signed in" },
+    ]);
+    const signedOut = harnessChecks(
+      [{ name: "gemini", harness: "antigravity" }],
+      fakeRun({
+        "agy --version": { ok: true, out: "1.4.0" },
+        "agy models": { ok: false, out: "Error: Please sign in to view available models." },
+      }),
+      {},
+    );
+    expect(signedOut).toEqual([
+      { status: "warn", check: "agy installed", detail: "1.4.0; checked with 1.5.12 or newer" },
+      { status: "fail", check: "agy logged in", detail: "run `agy` without arguments and sign in" },
+    ]);
+  });
 });

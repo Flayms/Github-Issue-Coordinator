@@ -136,6 +136,15 @@ To run a Role on an OpenAI model, add a Codex CLI login as an Account with `harn
 - [ ] `accounts: [{ name: "main" }, { name: "gpt", harness: "codex", configDir: "/root/.codex" }]`
 - [ ] `bun run doctor` checks `codex` and its login.
 
+### Antigravity CLI (optional)
+
+To run a Role on a Gemini model, add Google's Antigravity CLI as an Account with `harness: "antigravity"` and pick a Gemini model for the Role. A free personal Google login is enough ([Harnesses](harnesses.md#setting-up-antigravity-cli)):
+
+- [ ] `curl -fsSL https://antigravity.google/cli/install.sh | bash` (1.5.12 or newer, into `~/.local/bin`)
+- [ ] Run `agy` once as the Coordinator's user, sign in (over SSH it prints a URL and asks for the code) and finish its first-run screens.
+- [ ] `accounts: [{ name: "main" }, { name: "gemini", harness: "antigravity" }]`: one Antigravity Account, without `configDir`, since `agy` keeps one login per user.
+- [ ] `bun run doctor` checks `agy` and its login.
+
 ## 4. Dashboard
 
 **On by default** at `127.0.0.1:8080` ([spec 003](specs/003-dashboard/spec.md)); `dashboard: false` turns it off. Until the sign-in is set up, its pages answer 503.

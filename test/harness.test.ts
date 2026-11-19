@@ -3,9 +3,19 @@
  * declare the feature (REQ-006-04). Codex cases use payloads recorded from Codex CLI 0.170.0 (test/fixtures/codex).
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { antigravity } from "../src/harness/antigravity.ts";
 import { codexEndedTurn, copyRollout } from "../src/harness/codex.ts";
 import { CORE_FEATURES, HARNESS_NAMES, HARNESSES, OPTIONAL_FEATURES, versionAtLeast } from "../src/harness/index.ts";
 import { handleHook } from "../src/hook.ts";
@@ -13,6 +23,9 @@ import { HARNESS_MODELS, harnessOfModel } from "../src/models.ts";
 import { Store } from "../src/store.ts";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "codex");
+const agyHooks = JSON.parse(
+  readFileSync(join(import.meta.dir, "fixtures", "antigravity", "hooks.json"), "utf8"),
+) as Record<string, Record<string, unknown>>;
 const codexHooks = JSON.parse(readFileSync(join(FIXTURES, "hooks.json"), "utf8")) as Record<
   string,
   Record<string, unknown>
@@ -39,16 +52,19 @@ for (const name of HARNESS_NAMES) {
       const hook = (ev: string) => `'hook' '${ev}'`;
       h.writeSessionConfig({ sessionDir, cwd: "/work/app", home: dir, hook });
       const args = h.args({ sessionDir, name: "#5 x · Planner · app", model: { model: "m-1", effort: "high" }, hook });
-      const config = [
-        args.join(" "),
-        ...(existsSync(join(sessionDir, "settings.json"))
-          ? [readFileSync(join(sessionDir, "settings.json"), "utf8")]
-          : []),
-      ].join("\n");
+      // The per-session config: the command line and every file the adapter wrote into the session folder.
+      const files = readdirSync(sessionDir, { recursive: true, encoding: "utf8" })
+        .map((f) => join(sessionDir, f))
+        .filter((f) => statSync(f).isFile());
+      const config = [args.join(" "), ...files.map((f) => readFileSync(f, "utf8"))].join("\n");
       expect(args.join(" ")).toMatch(/--dangerously-(skip-permissions|bypass-approvals-and-sandbox)/);
       expect(args).toContain("m-1");
       expect(args.join(" ")).toContain("high");
-      for (const ev of ["SessionStart", "UserPromptSubmit", "Stop"]) expect(config).toContain(`'hook' '${ev}'`);
+      // Each hook the CLI fires, by the event the hook script handles it as (the Harness's own name may differ).
+      const handled = [...config.matchAll(/'hook' '(\w+)'/g)].map(
+        ([, ev = ""]) => h.hookInput?.(ev, { invocationNum: 0 })?.event ?? ev,
+      );
+      for (const ev of ["SessionStart", "UserPromptSubmit", "Stop"]) expect(handled).toContain(ev);
     });
 
     test("REQ-006-03 resumes by the Harness's session id", () => {
@@ -91,6 +107,11 @@ describe("Harness of a model", () => {
     expect(harnessOfModel("opus")).toBe("claude");
     expect(harnessOfModel("opus[1m]")).toBe("claude");
     expect(harnessOfModel("claude-opus-5-5")).toBe("claude");
+  });
+
+  test("REQ-006-07 Gemini models run on Antigravity CLI", () => {
+    expect(harnessOfModel("gemini-4-neon")).toBe("antigravity");
+    expect(harnessOfModel("gemini-3.6-flash-medium")).toBe("antigravity");
   });
 
   test("REQ-006-05 compares CLI versions", () => {
@@ -162,5 +183,145 @@ describe("Codex CLI usage limit (recorded rollout)", () => {
 
   test("REQ-006-04 copyRollout copies nothing without a sessions folder", () => {
     expect(copyRollout("x", join(dir, "nowhere"), join(dir, "to"))).toBe(false);
+  });
+});
+
+describe("Antigravity CLI launch", () => {
+  const hook = (ev: string) => `'hook' '${ev}'`;
+  const launch = (model: { model: string; effort?: "low" | "high" }, resumeId?: string) => {
+    const sessionDir = join(dir, "s7");
+    mkdirSync(sessionDir, { recursive: true });
+    antigravity.writeSessionConfig({ sessionDir, cwd: join(dir, "work"), home: dir, hook });
+    return { sessionDir, args: antigravity.args({ sessionDir, name: "n", model, resumeId, hook }) };
+  };
+
+  test("REQ-006-07 hooks and settings live in the session folder: nothing in the Worktree or the Account's folder", () => {
+    mkdirSync(join(dir, "work"));
+    const { sessionDir, args } = launch({ model: "gemini-4-neon" });
+    expect(readdirSync(join(dir, "work"))).toEqual([]);
+    expect(existsSync(join(dir, ".gemini"))).toBe(false);
+    // Hooks load from a workspace folder's `.agents/hooks.json`; the session folder is added as one.
+    expect(args.join(" ")).toContain(`--add-dir ${sessionDir}`);
+    const hooks = JSON.parse(readFileSync(join(sessionDir, ".agents", "hooks.json"), "utf8"));
+    expect(Object.keys(hooks.coordinator)).toEqual(["SessionStart", "PreInvocation", "Stop"]);
+    expect(hooks.coordinator.Stop).toEqual([{ type: "command", command: "'hook' 'Stop'" }]);
+    // REQ-005-01: no folder trust question (workspace hooks load only in trusted folders), no plan review wait.
+    const settingsPath = args[args.indexOf("--settings") + 1] ?? "";
+    expect(JSON.parse(readFileSync(settingsPath, "utf8"))).toMatchObject({
+      trustedWorkspaces: [join(dir, "work"), sessionDir],
+      artifactReviewPolicy: "always-proceed",
+    });
+    expect(args).toContain("--dangerously-skip-permissions");
+    // The runner appends the prompt, which `-i` runs in the interactive session.
+    expect(args.at(-1)).toBe("-i");
+  });
+
+  test("REQ-006-07 a Role's effort applies unless the model id names one; agy refuses both", () => {
+    expect(launch({ model: "gemini-4-neon", effort: "high" }).args.join(" ")).toContain(
+      "--model gemini-4-neon --effort high",
+    );
+    expect(launch({ model: "gemini-4-neon-low", effort: "high" }).args).not.toContain("--effort");
+    expect(launch({ model: "gemini-4-neon" }).args).not.toContain("--effort");
+  });
+
+  test("REQ-006-07 a Feedback round resumes the conversation by id", () => {
+    expect(launch({ model: "gemini-4-neon" }, "955778c7").args.slice(0, 2)).toEqual(["--conversation", "955778c7"]);
+  });
+
+  test("REQ-006-05 `agy models` is its login check", () => {
+    expect(antigravity.loginCheck.args).toEqual(["models"]);
+    expect(
+      antigravity.loginCheck.read({
+        ok: true,
+        out: "Fetching available models...\ngemini-4-neon-high\tGemini 4 Neon (High)",
+      }),
+    ).toEqual({ ok: true, detail: "signed in" });
+    expect(antigravity.loginCheck.read({ ok: false, out: "Error: Please sign in to view available models." }).ok).toBe(
+      false,
+    );
+  });
+});
+
+describe("Antigravity CLI hooks (recorded payloads)", () => {
+  let store: Store;
+  let sessionDir: string;
+  beforeEach(() => {
+    store = new Store(join(dir, "state.db"), () => new Date("2026-11-19T12:00:00Z"));
+    sessionDir = join(dir, "sessions", "1");
+    mkdirSync(sessionDir, { recursive: true });
+  });
+  afterEach(() => store.close());
+  const start = () =>
+    store.createSession({ repo: "octo/app", role: "reviewer", kind: "issue", issues: [5], harness: "antigravity" });
+  const fire = (event: string, fixture: string) =>
+    handleHook({ event, payload: agyHooks[fixture] as Record<string, unknown>, store, sessionId: 1, sessionDir });
+  const VALID = JSON.stringify({ summary: "ok", risk: "low", riskReason: "tiny", findings: [] });
+
+  test("REQ-006-07 SessionStart records the conversation id, model and transcript", () => {
+    start();
+    fire("SessionStart", "SessionStart");
+    expect(store.session(1)).toMatchObject({
+      agentSessionId: "955778c7-0088-4753-8579-2e9f2d22eebd",
+      modelId: "gemini-4-neon-high",
+      transcriptPath:
+        "/home/agent/.gemini/antigravity-cli/brain/955778c7-0088-4753-8579-2e9f2d22eebd/.system_generated/logs/transcript_full.jsonl",
+    });
+  });
+
+  test("REQ-006-07 / REQ-001-19 a turn's first model call marks it running; a call after a blocked Stop is no new prompt", () => {
+    start();
+    // As the runner leaves it when it sends the Coordinator's prompt.
+    store.patchSession(1, { coordinatorPromptPending: true });
+    fire("PreInvocation", "PreInvocation");
+    expect(store.session(1)).toMatchObject({
+      state: "running",
+      coordinatorPromptPending: false,
+      ownerMessagedAt: null,
+    });
+    fire("PreInvocation", "PreInvocationAfterContinue");
+    expect(store.session(1)?.ownerMessagedAt).toBeNull();
+    fire("PreInvocation", "PreInvocation");
+    expect(store.session(1)?.ownerMessagedAt).not.toBeNull();
+  });
+
+  test("REQ-006-07 Stop continues the turn with the Result instructions while the Result is missing", () => {
+    start();
+    const out = fire("Stop", "Stop");
+    const decision = JSON.parse(out.stdout ?? "{}");
+    // Antigravity re-enters the loop on "continue" and injects the reason; "block" would let it stop.
+    expect(decision.decision).toBe("continue");
+    expect(decision.reason).toContain("result.json");
+    expect(store.session(1)?.resultFailures).toBe(1);
+  });
+
+  test("REQ-006-07 Stop with a valid Result ends the turn", () => {
+    start();
+    writeFileSync(join(sessionDir, "result.json"), VALID);
+    expect(fire("Stop", "Stop").stdout).toBeUndefined();
+    expect(store.session(1)).toMatchObject({ state: "idle", needsSync: true });
+  });
+
+  test("REQ-006-08 / REQ-001-17 a turn ended by the quota pauses the Account until the reported retry delay", () => {
+    start();
+    const out = fire("Stop", "StopUsageLimit");
+    expect(out.stdout).toBeUndefined();
+    expect(store.session(1)).toMatchObject({
+      state: "idle",
+      usageLimited: true,
+      // retryDelay:11525s
+      usageLimitResetsAt: "2026-11-19T15:12:05.000Z",
+    });
+    expect(store.session(1)?.resultFailures).toBe(0);
+  });
+
+  test("REQ-006-08 a quota error without a retry delay pauses for the default interval; other errors are no usage limit", () => {
+    start();
+    const noDelay = { ...agyHooks.StopUsageLimit, error: "Error 429, Status: RESOURCE_EXHAUSTED" };
+    expect(antigravity.hookInput?.("Stop", noDelay, Date.parse("2026-11-19T12:00:00Z"))).toEqual({
+      event: "StopFailure",
+      payload: expect.objectContaining({ error: "rate_limit", resets_at: undefined }),
+    });
+    const other = { ...agyHooks.StopUsageLimit, error: "Error 500, Status: INTERNAL" };
+    expect(antigravity.hookInput?.("Stop", other, Date.parse("2026-11-19T12:00:00Z"))?.event).toBe("Stop");
   });
 });

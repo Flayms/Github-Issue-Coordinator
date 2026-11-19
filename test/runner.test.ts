@@ -709,6 +709,39 @@ describe("Harnesses (spec 006)", () => {
     expect(store.session(claudeId)?.state).toBe("running");
   });
 
+  test("REQ-006-07 a Gemini model starts `agy` with its session settings and hooks, in the default folder", () => {
+    const agy = new SessionRunner({
+      store,
+      tmux,
+      stateDir: dir,
+      dbPath: join(dir, "state.db"),
+      hookCommand: ["bun", "/app/src/hook.ts"],
+      accounts: [{ name: "main" }, { name: "gemini", harness: "antigravity" }],
+      home,
+    });
+    const id = agy.start({
+      repo: "octo/app",
+      role: "reviewer",
+      kind: "issue",
+      issues: [5],
+      cwd: "/work/app",
+      prompt: "p",
+      model: { model: "gemini-4-neon", effort: "high" },
+    });
+    const cmd = commandOf(id);
+    const sessionDir = join(dir, "sessions", String(id));
+    expect(cmd).toStartWith(`TMPDIR=${shellQuote([tmpOf(id)])} 'agy' '--settings' `);
+    expect(cmd).toContain(`'--add-dir' ${shellQuote([sessionDir])} '--dangerously-skip-permissions'`);
+    expect(cmd).toContain("'--model' 'gemini-4-neon' '--effort' 'high' '-i' \"$(cat ");
+    expect(readFileSync(join(sessionDir, ".agents", "hooks.json"), "utf8")).toContain("'Stop'");
+    expect(store.session(id)).toMatchObject({ harness: "antigravity", account: "gemini" });
+
+    store.setAgentSessionId(id, "955778c7");
+    store.patchSession(id, { state: "idle" });
+    agy.resume(id, "go on", { model: "gemini-4-neon" });
+    expect(commandOf(id)).toContain("'agy' '--conversation' '955778c7' '--settings' ");
+  });
+
   test("REQ-006-01 the Codex trust dialog is answered with Enter", () => {
     const id = start("gpt-6.2-sol");
     const w = tmux.windows.get(`s${id}`);

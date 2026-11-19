@@ -121,7 +121,7 @@ Optional. Every Review names a **Risk tier** (`low`, `medium` or `high`) with a 
 Optional: several subscriptions, of one or more Harnesses.
 
 - List them as `accounts` in the config; sessions run on the first one of their model's Harness ([Harnesses](harnesses.md)).
-- Claude Code and Codex CLI: a Role's model decides which runs it (`opus` on Claude Code, `gpt-6.2-sol` on Codex CLI); a resumed session stays on the Harness it started on. Codex sessions have no Remote Control link, no Now line and no Usage quota meters yet ([feature matrix](harnesses.md#feature-matrix)).
+- Claude Code, Codex CLI and Antigravity CLI: a Role's model decides which runs it (`opus` on Claude Code, `gpt-6.2-sol` on Codex CLI, `gemini-4-neon` on Antigravity CLI); a resumed session stays on the Harness it started on. Codex and Antigravity sessions have no Remote Control link, no Now line and no Usage quota meters yet, and Antigravity has one Account ([feature matrix](harnesses.md#feature-matrix)).
 - When it hits its usage limit, it is paused until the limit resets (30 minutes when the reset time can't be read), and work, including the cut-off session, goes on with the next one.
 - New work waits only while every Account of its Harness is paused.
 
