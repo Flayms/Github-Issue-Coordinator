@@ -302,7 +302,7 @@ function AutoMergeField({ f, inherit }: { f: SettingField; inherit?: string }) {
 
 function RepoAutoMerge({ form, repo }: { form: SettingsForm; repo: string }) {
   const f = form.fields.find((x) => x.name === `repos.${repo}.autoMerge`);
-  const global = form.fields.find((x) => x.name === "autoMerge")?.value ?? "off";
+  const global = form.fields.find((x) => x.name === "autoMerge")?.value ?? "evaluated";
   return f ? <AutoMergeField f={f} inherit={global} /> : null;
 }
 

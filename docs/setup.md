@@ -81,7 +81,7 @@ Good to know:
   |               | **Require a pull request before merging** (0 approvals)                                                                    |
   | Optional rule | **Require status checks to pass**, if the repository has CI (for this repository: `check` from `.github/workflows/ci.yml`) |
 
-  This keeps pushes off the default branch. Agents never merge; the Coordinator merges only with `autoMerge` on (step 3).
+  This keeps pushes off the default branch. Agents never merge; the Coordinator merges only what `autoMerge` allows (step 3; by default PRs rated low risk), and only within these rules.
 - [ ] **Disable the old review workflow:** any GitHub Actions workflow that reviews PRs with Claude. The Reviewer replaces it.
 
 ## 3. Configure
@@ -105,7 +105,7 @@ Good to know:
 
 ### Auto-merge (optional)
 
-- [ ] Set `autoMerge: "evaluated"` (recommended) to let the Coordinator squash-merge reviewed PRs the Reviewer rated low risk, or `"all"` for every reviewed PR whose checks passed. A repository's own `autoMerge` wins.
+- [ ] Choose `autoMerge`. By default (`"evaluated"`) the Coordinator squash-merges reviewed PRs the Reviewer rated low risk. Set `"off"` to merge every PR yourself, or `"all"` for every reviewed PR whose checks passed. A repository's own `autoMerge` wins.
 
 Good to know:
 

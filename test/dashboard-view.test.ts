@@ -448,7 +448,7 @@ describe("dashboard view", () => {
       {
         name: "octo/app",
         setup: "bun install",
-        autoMerge: "off",
+        autoMerge: "evaluated", // REQ-001-65: the default
         roles: [
           { role: "Planner", model: "opus", effort: "high" },
           { role: "Implementer", model: "sonnet", effort: null },

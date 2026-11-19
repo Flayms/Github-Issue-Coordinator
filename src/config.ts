@@ -127,8 +127,8 @@ const configSchema = z
     checksGraceSeconds: z.number().int().nonnegative().default(120),
     /** Store, session files and clones; relative paths are resolved against the working directory. */
     stateDir: z.string().min(1).default(".coordinator"),
-    /** REQ-001-65: off by default, so an update never starts merging on its own. */
-    autoMerge: autoMergeSchema.default("off"),
+    /** REQ-001-65: `evaluated` by default, so only PRs the Review rated `low` are merged; `off` opts out. */
+    autoMerge: autoMergeSchema.default("evaluated"),
     limits: limitsSchema.prefault({}),
     roles: z.strictObject({ planner: roleSchema, implementer: roleSchema, reviewer: roleSchema }),
     repos: z.array(repoSchema).min(1),

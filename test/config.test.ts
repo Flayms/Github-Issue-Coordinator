@@ -183,8 +183,9 @@ describe("config", () => {
     expect(() => roleSettings(c, "octo/other", "planner")).toThrow("not configured");
   });
 
-  test("REQ-001-65 autoMerge is off by default, set globally, and a repository's own value wins", () => {
-    expect(autoMergeMode(parseConfig(valid()), "octo/app")).toBe("off");
+  test("REQ-001-65 autoMerge is evaluated by default, set globally, and a repository's own value wins", () => {
+    expect(autoMergeMode(parseConfig(valid()), "octo/app")).toBe("evaluated");
+    expect(autoMergeMode(parseConfig({ ...valid(), autoMerge: "off" }), "octo/app")).toBe("off");
     const c = parseConfig({
       ...valid(),
       autoMerge: "evaluated",
