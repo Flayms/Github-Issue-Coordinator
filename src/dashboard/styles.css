@@ -9,7 +9,7 @@
  * neutral. Amber and red are softened for the dark background (#102), and a status colours its dot
  * or icon while its text stays neutral. Divided rows instead of boxes; the only glass panel is
  * "Ready to merge"; a full-width frosted band holds the Pipeline and the footer, down to the bottom
- * of the page (#100). Recent, Now and Next sit above it, as one timeline in Activity (REQ-003-20). Follows the v3 mockup of #41 (#87). Fonts are served from this
+ * of the page (#100), and the header is a frosted bar pinned to the top (REQ-003-39). Recent, Now and Next sit above it, as one timeline in Activity (REQ-003-20). Follows the v3 mockup of #41 (#87). Fonts are served from this
  * origin (REQ-003-09). The script replaces the page's scrollbar with a comet (REQ-003-27).
  */
 @import "tailwindcss" source(none);
@@ -206,6 +206,11 @@
   code {
     font-size: 0.86em;
   }
+
+  /* REQ-003-39: a jump to an anchor (e.g. /#pipeline) puts its heading below the fixed header. */
+  [id] {
+    scroll-margin-top: calc(72px + env(safe-area-inset-top));
+  }
 }
 
 @layer components {
@@ -237,6 +242,23 @@
   }
   [data-failed] .ring-fg {
     stroke: var(--color-bad);
+  }
+
+  /*
+   * REQ-003-39: the page header, a full-width frosted bar pinned to the top, in the glass of .panel
+   * and .band. Its z-index lifts it above their own stacking contexts; the comet (50) stays on top.
+   * Under a notch it grows by the safe area.
+   */
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    padding-top: env(safe-area-inset-top);
+    background: linear-gradient(180deg, rgb(12 13 24 / 0.72), rgb(8 9 17 / 0.6));
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    backdrop-filter: blur(18px) saturate(140%);
+    border-bottom: 1px solid var(--color-line-2);
+    box-shadow: 0 12px 32px -20px rgb(0 0 0 / 0.85);
   }
 
   /* The only glass panel; its green top edge widens on hover. */

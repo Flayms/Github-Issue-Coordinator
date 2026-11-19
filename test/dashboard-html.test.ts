@@ -4,7 +4,10 @@ import type { RepoSnapshot, TickSnapshot } from "../src/coordinator.ts";
 import { asset as served } from "../src/dashboard/assets.ts";
 import { renderConfig } from "../src/dashboard/config-html.tsx";
 import { renderDashboard } from "../src/dashboard/html.tsx";
+import { timingsView } from "../src/dashboard/timings.ts";
+import { renderTimings } from "../src/dashboard/timings-html.tsx";
 import { dashboardView } from "../src/dashboard/view.ts";
+import { MOCK_TIMING_SOURCE } from "./fixtures/dashboard-mock.ts";
 
 const config = parseConfig({
   owner: { login: "octo", id: 42 },
@@ -105,6 +108,11 @@ const snap: TickSnapshot = {
 
 const overview = (opts?: { repo?: string }) => renderDashboard(dashboardView(snap, config, NOW, opts));
 const configPage = () => renderConfig(dashboardView(snap, config, NOW));
+const timingsPage = () =>
+  renderTimings(
+    dashboardView(snap, config, NOW),
+    timingsView({ source: MOCK_TIMING_SOURCE, pick: null, includeOwner: false, now: NOW }),
+  );
 /** A file as the server serves it (the stylesheet is built from its Tailwind source, REQ-003-19). */
 const asset = (name: string) => new TextDecoder().decode(served(name)?.body);
 
@@ -974,12 +982,63 @@ describe("dashboard html", () => {
       const form = /<form [^>]*>[\s\S]*?<\/form>/.exec(html)?.[0] ?? "";
       expect(form).toContain('action="/auth/logout"');
       expect(form).toContain('method="post"');
-      expect(form).toMatch(/<button type="submit"[^>]*>[\s\S]*Sign out<\/button>/);
+      // REQ-003-39: the label is hidden on a phone, so the button keeps "Sign out" as its accessible name.
+      expect(form).toMatch(/<button type="submit"[^>]*>[\s\S]*Sign out(<\/span>)?<\/button>/);
       expect(html).not.toContain("/secret");
     }
     expect(renderConfig(dashboardView(snap, signedIn, NOW))).toContain("GitHub sign-in, Owner only");
     expect(renderConfig(dashboardView(snap, signedIn, NOW))).toContain("Only the sign-in calls GitHub");
     for (const html of [overview(), configPage()]) expect(html).not.toContain("/auth/logout");
+  });
+
+  describe("REQ-003-39 fixed frosted header", () => {
+    const signedIn = parseConfig({
+      ...config,
+      dashboard: { githubLogin: { clientId: "Ov23li", clientSecretPath: "/secret/github-client-secret" } },
+    });
+    const header = (html: string) => /<header [^>]*>[\s\S]*?<\/header>/.exec(html)?.[0] ?? "";
+
+    test("every page's header is the sticky frosted bar, its content in the page column", () => {
+      for (const html of [overview(), configPage(), timingsPage()]) {
+        const h = header(html);
+        expect(h).toMatch(/^<header class="topbar"/);
+        expect(h).toMatch(/^<header [^>]*>\s*<div class="wrap /);
+      }
+    });
+
+    test("on a phone one row: the wordmark and Read-only are hidden, below 380 px the countdown keeps only its ring", () => {
+      const h = header(overview());
+      expect(h).toMatch(
+        /<a [^>]*aria-label="Coordinator"[^>]*>[\s\S]*?<span class="max-sm:hidden">Coordinator<\/span>/,
+      );
+      expect(h).toMatch(/<span class="[^"]*max-sm:hidden[^"]*">[\s\S]*?Read-only<\/span>/);
+      expect(h).toMatch(/<span class="[^"]*max-\[379px\]:hidden[^"]*" data-countdown="">/);
+      expect(h).not.toContain("flex-wrap");
+    });
+
+    test("Sign out is an icon button on a phone and keeps its accessible name", () => {
+      for (const html of [
+        renderDashboard(dashboardView(snap, signedIn, NOW)),
+        renderConfig(dashboardView(snap, signedIn, NOW)),
+      ]) {
+        const button = /<button type="submit"[^>]*>[\s\S]*?<\/button>/.exec(header(html))?.[0] ?? "";
+        expect(button).toContain('aria-label="Sign out"');
+        expect(button).toMatch(/<span class="max-sm:hidden">Sign out<\/span>/);
+      }
+    });
+
+    test("the stylesheet pins the bar above the glass, frosts it, and offsets anchors below it", () => {
+      const css = asset("dashboard.css");
+      const bar = css.match(/\.topbar \{([^}]*)\}/)?.[1] ?? "";
+      expect(bar).toContain("position: sticky");
+      expect(bar).toContain("top: 0");
+      expect(bar).toContain("z-index: 40");
+      expect(bar).toMatch(/-webkit-backdrop-filter: blur\(/);
+      expect(bar).toMatch(/\sbackdrop-filter: blur\(/);
+      expect(bar).toContain("border-bottom: 1px solid");
+      expect(bar).toContain("padding-top: env(safe-area-inset-top)");
+      expect(css).toMatch(/\[id\] \{\s*scroll-margin-top: calc\(/);
+    });
   });
 
   test("REQ-003-06 a countdown to the next refresh, and a meta refresh for browsers without JavaScript", () => {

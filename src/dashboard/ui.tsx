@@ -114,7 +114,7 @@ const Tab = ({ href, current, children }: { href: string; current: boolean; chil
   <a
     href={href}
     aria-current={current ? "page" : undefined}
-    className={`rounded-full px-3.5 py-[5px] font-medium text-[13px] transition-colors ${
+    className={`rounded-full px-3.5 py-[5px] max-sm:px-2.5 font-medium text-[13px] transition-colors ${
       current ? "bg-acc/22 text-white" : "text-muted"
     }`}
   >
@@ -186,58 +186,70 @@ export function Layout({
       <body className="flex flex-col">
         {/* biome-ignore lint/a11y/noAriaHiddenOnFocusable: a canvas without tabindex is not focusable; the background is decoration */}
         <canvas id="bg" aria-hidden="true" />
-        <header className="wrap flex flex-wrap items-center gap-x-5 gap-y-3 pt-3 pb-1.5 sm:pt-[18px]">
-          <a className="flex items-center gap-2 font-bold font-display text-[16px] text-fg leading-none" href="/">
-            <Icon name="logo" className="size-[22px] text-acc" />
-            <span>Coordinator</span>
-          </a>
-          <nav className="flex gap-1 rounded-full border border-line bg-white/2 p-[3px]" aria-label="Pages">
-            <Tab href="/" current={page === "overview"}>
-              Overview
-            </Tab>
-            <Tab href="/config" current={page === "config"}>
-              Config
-            </Tab>
-            <Tab href="/timings" current={page === "timings"}>
-              Timings
-            </Tab>
-          </nav>
-          <div className="flex w-full items-center justify-between gap-3.5 text-[12px] text-muted sm:ml-auto sm:w-auto sm:justify-start">
-            {editing ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-line-2 px-[9px] py-[3px]">
-                <Icon name="pause" />
-                No refresh while you edit
-              </span>
-            ) : (
-              <>
+        {/* REQ-003-39: a frosted bar pinned to the top; one row on a phone, its content in the page column. */}
+        <header className="topbar">
+          <div className="wrap flex h-[55px] items-center gap-2 sm:h-[58px] sm:gap-5">
+            <a
+              className="flex shrink-0 items-center gap-2 font-bold font-display text-[16px] text-fg leading-none"
+              href="/"
+              aria-label="Coordinator"
+            >
+              <Icon name="logo" className="size-[22px] text-acc" />
+              <span className="max-sm:hidden">Coordinator</span>
+            </a>
+            <nav className="flex shrink-0 gap-1 rounded-full border border-line bg-white/2 p-[3px]" aria-label="Pages">
+              <Tab href="/" current={page === "overview"}>
+                Overview
+              </Tab>
+              <Tab href="/config" current={page === "config"}>
+                Config
+              </Tab>
+              <Tab href="/timings" current={page === "timings"}>
+                Timings
+              </Tab>
+            </nav>
+            <div className="ml-auto flex items-center gap-2 text-[12px] text-muted sm:gap-3.5">
+              {editing ? (
                 <span
-                  className="inline-flex items-center gap-1.5"
-                  data-reload={v.refreshSec}
-                  title={`${v.lastTick ? `Last tick ${v.lastTick.at}` : "No tick has finished yet"} · refreshes every ${v.refreshSec} s`}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-line-2 px-[9px] py-[3px]"
+                  title="No refresh while you edit"
                 >
-                  <Ring />
-                  <span className="min-w-[4ch] font-mono" data-countdown="">
-                    every {v.refreshSec} s
+                  <Icon name="pause" />
+                  <span className="max-sm:hidden">No refresh while you edit</span>
+                </span>
+              ) : (
+                <>
+                  <span
+                    className="inline-flex items-center gap-1.5"
+                    data-reload={v.refreshSec}
+                    title={`${v.lastTick ? `Last tick ${v.lastTick.at}` : "No tick has finished yet"} · refreshes every ${v.refreshSec} s`}
+                  >
+                    <Ring />
+                    <span className="min-w-[4ch] font-mono max-[379px]:hidden" data-countdown="">
+                      every {v.refreshSec} s
+                    </span>
                   </span>
-                </span>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-line-2 px-[9px] py-[3px]">
-                  <Icon name="lock" />
-                  Read-only
-                </span>
-              </>
-            )}
-            {/* REQ-003-31: a plain form, so it works without JavaScript; the server answers with a signed-out page. */}
-            {v.settings.access?.githubLogin === "on" && (
-              <form method="post" action="/auth/logout">
-                <button
-                  type="submit"
-                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-line-2 px-[9px] py-[3px] text-muted hover:border-acc hover:text-fg"
-                >
-                  <Icon name="user" />
-                  Sign out
-                </button>
-              </form>
-            )}
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-line-2 px-[9px] py-[3px] max-sm:hidden">
+                    <Icon name="lock" />
+                    Read-only
+                  </span>
+                </>
+              )}
+              {/* REQ-003-31: a plain form, so it works without JavaScript; the server answers with a signed-out page. */}
+              {v.settings.access?.githubLogin === "on" && (
+                <form method="post" action="/auth/logout">
+                  <button
+                    type="submit"
+                    aria-label="Sign out"
+                    title="Sign out"
+                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-line-2 px-[9px] py-[3px] text-muted hover:border-acc hover:text-fg max-sm:py-[5px]"
+                  >
+                    <Icon name="user" />
+                    <span className="max-sm:hidden">Sign out</span>
+                  </button>
+                </form>
+              )}
+            </div>
           </div>
         </header>
         <div className="wrap">
