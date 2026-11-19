@@ -19,6 +19,7 @@ const FORM_TOKEN = formToken(SECRETS.sessionKey, SESSION);
 const snap: TickSnapshot = {
   finishedAt: "2026-11-15T10:00:00.000Z",
   pausedUntil: null,
+  accounts: [],
   repos: [{ repo: "octo/app", error: null, issues: [], pulls: [], worktrees: 0 }],
   sessions: [],
   queue: [],

@@ -30,6 +30,7 @@ const repo = (r: Partial<RepoSnapshot> & Pick<RepoSnapshot, "repo">): RepoSnapsh
 const snap: TickSnapshot = {
   finishedAt: "2026-11-15T10:29:00.000Z",
   pausedUntil: null,
+  accounts: [],
   repos: [
     repo({
       repo: "octo/app",
@@ -475,6 +476,90 @@ describe("dashboard html", () => {
     expect(capacity).toContain("Worktrees");
     expect(capacity).toMatch(/1<span[^>]*>\s*\/\s*3<\/span>/);
     expect(capacity).toContain('aria-label="Worktrees: 1 of 3"');
+  });
+
+  describe("Usage quota", () => {
+    const base = dashboardView(snap, config, NOW);
+    const one = {
+      account: null,
+      pausedUntil: null,
+      windows: [
+        { label: "5-hour" as const, percent: 38, high: false },
+        { label: "weekly" as const, percent: 92, high: true },
+      ],
+      line: "Claude subscription · resets in 3 h 12 min and Fri 09:00 UTC",
+      asOf: "as of 4 min ago",
+    };
+    const page = (usageQuota: (typeof base)["usageQuota"]) => {
+      const html = renderDashboard({ ...base, usageQuota });
+      return { html, section: html.slice(html.indexOf('id="usage-quota"'), html.indexOf('id="activity"')) };
+    };
+    const text = (html: string) => html.replace(/<[^>]+>/g, "").replace(/\s+/g, " ");
+
+    test("REQ-003-37 a Usage quota heading under the Capacity meters, styled like Capacity's", () => {
+      const { html } = page([one]);
+      expect(inside(html, "section#summary", ["#usage-quota"])).toEqual(new Set(["#usage-quota"]));
+      const at = order(html, ['id="capacity"', 'id="usage-quota"', 'id="activity"']);
+      expect([...at].sort((a, b) => a - b)).toEqual(at);
+      const heading = (id: string) => html.slice(html.indexOf(`id="${id}"`)).match(/<h2 class="([^"]*)"/)?.[1];
+      const style = (c: string | undefined) => c?.split(" ").filter((x) => !/^(md:)?mb-/.test(x));
+      expect(style(heading("usage-quota"))).toEqual(style(heading("capacity")));
+      expect(html).toMatch(/id="usage-quota"[\s\S]*?<h2[^>]*>Usage quota<\/h2>/);
+    });
+
+    test("REQ-003-37 a capsule with each window's percent, ending in 'used', the reset line under it and the age as tooltip", () => {
+      const { section } = page([one]);
+      expect(text(section)).toContain("5-hour 38% · weekly 92% used");
+      expect(text(section)).toContain("Claude subscription · resets in 3 h 12 min and Fri 09:00 UTC");
+      expect(section).toMatch(/<li title="as of 4 min ago" class="[^"]*rounded-full border border-line-2/);
+      // Header pill style: muted labels, the numbers in the text colour, from 90 % in accent purple, never gold.
+      expect(section).toMatch(/text-muted/);
+      expect(section).toMatch(/<b class="[^"]*text-fg[^"]*">38%<\/b>/);
+      expect(section).toMatch(/<b class="[^"]*text-acc-hi[^"]*">92%<\/b>/);
+      expect(section).not.toMatch(/warn/);
+    });
+
+    test("REQ-003-37 small violet bars that drop out on a phone; the capsule wraps under the heading", () => {
+      const { section } = page([one]);
+      const bars = [...section.matchAll(/<span class="(quota-bar [^"]*)"[^>]*><span class="([^"]*)"/g)];
+      expect(bars).toHaveLength(2);
+      for (const [, bar] of bars)
+        expect(bar).toMatch(/(^| )hidden( |$).*sm:inline-block|sm:inline-block.*(^| )hidden( |$)/);
+      expect(bars.map(([, , fill]) => fill)).toEqual([
+        expect.stringContaining("w-4/10"),
+        expect.stringContaining("w-9/10"),
+      ]);
+      expect(bars[0]?.[2]).toContain("bg-acc");
+      expect(section).toMatch(/^id="usage-quota"[^>]*>\s*<div class="[^"]*flex flex-wrap/);
+    });
+
+    test("REQ-003-38 each Account's capsule starts with its name; a paused one says until when; – for a missing window", () => {
+      const { section } = page([
+        { ...one, account: "main", pausedUntil: "14:30 UTC", line: "main · resets in 3 h 12 min" },
+        {
+          ...one,
+          account: "spare",
+          windows: [
+            { label: "5-hour", percent: null, high: false },
+            { label: "weekly", percent: 24, high: false },
+          ],
+          line: "spare · resets Fri 09:00 UTC",
+        },
+      ]);
+      const t = text(section);
+      expect(t).toContain("main · paused until 14:30 UTC");
+      expect(t).not.toContain("main · 5-hour");
+      expect(t).toContain("spare · 5-hour – · weekly 24% used");
+      expect(t).toContain("main · resets in 3 h 12 min");
+      expect(t).toContain("spare · resets Fri 09:00 UTC");
+    });
+
+    test("REQ-003-38 with no report the section says when it will show", () => {
+      const { section } = page([]);
+      expect(section).toContain("Usage quota");
+      expect(text(section)).toContain("Shown once a session has reported its usage");
+      expect(section).not.toContain("rounded-full");
+    });
   });
 
   describe("REQ-003-24 liquid glass meters", () => {

@@ -98,6 +98,18 @@ const session = (
 export const MOCK_SNAPSHOT: TickSnapshot = {
   finishedAt: at(0.5),
   pausedUntil: null,
+  // The single Account's Usage quota (REQ-003-37): resets in 3 h 12 min and on Friday morning.
+  accounts: [
+    {
+      name: "default",
+      quota: {
+        fiveHour: { usedPercent: 38, resetsAt: "2026-11-18T17:42:00.000Z" },
+        sevenDay: { usedPercent: 24, resetsAt: "2026-11-20T09:00:00.000Z" },
+        seenAt: at(4),
+      },
+      pausedUntil: null,
+    },
+  ],
   repos: [
     {
       repo: "acme/storefront",

@@ -12,13 +12,13 @@ import {
   type Role,
   roleSettings,
 } from "../config.ts";
-import type { RepoSnapshot, TickSnapshot } from "../coordinator.ts";
+import type { AccountSnapshot, RepoSnapshot, TickSnapshot } from "../coordinator.ts";
 import type { ChecksState } from "../github/client.ts";
 import { ROLE_NAMES } from "../note.ts";
 import { remoteControlName } from "../runner.ts";
 import type { WaitReason, WorkKind } from "../scheduler.ts";
 import { type IssueState, issueState } from "../state.ts";
-import type { EventKind } from "../store.ts";
+import type { EventKind, QuotaWindow } from "../store.ts";
 
 /** Pipeline columns in the order of the workflow (README "Labels"), each grouping phases (REQ-003-02). */
 export const COLUMNS: { title: string; phases: IssueState[] }[] = [
@@ -212,6 +212,28 @@ export interface EventView {
   links: { label: string; url: string }[];
 }
 
+/** One window of a Usage quota capsule (REQ-003-37). */
+export interface QuotaWindowView {
+  label: "5-hour" | "weekly";
+  /** Whole percent used; null when never reported or past its reset ("–", REQ-003-38). */
+  percent: number | null;
+  /** From 90 % on: shown in accent (REQ-003-17). */
+  high: boolean;
+}
+
+/** An Account's Usage quota capsule and the line under it (REQ-003-37, REQ-003-38). */
+export interface QuotaView {
+  /** Null with a single Account. */
+  account: string | null;
+  /** `14:30 UTC` (or `Mon 01:00 UTC` on another day) while the Account is paused (REQ-001-17). */
+  pausedUntil: string | null;
+  windows: QuotaWindowView[];
+  /** Whose quota it is and when it resets, e.g. `Claude subscription · resets in 3 h 12 min and Fri 09:00 UTC`. */
+  line: string;
+  /** `as of 4 min ago`; null when nothing was reported. */
+  asOf: string | null;
+}
+
 export interface DashboardView {
   lastTick: { at: string } | null;
   refreshSec: number;
@@ -222,6 +244,8 @@ export interface DashboardView {
   yourMove: MoveGroup[];
   summary: SummaryView;
   capacity: MeterView[];
+  /** One capsule per Account; empty until a session reported its usage or an Account is paused (REQ-003-38). */
+  usageQuota: QuotaView[];
   queue: QueueView[];
   blocked: BlockedView[];
   columns: ColumnView[];
@@ -244,6 +268,14 @@ const pullUrl = (repo: string, n: number) => `https://github.com/${repo}/pull/${
 
 /** `2026-11-15 10:29 UTC`: the page runs no script, so times are shown in UTC. */
 export const formatTime = (iso: string): string => `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** `14:30 UTC` on the same UTC day as `now`, else `Fri 09:00 UTC` (within the coming week). */
+export function formatClock(iso: string, now: Date): string {
+  const time = `${iso.slice(11, 16)} UTC`;
+  return iso.slice(0, 10) === now.toISOString().slice(0, 10) ? time : `${WEEKDAYS[new Date(iso).getUTCDay()]} ${time}`;
+}
 
 export function formatDuration(ms: number): string {
   const min = Math.max(0, Math.floor(ms / 60_000));
@@ -393,6 +425,8 @@ export function dashboardView(
     { label: "Worktrees", used: repos.reduce((n, r) => n + r.worktrees, 0), limit: config.limits.maxWorktrees },
   ];
 
+  const usageQuota = quotaViews(snap?.accounts ?? [], now);
+
   const yourMove: MoveGroup[] = MOVES.map(({ kind, title, phase, hint }) => ({
     kind,
     title,
@@ -437,6 +471,7 @@ export function dashboardView(
     yourMove,
     summary,
     capacity,
+    usageQuota,
     queue,
     blocked,
     columns,
@@ -445,6 +480,35 @@ export function dashboardView(
     repoFilter,
     settings: settingsView(config, repos),
   };
+}
+
+/** REQ-003-37 / REQ-003-38: a capsule per Account, or none while no Account reported or is paused. */
+function quotaViews(accounts: AccountSnapshot[], now: Date): QuotaView[] {
+  const future = (iso: string | null | undefined): iso is string => !!iso && Date.parse(iso) > now.getTime();
+  if (!accounts.some((a) => a.quota || future(a.pausedUntil))) return [];
+  const named = accounts.length > 1;
+  return accounts.map((a) => {
+    // Claude Code drops a window once its reset has passed; a stored one past its reset is stale.
+    const live = (w: QuotaWindow | null | undefined) => (w && future(w.resetsAt) ? w : null);
+    const fiveHour = live(a.quota?.fiveHour);
+    const sevenDay = live(a.quota?.sevenDay);
+    const window = (label: QuotaWindowView["label"], w: QuotaWindow | null): QuotaWindowView => {
+      const percent = w ? Math.round(w.usedPercent) : null;
+      return { label, percent, high: percent !== null && percent >= 90 };
+    };
+    const resets = [
+      ...(fiveHour ? [`in ${formatDuration(Date.parse(fiveHour.resetsAt) - now.getTime())}`] : []),
+      ...(sevenDay ? [formatClock(sevenDay.resetsAt, now)] : []),
+    ];
+    const whose = named ? a.name : "Claude subscription";
+    return {
+      account: named ? a.name : null,
+      pausedUntil: future(a.pausedUntil) ? formatClock(a.pausedUntil, now) : null,
+      windows: [window("5-hour", fiveHour), window("weekly", sevenDay)],
+      line: resets.length ? `${whose} · resets ${resets.join(" and ")}` : whose,
+      asOf: a.quota ? `as of ${formatDuration(now.getTime() - Date.parse(a.quota.seenAt))} ago` : null,
+    };
+  });
 }
 
 function waitText(w: WaitReason, limits: Limits): string {

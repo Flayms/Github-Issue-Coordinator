@@ -71,6 +71,7 @@ const pull = (number: number, issues: number[], state: Partial<NonNullable<RepoS
 const snapshot = (s: Partial<TickSnapshot> = {}): TickSnapshot => ({
   finishedAt: "2026-11-15T10:29:00.000Z",
   pausedUntil: null,
+  accounts: [],
   repos: [],
   sessions: [],
   queue: [],
@@ -605,6 +606,126 @@ describe("dashboard view", () => {
     );
     // needYou is the total of Your move: 1 PR, 2 failed, 1 question, 2 plans, 1 close.
     expect(v.summary).toEqual({ needYou: 7, working: 1, queued: 1, blocked: 1 });
+  });
+
+  describe("Usage quota", () => {
+    const quota = (fiveHour: number | null, sevenDay: number | null, o: { fiveResets?: string } = {}) => ({
+      fiveHour:
+        fiveHour === null ? null : { usedPercent: fiveHour, resetsAt: o.fiveResets ?? "2026-11-15T13:42:00.000Z" },
+      sevenDay: sevenDay === null ? null : { usedPercent: sevenDay, resetsAt: "2026-11-20T09:00:00.000Z" },
+      seenAt: "2026-11-15T10:26:00.000Z",
+    });
+    const two = parseConfig({
+      ...config,
+      accounts: [
+        { name: "main", configDir: "/a" },
+        { name: "spare", configDir: "/b" },
+        { name: "third", configDir: "/c" },
+      ],
+    });
+
+    test("REQ-003-37 shows each window's use in whole percent, when they reset and how old the values are", () => {
+      const v = dashboardView(
+        snapshot({ accounts: [{ name: "default", quota: quota(38.4, 24), pausedUntil: null }] }),
+        config,
+        NOW,
+      );
+      expect(v.usageQuota).toEqual([
+        {
+          account: null,
+          pausedUntil: null,
+          windows: [
+            { label: "5-hour", percent: 38, high: false },
+            { label: "weekly", percent: 24, high: false },
+          ],
+          line: "Claude subscription · resets in 3 h 12 min and Fri 09:00 UTC",
+          asOf: "as of 4 min ago",
+        },
+      ]);
+    });
+
+    test("REQ-003-37 / REQ-003-17 a window from 90 % on is marked", () => {
+      const v = dashboardView(
+        snapshot({ accounts: [{ name: "default", quota: quota(89.4, 90), pausedUntil: null }] }),
+        config,
+        NOW,
+      );
+      expect(v.usageQuota[0]?.windows.map((w) => [w.percent, w.high])).toEqual([
+        [89, false],
+        [90, true],
+      ]);
+    });
+
+    test("REQ-003-38 several Accounts are named; a paused one says until when; a window never reported or past its reset shows –", () => {
+      const v = dashboardView(
+        snapshot({
+          accounts: [
+            { name: "main", quota: quota(97, 50), pausedUntil: "2026-11-15T14:30:00.000Z" },
+            { name: "spare", quota: quota(12, null, { fiveResets: "2026-11-15T10:00:00.000Z" }), pausedUntil: null },
+            // A pause that has ended is not shown.
+            { name: "third", quota: null, pausedUntil: "2026-11-15T09:00:00.000Z" },
+          ],
+        }),
+        two,
+        NOW,
+      );
+      expect(v.usageQuota).toEqual([
+        {
+          account: "main",
+          pausedUntil: "14:30 UTC",
+          windows: [
+            { label: "5-hour", percent: 97, high: true },
+            { label: "weekly", percent: 50, high: false },
+          ],
+          line: "main · resets in 3 h 12 min and Fri 09:00 UTC",
+          asOf: "as of 4 min ago",
+        },
+        {
+          account: "spare",
+          pausedUntil: null,
+          windows: [
+            { label: "5-hour", percent: null, high: false },
+            { label: "weekly", percent: null, high: false },
+          ],
+          line: "spare",
+          asOf: "as of 4 min ago",
+        },
+        {
+          account: "third",
+          pausedUntil: null,
+          windows: [
+            { label: "5-hour", percent: null, high: false },
+            { label: "weekly", percent: null, high: false },
+          ],
+          line: "third",
+          asOf: null,
+        },
+      ]);
+    });
+
+    test("REQ-003-38 a pause on another day names the day; a weekly reset alone reads 'resets <day>'", () => {
+      const v = dashboardView(
+        snapshot({ accounts: [{ name: "default", quota: quota(null, 24), pausedUntil: "2026-11-16T01:00:00.000Z" }] }),
+        config,
+        NOW,
+      );
+      expect(v.usageQuota[0]).toMatchObject({
+        pausedUntil: "Mon 01:00 UTC",
+        line: "Claude subscription · resets Fri 09:00 UTC",
+      });
+    });
+
+    test("REQ-003-38 with no report and no pause there is nothing to show", () => {
+      expect(dashboardView(snapshot(), config, NOW).usageQuota).toEqual([]);
+      expect(dashboardView(undefined, config, NOW).usageQuota).toEqual([]);
+      const nothing = snapshot({
+        accounts: [
+          { name: "main", quota: null, pausedUntil: null },
+          { name: "spare", quota: null, pausedUntil: "2026-11-15T09:00:00.000Z" },
+        ],
+      });
+      expect(dashboardView(nothing, two, NOW).usageQuota).toEqual([]);
+    });
   });
 
   test("REQ-003-12 shows used out of the limit for running and live sessions, each Role's Slots and Worktrees", () => {

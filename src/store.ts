@@ -167,6 +167,23 @@ export interface Timing {
   sessionId: number | null;
 }
 
+/** One rate-limit window of a Usage quota (REQ-001-67). */
+export interface QuotaWindow {
+  /** 0 to 100. */
+  usedPercent: number;
+  /** ISO time the window resets. */
+  resetsAt: string;
+}
+
+/** An Account's latest Usage quota, as its sessions' status lines reported it (REQ-001-67). */
+export interface UsageQuota {
+  /** Null until a session reported this window. */
+  fiveHour: QuotaWindow | null;
+  sevenDay: QuotaWindow | null;
+  /** When a session last reported it. */
+  seenAt: string;
+}
+
 /** An issue with recorded Timings, for the Timings page's picker (REQ-003-34). */
 export interface TimedIssue {
   repo: string;
@@ -236,6 +253,12 @@ CREATE TABLE IF NOT EXISTS split_offs (
 CREATE TABLE IF NOT EXISTS account_pauses (
   account TEXT PRIMARY KEY,
   until TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS usage_quotas (
+  account TEXT PRIMARY KEY,
+  five_hour TEXT,
+  seven_day TEXT,
+  seen_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -639,6 +662,28 @@ export class Store {
   setPausedUntil(account: string, iso: string | undefined): void {
     if (iso === undefined) this.db.query("DELETE FROM account_pauses WHERE account = ?").run(account);
     else this.db.query("INSERT OR REPLACE INTO account_pauses (account, until) VALUES (?, ?)").run(account, iso);
+  }
+
+  /** REQ-001-67: the Account's latest Usage quota, if a session ever reported one. */
+  usageQuota(account: string): UsageQuota | undefined {
+    const row = this.db
+      .query<{ five_hour: string | null; seven_day: string | null; seen_at: string }, [string]>(
+        "SELECT five_hour, seven_day, seen_at FROM usage_quotas WHERE account = ?",
+      )
+      .get(account);
+    if (!row) return undefined;
+    const window = (json: string | null): QuotaWindow | null => (json === null ? null : JSON.parse(json));
+    return { fiveHour: window(row.five_hour), sevenDay: window(row.seven_day), seenAt: row.seen_at };
+  }
+
+  /** REQ-001-67: records a report at the store's time; a window missing from it keeps its last values. */
+  recordUsageQuota(account: string, report: { fiveHour?: QuotaWindow; sevenDay?: QuotaWindow }): void {
+    const last = this.usageQuota(account);
+    const fiveHour = report.fiveHour ?? last?.fiveHour ?? null;
+    const sevenDay = report.sevenDay ?? last?.sevenDay ?? null;
+    this.db
+      .query("INSERT OR REPLACE INTO usage_quotas (account, five_hour, seven_day, seen_at) VALUES (?, ?, ?, ?)")
+      .run(account, fiveHour && JSON.stringify(fiveHour), sevenDay && JSON.stringify(sevenDay), this.stamp());
   }
 
   /** Stores before spec 004 kept one pause for everything; it becomes the given Account's (the first one's). */

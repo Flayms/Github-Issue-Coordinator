@@ -1597,6 +1597,33 @@ describe("reconcile loop", () => {
     expect(snap?.queue).toEqual([{ work: expect.objectContaining({ key: "octo/app plan", kind: "plan" }) }]);
   });
 
+  test("REQ-001-67 / REQ-003-37 the snapshot holds each Account's Usage quota and pause, in config order", async () => {
+    const two = parseConfig({
+      ...config,
+      accounts: [
+        { name: "a", configDir: "/home/agent/.claude-a" },
+        { name: "b", configDir: "/home/agent/.claude-b" },
+      ],
+    });
+    coordinator = new Coordinator({
+      config: two,
+      store,
+      gh,
+      runner,
+      worktrees,
+      clones: { mainClone: async (repo: string) => `/clones/${repo}` },
+      now: () => now,
+      log: () => {},
+    });
+    store.recordUsageQuota("b", { fiveHour: { usedPercent: 38, resetsAt: "2026-11-11T13:00:00.000Z" } });
+    store.setPausedUntil("a", "2026-11-11T14:30:00.000Z");
+    await coordinator.tick();
+    expect(coordinator.snapshot()?.accounts).toEqual([
+      { name: "a", quota: null, pausedUntil: "2026-11-11T14:30:00.000Z" },
+      { name: "b", quota: store.usageQuota("b") ?? null, pausedUntil: null },
+    ]);
+  });
+
   test("REQ-003-04 an implement job without room for a Worktree waits on maxWorktrees", async () => {
     gh.items = [item(5, ["agent:approved"])];
     store.updateIssue("octo/app", 5, { approvedAt: "2026-11-11T09:00:00Z", assessment: "{}" });

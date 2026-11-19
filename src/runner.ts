@@ -162,7 +162,7 @@ export class SessionRunner {
   }
 
   /**
-   * REQ-005-01: the hooks and, for REQ-005-07, the CLAUDE.md files above the session's folder to skip; rewritten on
+   * REQ-005-01: the hooks, the status line (REQ-001-67) and, for REQ-005-07, the CLAUDE.md files above the session's folder to skip; rewritten on
    * every resume, so a session folder from an older Coordinator loses its sandbox.
    */
   private writeSettings(id: number, cwd: string): void {
@@ -179,8 +179,13 @@ export class SessionRunner {
         ],
       ]),
     );
+    // REQ-001-67: Claude Code passes the Usage quota only to a status line command.
+    const statusLine = {
+      type: "command",
+      command: shellQuote([...this.o.hookCommand, "StatusLine", this.o.dbPath, String(id), dir]),
+    };
     const claudeMdExcludes = parentInstructionFiles(cwd, this.o.home ?? homedir());
-    writeFileSync(join(dir, "settings.json"), JSON.stringify({ hooks, claudeMdExcludes }, null, 2));
+    writeFileSync(join(dir, "settings.json"), JSON.stringify({ hooks, statusLine, claudeMdExcludes }, null, 2));
   }
 
   /** Continues a session with a new prompt; refuses while it is running (REQ-001-19). */

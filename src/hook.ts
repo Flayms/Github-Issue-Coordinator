@@ -8,12 +8,15 @@
  * - Stop: validates the Result and blocks the stop while it is invalid, up to 3 times (REQ-001-21);
  *   otherwise marks the session idle and queues a sync (REQ-001-19). A turn cut off by the usage
  *   limit is never blocked (REQ-001-17).
- * Every payload is appended to <sessionDir>/events.jsonl (usage-limit format still unknown, T0 (e)).
+ * - StatusLine: run as the session's status line command, not as a hook; records the Account's Usage quota and
+ *   prints it for the session's window (REQ-001-67).
+ * Every hook payload is appended to <sessionDir>/events.jsonl (usage-limit format still unknown, T0 (e)); the status
+ * line's are not, since it runs after every message.
  */
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { findingsToAnswer, resultInstructions, validateResult } from "./results.ts";
-import { Store } from "./store.ts";
+import { type QuotaWindow, Store, type UsageQuota } from "./store.ts";
 
 export const MAX_RESULT_FAILURES = 3;
 
@@ -26,6 +29,7 @@ export interface HookInput {
 }
 
 export function handleHook({ event, payload, store, sessionId, sessionDir }: HookInput): { stdout?: string } {
+  if (event === "StatusLine") return statusLine(payload, store, sessionId);
   appendFileSync(
     join(sessionDir, "events.jsonl"),
     `${JSON.stringify({ t: new Date().toISOString(), event, payload })}\n`,
@@ -77,6 +81,41 @@ export function handleHook({ event, payload, store, sessionId, sessionDir }: Hoo
       return {};
   }
 }
+
+/** REQ-001-67: records the Usage quota of the session's Account and prints it; anything unexpected is ignored. */
+function statusLine(payload: Record<string, unknown>, store: Store, sessionId: number): { stdout?: string } {
+  const account = store.session(sessionId)?.account;
+  const report = rateLimits(payload.rate_limits);
+  if (!account || !report) return {};
+  store.recordUsageQuota(account, report);
+  const quota = store.usageQuota(account);
+  return quota ? { stdout: quotaLine(quota) } : {};
+}
+
+/** The windows of Claude Code's `rate_limits`; undefined when it holds none that are well-formed. */
+export function rateLimits(value: unknown): { fiveHour?: QuotaWindow; sevenDay?: QuotaWindow } | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const v = value as Record<string, unknown>;
+  const fiveHour = quotaWindow(v.five_hour);
+  const sevenDay = quotaWindow(v.seven_day);
+  if (!fiveHour && !sevenDay) return undefined;
+  return { ...(fiveHour && { fiveHour }), ...(sevenDay && { sevenDay }) };
+}
+
+/** `{ used_percentage: 0–100, resets_at: Unix seconds }`, as documented for status line commands. */
+function quotaWindow(value: unknown): QuotaWindow | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const { used_percentage: used, resets_at: resets } = value as Record<string, unknown>;
+  if (typeof used !== "number" || !Number.isFinite(used) || used < 0 || used > 100) return undefined;
+  if (typeof resets !== "number" || !Number.isFinite(resets) || resets <= 0) return undefined;
+  return { usedPercent: used, resetsAt: new Date(resets * 1000).toISOString() };
+}
+
+/** What the session's status line shows, e.g. `5-hour 38% · weekly 24% used`. */
+const quotaLine = (q: UsageQuota): string => {
+  const pct = (w: QuotaWindow | null) => (w ? `${Math.round(w.usedPercent)}%` : "–");
+  return `5-hour ${pct(q.fiveHour)} · weekly ${pct(q.sevenDay)} used`;
+};
 
 /** The store's clock, so tests can control time. */
 const nowOf = (store: Store): number => store.clock().getTime();

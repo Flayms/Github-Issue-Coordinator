@@ -31,6 +31,7 @@ import type {
   SessionRecord,
   Store,
   TimingPhase,
+  UsageQuota,
   WorktreeRecord,
 } from "./store.ts";
 
@@ -101,6 +102,15 @@ export interface TickSnapshot {
   queue: Queued[];
   /** The kept Events, newest first (REQ-003-16). */
   events: CoordinatorEvent[];
+  /** Every Account in config order, with its latest Usage quota (REQ-001-67) and its pause (REQ-001-17). */
+  accounts: AccountSnapshot[];
+}
+
+export interface AccountSnapshot {
+  name: string;
+  quota: UsageQuota | null;
+  /** The recorded end of its usage-limit pause, even if past. */
+  pausedUntil: string | null;
 }
 
 export interface RepoSnapshot {
@@ -275,6 +285,11 @@ export class Coordinator {
       sessions,
       queue,
       events: this.d.store.events(),
+      accounts: this.accountNames().map((name) => ({
+        name,
+        quota: this.d.store.usageQuota(name) ?? null,
+        pausedUntil: this.d.store.pausedUntil(name) ?? null,
+      })),
     };
   }
 
