@@ -7,6 +7,7 @@ import { renderDashboard } from "../src/dashboard/html.tsx";
 import { timingsView } from "../src/dashboard/timings.ts";
 import { renderTimings } from "../src/dashboard/timings-html.tsx";
 import { dashboardView } from "../src/dashboard/view.ts";
+import type { TranscriptTail } from "../src/transcript.ts";
 import { MOCK_TIMING_SOURCE } from "./fixtures/dashboard-mock.ts";
 
 const config = parseConfig({
@@ -77,6 +78,7 @@ const snap: TickSnapshot = {
       title: "Add search",
       startedAt: "2026-11-15T09:00:00.000Z",
       account: null,
+      transcriptPath: null,
       live: true,
     },
   ],
@@ -770,6 +772,48 @@ describe("dashboard html", () => {
     expect(html).toContain('<span class="font-mono text-[11px]" title="claude-sonnet-5-5">Sonnet 5.5</span>');
     expect(html).toContain("#6 Add search · Implementer · app");
     expect(html).toMatch(/<button[^>]*data-copy="#6 Add search · Implementer · app"[^>]*hidden/);
+  });
+
+  describe("REQ-003-42 / REQ-003-43 Now line and Open chat", () => {
+    const withTranscript = (tail: TranscriptTail | undefined) => {
+      const s = { ...snap, sessions: snap.sessions.map((x) => ({ ...x, transcriptPath: "/t/1.jsonl" })) };
+      const html = renderDashboard(dashboardView(s, config, NOW, { transcript: () => tail }));
+      return html.slice(html.indexOf('id="now"'), html.indexOf('id="next"'));
+    };
+    const tail: TranscriptTail = {
+      step: { kind: "tool", text: "Bash · bun test <script>alert(1)</script>", at: "2026-11-15T10:29:48.000Z" },
+      chatUrl: "https://claude.ai/code/session_01Run",
+    };
+
+    test("REQ-003-42 the card shows the latest step above its issues, one line with the full text as tooltip", () => {
+      const now = withTranscript(tail);
+      const line = now.match(/<p [^>]*data-now="Tool"[^>]*>[\s\S]*?<\/p>/)?.[0] ?? "";
+      expect(line).toMatch(/title="Tool · Bash · bun test &lt;script&gt;alert\(1\)&lt;\/script&gt; · 12 s ago"/);
+      expect(line).toMatch(/>Tool<\/span>/);
+      expect(line).toMatch(/<span class="[^"]*\btruncate\b[^"]*">Bash · bun test &lt;script&gt;/);
+      expect(line).toContain("12 s ago");
+      // REQ-003-09: agent text is text only.
+      expect(now).not.toContain("<script>alert(1)");
+      expect(now.indexOf("data-now=")).toBeLessThan(now.indexOf("Add search"));
+    });
+
+    test("REQ-003-42 without a step in the transcript there is no line", () => {
+      expect(withTranscript({})).not.toContain("data-now");
+      expect(withTranscript(undefined)).not.toContain("data-now");
+      expect(overview()).not.toContain("data-now");
+    });
+
+    test("REQ-003-43 Open chat links to the Remote Control URL in a new tab; without one there is no link", () => {
+      const now = withTranscript(tail);
+      expect(now).toMatch(
+        /<a [^>]*href="https:\/\/claude.ai\/code\/session_01Run"[^>]*target="_blank"[^>]*>[\s\S]*?Open chat<\/span><\/a>/,
+      );
+      expect(now).toMatch(/rel="noopener noreferrer"/);
+      // The name and Copy name stay.
+      expect(now).toContain("#6 Add search · Implementer · app");
+      expect(now).toContain("data-copy=");
+      expect(withTranscript({ step: tail.step })).not.toContain("Open chat");
+    });
   });
 
   test("REQ-003-16 Recent comes before Now in Activity: each Event with icon, tone, time and links", () => {

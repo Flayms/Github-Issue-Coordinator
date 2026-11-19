@@ -25,6 +25,7 @@ import {
   MOCK_NOW,
   MOCK_SNAPSHOT,
   MOCK_TIMING_SOURCE,
+  mockTranscript,
 } from "../test/fixtures/dashboard-mock.ts";
 
 const ROOT = join(import.meta.dir, "..");
@@ -57,7 +58,7 @@ export const SCREENSHOTS: readonly Screenshot[] = [
 
 /** The Overview, the Config page and the Timings page as the server renders them from the mock data. */
 export function mockPages(): string[] {
-  const view = dashboardView(MOCK_SNAPSHOT, MOCK_CONFIG, MOCK_NOW);
+  const view = dashboardView(MOCK_SNAPSHOT, MOCK_CONFIG, MOCK_NOW, { transcript: mockTranscript });
   const timings = timingsView({ source: MOCK_TIMING_SOURCE, pick: null, includeOwner: false, now: MOCK_NOW });
   // The Config page as the signed-in Owner sees it: the editable settings as a form (REQ-003-36).
   const form = {

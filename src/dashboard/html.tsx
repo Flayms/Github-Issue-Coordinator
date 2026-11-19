@@ -30,6 +30,7 @@ import type {
   MoveGroup,
   MoveItem,
   MoveKind,
+  NowLine,
   PullView,
   QuotaView,
   QuotaWindowView,
@@ -478,6 +479,25 @@ const UsageQuota = ({ v }: { v: DashboardView }) => (
 const ROLE_ICONS: Record<string, IconName> = { Planner: "compass", Implementer: "code", Reviewer: "eye" };
 
 /**
+ * REQ-003-42: what the agent is doing, from its transcript's tail: a label, the step's text cut to one line and
+ * how long ago it happened; the whole line is the tooltip.
+ */
+function NowLineView({ now, running }: { now: NowLine; running: boolean }) {
+  const full = [now.label, now.text, now.ago].filter(Boolean).join(" · ");
+  return (
+    <p className="mt-3 flex min-w-0 items-baseline gap-2 text-[12px] leading-[1.4]" data-now={now.label} title={full}>
+      <span
+        className={`shrink-0 rounded-xs px-1.5 py-px font-mono font-semibold text-[10px] uppercase tracking-[0.06em] ${running ? "bg-acc/15 text-acc-hi" : "bg-white/7 text-white/50"}`}
+      >
+        {now.label}
+      </span>
+      {now.text && <span className="min-w-0 truncate font-mono text-[11.5px] text-white/75">{now.text}</span>}
+      <span className="shrink-0 text-white/35 tabular-nums">{now.ago}</span>
+    </p>
+  );
+}
+
+/**
  * REQ-003-01: a card per session: what it is doing, the bar under its head, its issues and its names.
  * An idle session says when it closes (#74); its bar shows the idle time out of `idleTimeoutMin`.
  */
@@ -518,7 +538,8 @@ function Session({ s }: { s: SessionView }) {
       >
         <span className={`block h-full rounded-xs ${bar}`} />
       </div>
-      <div className="mt-3 leading-[1.35] wrap-anywhere">
+      {s.now && <NowLineView now={s.now} running={s.state === "running"} />}
+      <div className={`${s.now ? "mt-2" : "mt-3"} leading-[1.35] wrap-anywhere`}>
         {s.issues.map((i, n) => (
           <span key={i.url}>
             {n > 0 && ", "}
@@ -535,15 +556,30 @@ function Session({ s }: { s: SessionView }) {
           {s.modelName}
         </span>
         <span>since {s.startedAt ? formatTime(s.startedAt) : "–"}</span>
-        <button
-          className="ml-auto inline-flex cursor-pointer items-center gap-1.5 font-medium text-[12px] text-white/40 leading-[1.2] transition-colors hover:text-acc-hi [&.done]:text-ok"
-          type="button"
-          data-copy={s.name}
-          hidden
-        >
-          <Icon name="copy" className="size-[13px]" />
-          <span>Copy name</span>
-        </button>
+        {/* REQ-003-43: Open chat and Copy name (shown only with JavaScript) sit on the right and wrap together. */}
+        <span className="ml-auto inline-flex items-center gap-3">
+          {s.chatUrl && (
+            <a
+              className="inline-flex items-center gap-1.5 font-medium text-[12px] text-acc-hi leading-[1.2] transition-colors hover:text-white"
+              href={s.chatUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="The whole chat in the Claude app (Remote Control), where you can write to the agent"
+            >
+              <Icon name="arrow" className="size-[13px]" />
+              <span>Open chat</span>
+            </a>
+          )}
+          <button
+            className="inline-flex cursor-pointer items-center gap-1.5 font-medium text-[12px] text-white/40 leading-[1.2] transition-colors hover:text-acc-hi [&.done]:text-ok"
+            type="button"
+            data-copy={s.name}
+            hidden
+          >
+            <Icon name="copy" className="size-[13px]" />
+            <span>Copy name</span>
+          </button>
+        </span>
       </div>
       <code
         className="mt-1.5 block font-mono text-[11px] text-faint wrap-anywhere"

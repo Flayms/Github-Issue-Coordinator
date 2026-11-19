@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ConfigInput, parseConfig } from "../src/config.ts";
@@ -182,6 +182,55 @@ describe("dashboard server", () => {
     expect(logs.join("\n")).toContain("boom");
     fail = false;
     expect((await fetch(`${url}/`)).status).toBe(200);
+  });
+
+  test("REQ-003-08 / REQ-003-42 / REQ-003-43 the Overview reads a session's transcript and changes nothing in it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "dash-transcript-"));
+    try {
+      const path = join(dir, "abc.jsonl");
+      const lines = [
+        { type: "system", subtype: "bridge_status", url: "https://claude.ai/code/session_01Live" },
+        {
+          type: "assistant",
+          timestamp: "2026-11-15T10:00:48.000Z",
+          message: { content: [{ type: "tool_use", name: "Bash", input: { command: "bun test" } }] },
+        },
+      ];
+      writeFileSync(path, `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`);
+      const before = readFileSync(path, "utf8");
+      const session = {
+        id: 1,
+        repo: "octo/app",
+        role: "implementer" as const,
+        kind: "issue" as const,
+        issues: [5],
+        claudeSessionId: "abc",
+        state: "running" as const,
+        resumeAttempts: 0,
+        lastActivityAt: "2026-11-15T10:00:00.000Z",
+        ownerMessagedAt: null,
+        coordinatorPromptPending: false,
+        resultFailures: 0,
+        needsSync: false,
+        usageLimited: false,
+        usageLimitResetsAt: null,
+        modelId: null,
+        title: "Fix login",
+        startedAt: "2026-11-15T09:00:00.000Z",
+        account: null,
+        transcriptPath: path,
+        live: true,
+      };
+      const { url } = start({ dashboard: { port: 0 }, snapshot: () => ({ ...snap, sessions: [session] }) });
+      const html = await (await fetch(`${url}/`)).text();
+      expect(html).toContain('data-now="Tool"');
+      expect(html).toContain("Bash · bun test");
+      expect(html).toContain("12 s ago");
+      expect(html).toContain('href="https://claude.ai/code/session_01Live"');
+      expect(readFileSync(path, "utf8")).toBe(before);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
   });
 
   test("REQ-003-08 a server that cannot listen is logged instead of stopping the Coordinator", () => {
