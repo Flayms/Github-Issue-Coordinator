@@ -113,7 +113,10 @@ export const codex: Harness = {
   // Exits 0 with "Logged in using …" when credentials are present, 1 with "Not logged in" otherwise.
   loginCheck: {
     args: ["login", "status"],
-    read: ({ ok, out }) => ({ ok, detail: ok ? out.split("\n")[0] || "logged in" : "run it with `codex login`" }),
+    read: ({ ok, out }) => ({
+      ok,
+      detail: ok ? out.split("\n")[0] || "logged in" : "run it with the `login` subcommand",
+    }),
   },
 
   moveTranscript: copyRollout,

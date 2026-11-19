@@ -2,6 +2,7 @@
  * Dashboard view model (spec 003): turns the last tick's snapshot and the config into what the page
  * shows. Pure, so every rule is unit-tested; src/dashboard/html.tsx renders it.
  */
+
 import {
   type AutoMergeMode,
   autoMergeMode,
@@ -14,6 +15,7 @@ import {
 } from "../config.ts";
 import type { AccountSnapshot, RepoSnapshot, TickSnapshot } from "../coordinator.ts";
 import type { ChecksState } from "../github/client.ts";
+import { HARNESSES, harnessByName } from "../harness/index.ts";
 import { modelLabel } from "../models.ts";
 import { ROLE_NAMES } from "../note.ts";
 import { remoteControlName } from "../runner.ts";
@@ -363,8 +365,9 @@ export function dashboardView(
       name: remoteControlName(s),
       model: s.modelId ?? configuredModel(config, s.repo, s.role),
       modelName: modelLabel(s.modelId ?? configuredModel(config, s.repo, s.role)),
-      now: nowLine(tail, idle(s), now),
-      chatUrl: tail?.chatUrl ?? null,
+      // REQ-006-04: only a Harness that declares the feature; its transcript format is Claude Code's.
+      now: features(s).nowLine.has ? nowLine(tail, idle(s), now) : null,
+      chatUrl: features(s).remoteControl.has ? (tail?.chatUrl ?? null) : null,
     };
   });
   sessions.sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state]);
@@ -530,6 +533,9 @@ export function dashboardView(
 }
 
 /** REQ-003-37 / REQ-003-38: a pair of meters per Account, or none while no Account reported or is paused. */
+/** REQ-006-04: the Harness features of a session's Harness. */
+const features = (s: { harness?: string }) => harnessByName(s.harness ?? "claude").features;
+
 function quotaViews(accounts: AccountSnapshot[], now: Date): QuotaView[] {
   const future = (iso: string | null | undefined): iso is string => !!iso && Date.parse(iso) > now.getTime();
   if (!accounts.some((a) => a.quota || future(a.pausedUntil))) return [];
@@ -547,7 +553,11 @@ function quotaViews(accounts: AccountSnapshot[], now: Date): QuotaView[] {
       ...(fiveHour ? [`in ${formatDuration(Date.parse(fiveHour.resetsAt) - now.getTime())}`] : []),
       ...(sevenDay ? [formatClock(sevenDay.resetsAt, now)] : []),
     ];
-    const whose = named ? a.name : "Claude subscription";
+    const whose = named
+      ? a.name
+      : a.harness && a.harness !== "claude"
+        ? HARNESSES[a.harness].label
+        : "Claude subscription";
     return {
       account: named ? a.name : null,
       pausedUntil: future(a.pausedUntil) ? formatClock(a.pausedUntil, now) : null,

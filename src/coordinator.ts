@@ -110,6 +110,8 @@ export interface TickSnapshot {
 
 export interface AccountSnapshot {
   name: string;
+  /** REQ-006-02: the Harness it is a login for; absent: Claude Code. */
+  harness?: HarnessName;
   quota: UsageQuota | null;
   /** The recorded end of its usage-limit pause, even if past. */
   pausedUntil: string | null;
@@ -302,8 +304,9 @@ export class Coordinator {
       sessions,
       queue,
       events: this.d.store.events(),
-      accounts: this.accountNames().map((name) => ({
+      accounts: this.d.config.accounts.map(({ name, harness }) => ({
         name,
+        ...(harness && { harness }),
         quota: this.d.store.usageQuota(name) ?? null,
         pausedUntil: this.d.store.pausedUntil(name) ?? null,
       })),

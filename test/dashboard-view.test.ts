@@ -200,6 +200,31 @@ describe("dashboard view", () => {
       expect(plain.sessions[0]).toMatchObject({ now: null, chatUrl: null });
     });
 
+    test("REQ-006-04 a session on a Harness without Remote Control or a Now line shows neither, not an error", () => {
+      const codex = dashboardView(
+        snapshot({
+          sessions: [
+            session({ id: 1, role: "implementer", issues: [5], transcriptPath: "/t/run.jsonl", harness: "codex" }),
+          ],
+        }),
+        config,
+        NOW,
+        { transcript: read },
+      ).sessions[0];
+      expect(codex).toMatchObject({ now: null, chatUrl: null });
+    });
+
+    test("REQ-006-04 an Account of a Harness without a Usage quota report shows no report under its Harness's name", () => {
+      const v = dashboardView(
+        snapshot({
+          accounts: [{ name: "gpt", harness: "codex", quota: null, pausedUntil: "2026-11-15T12:00:00.000Z" }],
+        }),
+        config,
+        NOW,
+      );
+      expect(v.usageQuota[0]).toMatchObject({ line: "Codex CLI", windows: [{ percent: null }, { percent: null }] });
+    });
+
     test("REQ-003-43 the Remote Control URL becomes the Open chat link; without one there is none", () => {
       expect(view("/t/run.jsonl")?.chatUrl).toBe("https://claude.ai/code/session_01Run");
       expect(view("/t/think.jsonl")?.chatUrl).toBeNull();
