@@ -49,7 +49,10 @@ export interface Snapshot {
   splitOffs?: ReadonlySet<number>;
   /** Open (running or idle) sessions of this repository, from the store. */
   sessions: SessionRecord[];
-  /** Closed sessions whose last turn still has to be synced; their issues are not orphaned (REQ-001-27). */
+  /**
+   * Closed sessions that still owe a turn, so their issues are not orphaned: one to sync (REQ-001-27), or one cut off by
+   * the usage limit, to continue once its Account's pause is over (REQ-001-17, REQ-001-20).
+   */
   pendingSync?: SessionRecord[];
   /** Store ids of the sessions whose tmux window is alive. */
   liveSessionIds: ReadonlySet<number>;

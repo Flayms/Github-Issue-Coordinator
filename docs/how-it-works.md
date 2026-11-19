@@ -121,7 +121,7 @@ Optional. Every Review names a **Risk tier** (`low`, `medium` or `high`) with a 
 Optional: several Claude subscriptions.
 
 - List them as `accounts` in the config; sessions run on the first one.
-- When it hits its usage limit, it is paused and work, including the cut-off session, goes on with the next one.
+- When it hits its usage limit, it is paused until the limit resets (30 minutes when the reset time can't be read), and work, including the cut-off session, goes on with the next one.
 - New work waits only while every Account is paused.
 
 Setup: [docs/setup.md](setup.md#3-configure).
