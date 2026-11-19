@@ -1,6 +1,6 @@
 # AGENTS.md
 
-- Purpose: Self-hosted Bun daemon that polls GitHub and runs Claude Code agents to triage, plan, implement and review issues (one worktree per issue), with human approval gates.
+- Purpose: Self-hosted Bun daemon that polls GitHub and runs Claude Code or Codex CLI agents to triage, plan, implement and review issues (one worktree per issue), with human approval gates.
 
 ## Orientation
 
@@ -12,12 +12,13 @@ Keep the docs up to date when something changes.
 | `docs/architecture.md`   | Architecture overview                                                                                             |
 | `docs/how-it-works.md`   | The full workflow, auto-merge, dashboard and Role prompts behind the README's short version. Keep up to date.     |
 | `docs/glossary.md`       | Definitions of domain terms                                                                                       |
+| `docs/harnesses.md`      | The Harnesses (Claude Code, Codex CLI): the feature matrix (checked by `bun test`), setup and how to test them    |
 | `docs/known-pitfalls.md` | if you encounter problems or pitfalls add them here, either to avoid them in the future or for us to fix later on |
 | `docs/specs/README.md`   | Index of feature specs with their status, conventions and template                                                |
 
 ## Project
 
-- Stack: TypeScript on Bun, Claude Code CLI (interactive sessions in detached tmux with Remote Control, hooks), GitHub REST API, git worktrees; deployed as a systemd service on Ubuntu.
+- Stack: TypeScript on Bun, Claude Code CLI or Codex CLI (interactive sessions in detached tmux, hooks; Remote Control on Claude), GitHub REST API, git worktrees; deployed as a systemd service on Ubuntu.
 - Install: `bun install` · Test: `bun test` (real tmux + claude: `bun scripts/smoke-runner.ts`, uses the subscription) · Lint: `bun run lint` (Biome + `tsc --noEmit`; autofix: `bun run lint:fix`) · Run: `bun start` (reads `config.ts`, or `$COORDINATOR_CONFIG`; copy `config.example.ts`) · Setup check: `bun run doctor` · Dashboard changed → `bun run screenshots` and commit `docs/images/` (README screenshots; `bun test` checks they're current); Pipeline hover in Chrome: `bun run check:pipeline-hover` · Deployment: `docs/setup.md`
 
 ## Principles

@@ -38,9 +38,10 @@ export default defineConfig({
   // on the Config page. At most 4,000 characters each.
   // instructions: { planner: "Keep Assessments short." },
   repos: [{ name: "your-login/your-repo", setup: "bun install", roles: { reviewer: { model: "sonnet" } } }],
-  // Claude subscriptions in priority order (optional; default: the login in ~/.claude). Sessions run on the first one
-  // that isn't paused by a usage limit. Log in to each once: CLAUDE_CONFIG_DIR=<configDir> claude, then /login.
-  // accounts: [{ name: "main" }, { name: "spare", configDir: "/root/.claude-spare" }],
+  // Subscriptions in priority order (optional; default: the Claude Code login in ~/.claude). Sessions run on the first
+  // one of their model's Harness that isn't paused by a usage limit (docs/harnesses.md). Log in to each once:
+  // CLAUDE_CONFIG_DIR=<configDir> claude, then /login; for Codex CLI, CODEX_HOME=<configDir> codex login.
+  // accounts: [{ name: "main" }, { name: "spare", configDir: "/root/.claude-spare" }, { name: "gpt", harness: "codex" }],
   // Read-only dashboard (docs/setup.md step 4), on by default at 127.0.0.1:8080; `dashboard: false` turns it off.
   // "Sign in with GitHub" lets only the Owner in; it is on by default and the pages answer 503 until it is set up with
   // a GitHub OAuth App (callback URL: the dashboard's URL + /auth/callback). `githubLogin: false` turns it off.

@@ -127,6 +127,15 @@ When one Account hits its usage limit, the Coordinator goes on with the next ([s
 
 A session shows up in the Claude app only under the Account it runs on.
 
+### Codex CLI (optional)
+
+To run a Role on an OpenAI model, add a Codex CLI login as an Account with `harness: "codex"` and pick a Codex model for the Role ([Harnesses](harnesses.md#setting-up-codex-cli)):
+
+- [ ] `npm i -g @openai/codex` (0.170.0 or newer)
+- [ ] `CODEX_HOME=/root/.codex codex login` (a ChatGPT plan, or `--with-api-key`)
+- [ ] `accounts: [{ name: "main" }, { name: "gpt", harness: "codex", configDir: "/root/.codex" }]`
+- [ ] `bun run doctor` checks `codex` and its login.
+
 ## 4. Dashboard
 
 **On by default** at `127.0.0.1:8080` ([spec 003](specs/003-dashboard/spec.md)); `dashboard: false` turns it off. Until the sign-in is set up, its pages answer 503.
