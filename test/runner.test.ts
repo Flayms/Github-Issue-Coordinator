@@ -150,7 +150,7 @@ describe("claude command line", () => {
 });
 
 describe("session runner", () => {
-  test("REQ-001-18 starts a session in its own tmux window with per-session hooks, without a manual step", () => {
+  test("REQ-001-18 / REQ-001-17 starts a session in its own tmux window with per-session hooks (StopFailure for the usage limit), without a manual step", () => {
     const id = startImplementer();
     const win = tmux.windows.get(`s${id}`);
     expect(win?.cwd).toBe("/work/app-5");
@@ -165,6 +165,7 @@ describe("session runner", () => {
       "SessionEnd",
       "SessionStart",
       "Stop",
+      "StopFailure",
       "UserPromptSubmit",
     ]);
     expect(store.session(id)).toMatchObject({ state: "running", coordinatorPromptPending: true });
