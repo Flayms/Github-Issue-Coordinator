@@ -80,9 +80,9 @@ export const Empty = ({ children, className = "" }: { children: string; classNam
   <p className={`my-1.5 text-[13px] text-faint ${className}`}>{children}</p>
 );
 
-/** A link to GitHub (or elsewhere) that sends no referrer. */
+/** A link to another site (GitHub, claude.ai): opens in a new tab and sends no referrer (REQ-003-45). */
 export const Link = ({ href, className, children }: { href: string; className?: string; children: ReactNode }) => (
-  <a className={className} href={href} rel="noreferrer">
+  <a className={className} href={href} target="_blank" rel="noopener noreferrer">
     {children}
   </a>
 );
