@@ -28,7 +28,8 @@ const NOW = new Date("2026-11-15T10:30:00Z");
 const session = (s: Partial<SessionRecord & { live: boolean }> & Pick<SessionRecord, "id" | "role" | "issues">) => ({
   repo: "octo/app",
   kind: "issue" as const,
-  claudeSessionId: "c",
+  agentSessionId: "c",
+  harness: "claude" as const,
   state: "running" as const,
   resumeAttempts: 0,
   lastActivityAt: "2026-11-15T10:00:00.000Z",

@@ -1,13 +1,15 @@
 /**
- * Session runner: starts, resumes and closes interactive `claude --remote-control` sessions in
- * detached tmux windows (one window per session, named `s<store id>`), so each shows up in the
- * Owner's Claude app (REQ-001-18). Hooks report turns back through the store (src/hook.ts).
+ * Session runner: starts, resumes and closes interactive agent sessions in detached tmux windows (one window per
+ * session, named `s<store id>`), each in the CLI of its Harness (REQ-006-01); Claude Code's show up in the Owner's
+ * Claude app (REQ-001-18). Hooks report turns back through the store (src/hook.ts).
  */
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { type Account, accountDir, copyTranscript, DEFAULT_ACCOUNT, freeAccount } from "./accounts.ts";
+import { join } from "node:path";
+import { type Account, accountDir, accountsOf, DEFAULT_ACCOUNT, freeAccount } from "./accounts.ts";
 import type { Role, RoleSettings } from "./config.ts";
+import { type Harness, type HarnessName, harnessByName } from "./harness/index.ts";
+import { harnessOfModel } from "./models.ts";
 import { resultInstructions } from "./results.ts";
 import type { SessionRecord, Store } from "./store.ts";
 import type { Tmux } from "./tmux.ts";
@@ -17,15 +19,17 @@ interface SessionMeta {
   cwd: string;
 }
 
-// REQ-001-17: StopFailure fires instead of Stop when an API error (e.g. the usage limit) ends the turn.
-const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "Notification", "SessionEnd"] as const;
-/** Screens the Coordinator answers with Down, Enter: the second option, which is "yes" on both. */
-const DIALOGS = [
-  /Yes, I trust this folder/,
-  // REQ-005-01: shown once per Claude config folder before it runs with skipped permissions.
-  /Bypass Permissions mode[\s\S]*Yes, I accept/,
-];
+export { claudeArgs, parentInstructionFiles } from "./harness/claude.ts";
+
 const WINDOW = /^s(\d+)$/;
+
+/** REQ-006-02: work for a Harness that has no Account in `config.ts`. */
+export class NoAccountError extends Error {
+  constructor(harness: Harness) {
+    super(`no Account of ${harness.label} (accounts with harness: "${harness.name}" in config.ts)`);
+    this.name = "NoAccountError";
+  }
+}
 
 export class SessionBusyError extends Error {
   constructor(id: number) {
@@ -61,39 +65,6 @@ export function remoteControlName(s: Pick<SessionRecord, "repo" | "role" | "kind
   return `#${s.issues[0]} ${title}${more} · ${role} · ${repoName}`;
 }
 
-/**
- * REQ-005-07: the instruction files of every folder above a session's own, for `claudeMdExcludes`. Claude Code loads
- * CLAUDE.md from each of them, so a Worktree inside the Coordinator's checkout would load the Coordinator's own
- * instructions and stop at the screen asking about their imports (#87). The Owner's own `~/.claude` still loads.
- */
-export function parentInstructionFiles(cwd: string, home: string): string[] {
-  const files: string[] = [];
-  const userDir = resolve(home);
-  for (let dir = dirname(resolve(cwd)); ; dir = dirname(dir)) {
-    const at = dir === "/" ? "" : dir;
-    files.push(`${at}/CLAUDE.md`, `${at}/CLAUDE.local.md`);
-    if (dir !== userDir) files.push(`${at}/.claude/CLAUDE.md`, `${at}/.claude/rules/**`);
-    if (dirname(dir) === dir) return files;
-  }
-}
-
-/** The arguments before the prompt, which `launch` appends from the session's prompt file (REQ-001-45). */
-export function claudeArgs(o: {
-  name: string;
-  settingsPath: string;
-  model: RoleSettings;
-  resumeId?: string;
-}): string[] {
-  const args: string[] = [];
-  if (o.resumeId) args.push("--resume", o.resumeId);
-  // REQ-005-01: agents run unrestricted on the Coordinator's VM.
-  args.push("--settings", o.settingsPath, "--remote-control", o.name, "--dangerously-skip-permissions");
-  // The prompt must follow a single-value flag: --remote-control has an optional value.
-  args.push("--model", o.model.model);
-  if (o.model.effort) args.push("--effort", o.model.effort);
-  return args;
-}
-
 export interface StartOptions {
   repo: string;
   role: Role;
@@ -116,10 +87,11 @@ export class SessionRunner {
       dbPath: string;
       /** How to run src/hook.ts, e.g. `[process.execPath, "/…/src/hook.ts"]`. */
       hookCommand: string[];
-      claudeBin?: string;
+      /** The CLI to run instead of each Harness's own, e.g. a fake one in tests. */
+      bins?: Partial<Record<HarnessName, string>>;
       /** In priority order (REQ-004-01); default: the implicit Account in Claude's default folder. */
       accounts?: Account[];
-      /** Where Claude's default folder `~/.claude` lives. */
+      /** Where the Harnesses' default folders, e.g. `~/.claude`, live. */
       home?: string;
     },
   ) {}
@@ -138,6 +110,7 @@ export class SessionRunner {
     rmSync(this.tmpDir(id), { recursive: true, force: true });
   }
 
+  /** REQ-006-01: a new session runs on the Harness of its model. */
   start(opts: StartOptions): number {
     const id = this.o.store.createSession({
       repo: opts.repo,
@@ -145,6 +118,7 @@ export class SessionRunner {
       kind: opts.kind,
       issues: opts.issues,
       title: opts.title,
+      harness: harnessOfModel(opts.model.model),
     });
     try {
       this.prepare(id, opts);
@@ -162,38 +136,33 @@ export class SessionRunner {
     this.writeSettings(id, opts.cwd);
   }
 
-  /**
-   * REQ-005-01: the hooks, the status line (REQ-001-67) and, for REQ-005-07, the CLAUDE.md files above the session's folder to skip; rewritten on
-   * every resume, so a session folder from an older Coordinator loses its sandbox.
-   */
+  /** The hook command line of one event for a session. */
+  private hook(id: number): (event: string) => string {
+    return (ev) => shellQuote([...this.o.hookCommand, ev, this.o.dbPath, String(id), this.sessionDir(id)]);
+  }
+
+  /** The Harness's per-session config (REQ-005-01), rewritten on every resume. */
   private writeSettings(id: number, cwd: string): void {
-    const dir = this.sessionDir(id);
-    const hooks = Object.fromEntries(
-      HOOK_EVENTS.map((ev) => [
-        ev,
-        [
-          {
-            hooks: [
-              { type: "command", command: shellQuote([...this.o.hookCommand, ev, this.o.dbPath, String(id), dir]) },
-            ],
-          },
-        ],
-      ]),
-    );
-    // REQ-001-67: Claude Code passes the Usage quota only to a status line command.
-    const statusLine = {
-      type: "command",
-      command: shellQuote([...this.o.hookCommand, "StatusLine", this.o.dbPath, String(id), dir]),
-    };
-    const claudeMdExcludes = parentInstructionFiles(cwd, this.o.home ?? homedir());
-    writeFileSync(join(dir, "settings.json"), JSON.stringify({ hooks, statusLine, claudeMdExcludes }, null, 2));
+    const harness = this.harnessOf(id);
+    harness.writeSessionConfig({ sessionDir: this.sessionDir(id), cwd, home: this.home(), hook: this.hook(id) });
+  }
+
+  /** REQ-006-03: the Harness a session started on; a resume stays on it. */
+  private harnessOf(id: number): Harness {
+    return harnessByName(this.mustGet(id).harness);
+  }
+
+  private home(): string {
+    return this.o.home ?? homedir();
   }
 
   /** Continues a session with a new prompt; refuses while it is running (REQ-001-19). */
   resume(id: number, prompt: string, model: RoleSettings, opts: { keepResult?: boolean } = {}): void {
     const s = this.mustGet(id);
     if (this.isBusy(s)) throw new SessionBusyError(id);
-    if (!s.claudeSessionId) throw new Error(`session ${id} has no Claude session id to resume`);
+    // E.g. "no Claude session id", "no Codex session id".
+    const vendor = harnessByName(s.harness).label.split(" ")[0];
+    if (!s.agentSessionId) throw new Error(`session ${id} has no ${vendor} session id to resume`);
     const meta = JSON.parse(readFileSync(join(this.sessionDir(id), "meta.json"), "utf8")) as SessionMeta;
     try {
       this.o.tmux.killWindow(`s${id}`);
@@ -204,7 +173,7 @@ export class SessionRunner {
         usageLimited: false,
         usageLimitResetsAt: null,
       });
-      this.launch(id, meta.cwd, prompt, model, s.claudeSessionId, opts.keepResult);
+      this.launch(id, meta.cwd, prompt, model, s.agentSessionId, opts.keepResult);
     } catch (e) {
       throw this.startFailed(id, e);
     }
@@ -236,15 +205,37 @@ export class SessionRunner {
     return new Set(this.o.tmux.listWindows().flatMap((w) => (WINDOW.test(w) ? [Number(w.slice(1))] : [])));
   }
 
-  /** Answers the folder trust dialog and the Bypass Permissions warning (REQ-005-01); any other screen stays (REQ-001-57). */
+  /**
+   * Answers its Harness's folder trust dialog and, for Claude, the Bypass Permissions warning (REQ-005-01); any other
+   * screen stays (REQ-001-57).
+   */
   answerDialogs(): void {
     for (const id of this.liveSessionIds()) {
+      const s = this.o.store.session(id);
+      if (!s) continue;
       const screen = this.o.tmux.capture(`s${id}`);
-      if (DIALOGS.some((d) => d.test(screen))) {
-        this.o.tmux.sendKeys(`s${id}`, "Down");
-        this.o.tmux.sendKeys(`s${id}`, "Enter");
-      }
+      const dialog = harnessByName(s.harness).dialogs.find((d) => d.screen.test(screen));
+      for (const key of dialog?.keys ?? []) this.o.tmux.sendKeys(`s${id}`, key);
     }
+  }
+
+  /**
+   * REQ-006-04: ends the turn of a running session whose Harness ended it without the turn-end hook, e.g. Codex on the
+   * usage limit (REQ-001-17). Returns the ids it marked.
+   */
+  detectEndedTurns(): number[] {
+    const marked: number[] = [];
+    for (const id of this.liveSessionIds()) {
+      const s = this.o.store.session(id);
+      const harness = s && harnessByName(s.harness);
+      if (!s || !harness?.endedTurn || s.state !== "running" || s.coordinatorPromptPending || !s.transcriptPath)
+        continue;
+      const ended = harness.endedTurn(s.transcriptPath);
+      if (!ended?.usageLimited) continue;
+      this.o.store.patchSession(id, { state: "idle", usageLimited: true, usageLimitResetsAt: ended.resetsAt ?? null });
+      marked.push(id);
+    }
+    return marked;
   }
 
   /** What the session's window shows now, e.g. to say why it did not start (REQ-001-57). */
@@ -260,29 +251,33 @@ export class SessionRunner {
     this.o.store.patchSession(id, { state: "closed", coordinatorPromptPending: false });
   }
 
-  /** REQ-004-01: the first Account that isn't paused; the first one if all are (the scheduler holds work back then). */
-  private chooseAccount(): Account {
-    const accounts = this.o.accounts?.length ? this.o.accounts : [DEFAULT_ACCOUNT];
+  /**
+   * REQ-004-01: the first Account of the Harness that isn't paused; the first one if all are (the scheduler holds work
+   * back then). REQ-006-02: only Accounts of the session's Harness.
+   */
+  private chooseAccount(harness: Harness): Account {
+    const accounts = accountsOf(this.o.accounts?.length ? this.o.accounts : [DEFAULT_ACCOUNT], harness.name);
+    if (!accounts.length) throw new NoAccountError(harness);
     const now = this.o.store.clock();
     return freeAccount(accounts, (n) => this.o.store.pausedUntil(n), now) ?? (accounts[0] as Account);
   }
 
-  /** The folder of a recorded Account; sessions from before spec 004 ran in Claude's default folder. */
-  private recordedDir(name: string | null): string {
-    const home = this.o.home ?? homedir();
-    const a = this.o.accounts?.find((x) => x.name === name) ?? DEFAULT_ACCOUNT;
-    return accountDir(a, home);
+  /** The recorded Account; sessions from before spec 004 ran in Claude's default folder. */
+  private recordedAccount(name: string | null): Account {
+    return this.o.accounts?.find((x) => x.name === name) ?? DEFAULT_ACCOUNT;
   }
 
   private launch(id: number, cwd: string, prompt: string, model: RoleSettings, resumeId?: string, keepResult = false) {
     const s = this.mustGet(id);
     const dir = this.sessionDir(id);
-    const account = this.chooseAccount();
-    const accountFolder = accountDir(account, this.o.home ?? homedir());
+    const harness = harnessByName(s.harness);
+    const recorded = this.recordedAccount(s.account);
+    const account = this.chooseAccount(harness);
+    const accountFolder = accountDir(account, this.home());
     // REQ-001-17: `--resume` finds only transcripts in the Account's own folder.
-    if (resumeId) {
-      const from = this.recordedDir(s.account);
-      if (from !== accountFolder) copyTranscript(resumeId, from, accountFolder);
+    if (resumeId && harness.moveTranscript) {
+      const from = accountDir(recorded, this.home());
+      if (from !== accountFolder) harness.moveTranscript(resumeId, from, accountFolder);
     }
     const resultPath = join(dir, "result.json");
     // A Result from an earlier turn must not pass for this one, unless the turn has no new task (a wake).
@@ -293,14 +288,15 @@ export class SessionRunner {
     // argument and does not interpret its content (issue text is untrusted).
     const promptPath = join(dir, "prompt.md");
     writeFileSync(promptPath, keepResult ? prompt : `${prompt}\n\n${resultInstructions(s.role, resultPath)}`);
-    const args = claudeArgs({ name: remoteControlName(s), settingsPath: join(dir, "settings.json"), model, resumeId });
-    // REQ-001-62: temp files go to the session's own folder (`os.tmpdir()`, `mktemp`, Chrome profiles, Claude Code's own).
+    const args = harness.args({ sessionDir: dir, name: remoteControlName(s), model, resumeId, hook: this.hook(id) });
+    // REQ-001-62: temp files go to the session's own folder (`os.tmpdir()`, `mktemp`, Chrome profiles, the CLI's own).
     const tmp = this.tmpDir(id);
     mkdirSync(tmp, { recursive: true });
-    const tmpEnv = `TMPDIR=${shellQuote([tmp])} CLAUDE_CODE_TMPDIR=${shellQuote([tmp])} `;
-    // REQ-005-01: Claude Code refuses skipped permissions as root unless IS_SANDBOX=1 is set.
-    const env = `${tmpEnv}IS_SANDBOX=1 ${account.configDir ? `CLAUDE_CONFIG_DIR=${shellQuote([account.configDir])} ` : ""}`;
-    const command = `${env}${shellQuote([this.o.claudeBin ?? "claude", ...args])} "$(cat ${shellQuote([promptPath])})"`;
+    const vars: [string, string][] = [["TMPDIR", tmp], ...Object.entries(harness.env({ tmp }))];
+    if (account.configDir) vars.push([harness.accountEnv, account.configDir]);
+    const env = vars.map(([k, v]) => `${k}=${/^\w+$/.test(v) ? v : shellQuote([v])} `).join("");
+    const bin = this.o.bins?.[harness.name] ?? harness.bin;
+    const command = `${env}${shellQuote([bin, ...args])} "$(cat ${shellQuote([promptPath])})"`;
     this.o.tmux.newWindow(`s${id}`, cwd, command);
   }
 

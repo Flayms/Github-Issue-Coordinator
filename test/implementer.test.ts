@@ -316,7 +316,7 @@ describe("Implementer run", () => {
 
   const withPr = async () => {
     const id = await impl.start("octo/app", [item(5)]);
-    store.setClaudeSessionId(id, "claude-1");
+    store.setAgentSessionId(id, "claude-1");
     wt.ahead = 1;
     finish(id);
     await impl.sync(id);
@@ -614,7 +614,7 @@ describe("Implementer run", () => {
 describe("REQ-001-54 an agent PR shows its state", () => {
   const opened = async () => {
     const id = await impl.start("octo/app", [item(5), item(6)]);
-    store.setClaudeSessionId(id, "claude-1");
+    store.setAgentSessionId(id, "claude-1");
     wt.ahead = 1;
     finish(id);
     await impl.sync(id);

@@ -98,7 +98,7 @@ try {
   });
   console.log(`Started session ${id} as "smoke/test#1 ${role}" (state dir ${root}).`);
   const first = await waitIdle(id, "first turn");
-  console.log(`  claude session ${first.claudeSessionId}, failures ${first.resultFailures}, result:`, result(id));
+  console.log(`  claude session ${first.agentSessionId}, failures ${first.resultFailures}, result:`, result(id));
 
   const log = Bun.spawnSync(["git", "-C", repo, "log", "--oneline"]).stdout.toString().trim();
   console.log(`  git log: ${JSON.stringify(log)}`);
@@ -118,7 +118,7 @@ try {
   runner.resume(id, SECOND[role], model);
   const second = await waitIdle(id, "resumed turn");
   console.log(
-    `  claude session ${second.claudeSessionId} (same: ${second.claudeSessionId === first.claudeSessionId}), result:`,
+    `  claude session ${second.agentSessionId} (same: ${second.agentSessionId === first.agentSessionId}), result:`,
     result(id),
   );
 

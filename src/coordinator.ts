@@ -480,7 +480,7 @@ export class Coordinator {
           view.feedback.delete(a.recordNumber);
           view.prFeedback.delete(a.recordNumber);
         };
-        if (!target?.claudeSessionId) {
+        if (!target?.agentSessionId) {
           handled();
           this.log(`${a.repo}#${a.issue}: /wake, but there is no session to wake`);
           return;

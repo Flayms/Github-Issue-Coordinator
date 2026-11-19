@@ -4,6 +4,7 @@
  */
 import { Database } from "bun:sqlite";
 import type { Role } from "./config.ts";
+import type { HarnessName } from "./harness/harness.ts";
 import type { RiskTier } from "./results.ts";
 
 export type SessionState = "running" | "idle" | "closed";
@@ -16,8 +17,10 @@ export interface SessionRecord {
   /** `batch`: a Planner pass over several issues (REQ-001-02); `issue`: one issue or Bundle. */
   kind: "batch" | "issue";
   issues: number[];
-  /** Claude Code's session id, reported by the `SessionStart` hook; needed to resume. */
-  claudeSessionId: string | null;
+  /** The Harness's own session id, reported by the `SessionStart` hook; needed to resume. */
+  agentSessionId: string | null;
+  /** The Harness the session started on; a resume stays on it (REQ-006-03). */
+  harness: HarnessName;
   state: SessionState;
   resumeAttempts: number;
   lastActivityAt: string;
@@ -204,7 +207,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   role TEXT NOT NULL,
   kind TEXT NOT NULL,
   issues TEXT NOT NULL,
-  claude_session_id TEXT,
+  agent_session_id TEXT,
   state TEXT NOT NULL,
   resume_attempts INTEGER NOT NULL DEFAULT 0,
   last_activity_at TEXT NOT NULL,
@@ -218,7 +221,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   title TEXT,
   started_at TEXT,
   account TEXT,
-  transcript_path TEXT
+  transcript_path TEXT,
+  harness TEXT NOT NULL DEFAULT 'claude'
 );
 CREATE TABLE IF NOT EXISTS issues (
   repo TEXT NOT NULL,
@@ -302,7 +306,7 @@ interface SessionRow {
   role: Role;
   kind: "batch" | "issue";
   issues: string;
-  claude_session_id: string | null;
+  agent_session_id: string | null;
   state: SessionState;
   resume_attempts: number;
   last_activity_at: string;
@@ -317,6 +321,7 @@ interface SessionRow {
   started_at: string | null;
   account: string | null;
   transcript_path: string | null;
+  harness: HarnessName;
 }
 
 const toSession = (r: SessionRow): SessionRecord => ({
@@ -325,7 +330,7 @@ const toSession = (r: SessionRow): SessionRecord => ({
   role: r.role,
   kind: r.kind,
   issues: JSON.parse(r.issues),
-  claudeSessionId: r.claude_session_id,
+  agentSessionId: r.agent_session_id,
   state: r.state,
   resumeAttempts: r.resume_attempts,
   lastActivityAt: r.last_activity_at,
@@ -340,6 +345,7 @@ const toSession = (r: SessionRow): SessionRecord => ({
   startedAt: r.started_at ?? null,
   account: r.account ?? null,
   transcriptPath: r.transcript_path ?? null,
+  harness: r.harness,
 });
 
 interface TimingRow {
@@ -439,8 +445,14 @@ export class Store {
         account: "TEXT",
         usage_limit_resets_at: "TEXT",
         transcript_path: "TEXT",
+        // REQ-006-03: sessions stored before spec 006 ran on Claude Code.
+        harness: "TEXT NOT NULL DEFAULT 'claude'",
       },
     };
+    // Spec 006: the session id is the Harness's, not only Claude's.
+    const sessionCols = this.db.query<{ name: string }, []>("PRAGMA table_info(sessions)").all();
+    if (sessionCols.some((c) => c.name === "claude_session_id"))
+      this.db.exec("ALTER TABLE sessions RENAME COLUMN claude_session_id TO agent_session_id");
     for (const [table, cols] of Object.entries(added)) {
       const have = new Set(
         this.db
@@ -461,13 +473,16 @@ export class Store {
     this.db.close();
   }
 
-  createSession(s: Pick<SessionRecord, "repo" | "role" | "kind" | "issues"> & { title?: string | null }): number {
+  createSession(
+    s: Pick<SessionRecord, "repo" | "role" | "kind" | "issues"> & { title?: string | null; harness?: HarnessName },
+  ): number {
     const row = this.db
       .query<{ id: number }, Record<string, string | null>>(
-        `INSERT INTO sessions (repo, role, kind, issues, title, state, last_activity_at, started_at)
-         VALUES ($repo, $role, $kind, $issues, $title, 'running', $at, $at) RETURNING id`,
+        `INSERT INTO sessions (repo, role, kind, issues, title, state, last_activity_at, started_at, harness)
+         VALUES ($repo, $role, $kind, $issues, $title, 'running', $at, $at, $harness) RETURNING id`,
       )
       .get({
+        harness: s.harness ?? "claude",
         repo: s.repo,
         role: s.role,
         kind: s.kind,
@@ -520,8 +535,8 @@ export class Store {
     return row ? toSession(row) : undefined;
   }
 
-  setClaudeSessionId(id: number, claudeSessionId: string): void {
-    this.db.query("UPDATE sessions SET claude_session_id = ? WHERE id = ?").run(claudeSessionId, id);
+  setAgentSessionId(id: number, agentSessionId: string): void {
+    this.db.query("UPDATE sessions SET agent_session_id = ? WHERE id = ?").run(agentSessionId, id);
   }
 
   setModelId(id: number, modelId: string): void {

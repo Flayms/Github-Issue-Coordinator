@@ -331,7 +331,7 @@ describe("plan revision", () => {
 
   test("REQ-001-03 / REQ-001-33 after a batch, feedback goes to a fresh Planner session for that issue with its current Assessment", async () => {
     const batch = await assessed();
-    store.setClaudeSessionId(batch, "sess-batch"); // resumable, but it covers several issues
+    store.setAgentSessionId(batch, "sess-batch"); // resumable, but it covers several issues
     await planner.revise(
       "octo/app",
       "/c",
@@ -354,7 +354,7 @@ describe("plan revision", () => {
       { comments: [comment(300, "a")], bodyChanged: false },
       none,
     );
-    store.setClaudeSessionId(own, "sess-own");
+    store.setAgentSessionId(own, "sess-own");
     store.patchSession(own, { state: "idle" });
     const again = await planner.revise(
       "octo/app",
@@ -551,7 +551,7 @@ describe("replies to the Owner's comments", () => {
       { comments: [comment(300, "a")], bodyChanged: false },
       none,
     );
-    store.setClaudeSessionId(own, "sess-own");
+    store.setAgentSessionId(own, "sess-own");
     finishTurn(own, [entry(5, { approach: "Old plan", reply: "ok" })]);
     await planner.sync(own);
     gh.calls = [];
@@ -828,7 +828,7 @@ describe("Linked history", () => {
     expect(runner.started.at(-1)?.prompt).toContain("### Issue #47");
 
     // resumed: only what the new comments link to beyond the description
-    store.setClaudeSessionId(own, "sess-own");
+    store.setAgentSessionId(own, "sess-own");
     store.patchSession(own, { state: "idle" });
     gh.calls = [];
     await planner.revise(

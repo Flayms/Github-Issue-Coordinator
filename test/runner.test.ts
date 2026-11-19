@@ -213,7 +213,7 @@ describe("session runner", () => {
 
   test("REQ-005-01 a resume rewrites the settings without permissions or sandbox", () => {
     const id = startImplementer();
-    store.setClaudeSessionId(id, "sess-abc");
+    store.setAgentSessionId(id, "sess-abc");
     store.patchSession(id, { state: "idle" });
     const path = join(dir, "sessions", String(id), "settings.json");
     // A session folder written by an older Coordinator, with a sandbox and deny rules.
@@ -289,7 +289,7 @@ describe("session runner", () => {
 
   test("REQ-005-07 a resume writes the excludes for the session's folder", () => {
     const id = startImplementer();
-    store.setClaudeSessionId(id, "sess-abc");
+    store.setAgentSessionId(id, "sess-abc");
     store.patchSession(id, { state: "idle" });
     const path = join(dir, "sessions", String(id), "settings.json");
     writeFileSync(path, JSON.stringify({ hooks: {} }));
@@ -319,7 +319,7 @@ describe("session runner", () => {
 
   test("REQ-001-20 / REQ-001-33 resumes a closed or idle session with --resume, its name, a fresh Result file and the new prompt", () => {
     const id = startImplementer();
-    store.setClaudeSessionId(id, "sess-abc");
+    store.setAgentSessionId(id, "sess-abc");
     store.patchSession(id, {
       state: "idle",
       resultFailures: 2,
@@ -349,7 +349,7 @@ describe("session runner", () => {
 
   test("REQ-001-16 a session still marked running whose window is gone (interrupted) can be resumed and closed", () => {
     const id = startImplementer();
-    store.setClaudeSessionId(id, "sess-abc");
+    store.setAgentSessionId(id, "sess-abc");
     tmux.windows.clear();
     runner.resume(id, "Continue", { model: "opus" });
     expect(runner.liveSessionIds()).toEqual(new Set([id]));
@@ -360,7 +360,7 @@ describe("session runner", () => {
 
   test("REQ-001-24 a wake keeps the existing Result file", () => {
     const id = startImplementer();
-    store.setClaudeSessionId(id, "sess-abc");
+    store.setAgentSessionId(id, "sess-abc");
     store.patchSession(id, { state: "idle" });
     const resultPath = join(dir, "sessions", String(id), "result.json");
     writeFileSync(resultPath, "{}");
@@ -472,7 +472,7 @@ describe("session runner", () => {
 
   test("REQ-001-44 a session that cannot be relaunched on resume is recorded as closed, with the launch error", () => {
     const id = startImplementer();
-    store.setClaudeSessionId(id, "sess-abc");
+    store.setAgentSessionId(id, "sess-abc");
     store.patchSession(id, { state: "idle" });
     tmux.failWith = "tmux new-window failed: command too long";
     expect(() => runner.resume(id, "more", { model: "opus" })).toThrow(SessionStartError);
@@ -493,7 +493,7 @@ describe("session runner", () => {
 
     test("a resumed session gets them again, with the folder recreated after a close", () => {
       const id = startImplementer();
-      store.setClaudeSessionId(id, "sess-abc");
+      store.setAgentSessionId(id, "sess-abc");
       store.patchSession(id, { state: "idle" });
       runner.close(id);
       runner.resume(id, "Fix the review findings", { model: "opus" });
@@ -586,7 +586,7 @@ describe("Accounts", () => {
 
   test("REQ-001-17 a session resumed on another Account takes its transcript along", () => {
     const id = start();
-    store.setClaudeSessionId(id, "c1");
+    store.setAgentSessionId(id, "c1");
     store.patchSession(id, { state: "idle", usageLimited: true });
     const project = join(home, ".claude", "projects", "-work-app");
     mkdirSync(project, { recursive: true });

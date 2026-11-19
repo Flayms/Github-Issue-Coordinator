@@ -33,7 +33,7 @@ const validResult = { prTitle: "T", prBody: "B", summary: "S" };
 describe("hook", () => {
   test("REQ-001-18 SessionStart records Claude's session id for resuming", () => {
     hook("SessionStart", { session_id: "abc" });
-    expect(store.session(id)?.claudeSessionId).toBe("abc");
+    expect(store.session(id)?.agentSessionId).toBe("abc");
   });
 
   test("REQ-003-42 SessionStart records the transcript path, also anew on a resume", () => {

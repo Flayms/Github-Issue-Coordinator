@@ -197,7 +197,7 @@ export function deriveActions(s: Snapshot): Action[] {
   for (const session of s.sessions) {
     if (s.liveSessionIds.has(session.id)) continue;
     if (session.state === "idle") actions.push({ type: "mark-closed", session });
-    else if (session.claudeSessionId === null)
+    else if (session.agentSessionId === null)
       actions.push(fail(session, "the session exited before Claude Code started"));
     else if (session.resumeAttempts >= 1)
       actions.push(fail(session, "session was interrupted again after being resumed once"));

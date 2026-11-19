@@ -1,0 +1,33 @@
+{
+  "//": "Hook payloads Codex CLI 0.170.0 sent to a `-c hooks.<Event>` command (recorded against a fake model server, paths shortened).",
+  "SessionStart": {
+    "session_id": "01a1f4fb-4535-7cb2-bc3c-78b9ba0a5a91",
+    "transcript_path": "/home/agent/.codex/sessions/2026/11/19/rollout-2026-11-19T18-04-30-01a1f4fb-4535-7cb2-bc3c-78b9ba0a5a91.jsonl",
+    "cwd": "/work/app",
+    "hook_event_name": "SessionStart",
+    "model": "gpt-fake",
+    "permission_mode": "bypassPermissions",
+    "source": "startup"
+  },
+  "UserPromptSubmit": {
+    "session_id": "01a1f4fb-4535-7cb2-bc3c-78b9ba0a5a91",
+    "turn_id": "01a1f4fb-4683-7262-ac3f-721e7f93762f",
+    "transcript_path": "/home/agent/.codex/sessions/2026/11/19/rollout-2026-11-19T18-04-30-01a1f4fb-4535-7cb2-bc3c-78b9ba0a5a91.jsonl",
+    "cwd": "/work/app",
+    "hook_event_name": "UserPromptSubmit",
+    "model": "gpt-fake",
+    "permission_mode": "bypassPermissions",
+    "prompt": "second run"
+  },
+  "Stop": {
+    "session_id": "01a1f4fb-4535-7cb2-bc3c-78b9ba0a5a91",
+    "turn_id": "01a1f4fb-4683-7262-ac3f-721e7f93762f",
+    "transcript_path": "/home/agent/.codex/sessions/2026/11/19/rollout-2026-11-19T18-04-30-01a1f4fb-4535-7cb2-bc3c-78b9ba0a5a91.jsonl",
+    "cwd": "/work/app",
+    "hook_event_name": "Stop",
+    "model": "gpt-fake",
+    "permission_mode": "bypassPermissions",
+    "stop_hook_active": false,
+    "last_assistant_message": "fake reply 4"
+  }
+}

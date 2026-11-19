@@ -269,7 +269,7 @@ export class Planner {
     }
 
     const feedbackText = renderFeedback(feedback.comments, false);
-    if (own?.kind === "issue" && own.claudeSessionId) {
+    if (own?.kind === "issue" && own.agentSessionId) {
       // The session already has the history of what the description links to.
       const history = await linked(commentText, findLinks(repo, issue.body));
       this.d.runner.resume(own.id, joinParts(feedbackText, history), model);
