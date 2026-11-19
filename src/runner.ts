@@ -17,7 +17,8 @@ interface SessionMeta {
   cwd: string;
 }
 
-const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "Notification", "SessionEnd"] as const;
+// REQ-001-17: StopFailure fires instead of Stop when an API error (e.g. the usage limit) ends the turn.
+const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "Notification", "SessionEnd"] as const;
 /** Screens the Coordinator answers with Down, Enter: the second option, which is "yes" on both. */
 const DIALOGS = [
   /Yes, I trust this folder/,

@@ -140,6 +140,23 @@ describe("hook", () => {
     expect(store.session(id)).toMatchObject({ state: "idle", usageLimited: true, needsSync: false, resultFailures: 0 });
   });
 
+  test("REQ-001-17 a turn ended by the usage limit fires StopFailure (not Stop) with error rate_limit and is marked for the pause", () => {
+    // Shape seen with Claude Code 2.1.328 on a real weekly limit.
+    const payload = {
+      hook_event_name: "StopFailure",
+      error: "rate_limit",
+      last_assistant_message: "You've hit your weekly limit · resets Nov 22, 10am (UTC)",
+    };
+    expect(hook("StopFailure", payload)).toEqual({});
+    expect(store.session(id)).toMatchObject({ state: "idle", usageLimited: true, needsSync: false, resultFailures: 0 });
+  });
+
+  test("REQ-001-17 a turn ended by another API error is not a usage limit", () => {
+    store.patchSession(id, { state: "running" });
+    hook("StopFailure", { error: "overloaded" });
+    expect(store.session(id)).toMatchObject({ state: "running", usageLimited: false });
+  });
+
   test("an agent merely talking about limits is not a usage limit", () => {
     const transcript = join(dir, "t.jsonl");
     const text = "I raised the usage limit reached threshold.";

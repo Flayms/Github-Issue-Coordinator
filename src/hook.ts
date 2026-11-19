@@ -8,9 +8,11 @@
  * - Stop: validates the Result and blocks the stop while it is invalid, up to 3 times (REQ-001-21);
  *   otherwise marks the session idle and queues a sync (REQ-001-19). A turn cut off by the usage
  *   limit is never blocked (REQ-001-17).
+ * - StopFailure: fires instead of Stop when an API error ended the turn; `error: "rate_limit"` is the usage limit,
+ *   which marks the session for its Account's pause (REQ-001-17).
  * - StatusLine: run as the session's status line command, not as a hook; records the Account's Usage quota and
  *   prints it for the session's window (REQ-001-67).
- * Every hook payload is appended to <sessionDir>/events.jsonl (usage-limit format still unknown, T0 (e)); the status
+ * Every hook payload is appended to <sessionDir>/events.jsonl, so unknown shapes can be captured (T0 (e)); the status
  * line's are not, since it runs after every message.
  */
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
@@ -47,6 +49,11 @@ export function handleHook({ event, payload, store, sessionId, sessionDir }: Hoo
       if (session.coordinatorPromptPending)
         store.patchSession(sessionId, { state: "running", coordinatorPromptPending: false });
       else store.patchSession(sessionId, { state: "running", ownerMessagedAt: new Date(nowOf(store)).toISOString() });
+      return {};
+
+    // REQ-001-17: Claude Code fires this instead of Stop when an API error ended the turn; its output is ignored.
+    case "StopFailure":
+      if (payload.error === "rate_limit") store.patchSession(sessionId, { state: "idle", usageLimited: true });
       return {};
 
     case "Stop": {
