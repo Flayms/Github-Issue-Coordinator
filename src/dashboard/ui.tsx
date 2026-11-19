@@ -132,8 +132,21 @@ const Ring = () => (
 
 const TITLES = { overview: "Coordinator", config: "Config · Coordinator", timings: "Timings · Coordinator" };
 
-/** The page frame shared by the pages: header with tabs, countdown and alerts. */
-export function Layout({ v, page, children }: { v: DashboardView; page: keyof typeof TITLES; children: ReactNode }) {
+/**
+ * The page frame shared by the pages: header with tabs, countdown and alerts. While `editing` (the Config form,
+ * REQ-003-36) the page doesn't refresh itself, so entered values and a save's errors stay.
+ */
+export function Layout({
+  v,
+  page,
+  editing = false,
+  children,
+}: {
+  v: DashboardView;
+  page: keyof typeof TITLES;
+  editing?: boolean;
+  children: ReactNode;
+}) {
   // REQ-003-17: a failed poll is red, the usage-limit pause only waits; the text stays neutral.
   const alerts: { icon: IconName; tone: Tone; text: string }[] = [
     ...(v.pausedUntil
@@ -156,9 +169,11 @@ export function Layout({ v, page, children }: { v: DashboardView; page: keyof ty
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-        <noscript>
-          <meta httpEquiv="refresh" content={String(v.refreshSec)} />
-        </noscript>
+        {!editing && (
+          <noscript>
+            <meta httpEquiv="refresh" content={String(v.refreshSec)} />
+          </noscript>
+        )}
         <meta name="referrer" content="no-referrer" />
         <meta name="color-scheme" content="dark" />
         <meta name="theme-color" content="#05060B" />
@@ -188,20 +203,29 @@ export function Layout({ v, page, children }: { v: DashboardView; page: keyof ty
             </Tab>
           </nav>
           <div className="flex w-full items-center justify-between gap-3.5 text-[12px] text-muted sm:ml-auto sm:w-auto sm:justify-start">
-            <span
-              className="inline-flex items-center gap-1.5"
-              data-reload={v.refreshSec}
-              title={`${v.lastTick ? `Last tick ${v.lastTick.at}` : "No tick has finished yet"} · refreshes every ${v.refreshSec} s`}
-            >
-              <Ring />
-              <span className="min-w-[4ch] font-mono" data-countdown="">
-                every {v.refreshSec} s
+            {editing ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-line-2 px-[9px] py-[3px]">
+                <Icon name="pause" />
+                No refresh while you edit
               </span>
-            </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-line-2 px-[9px] py-[3px]">
-              <Icon name="lock" />
-              Read-only
-            </span>
+            ) : (
+              <>
+                <span
+                  className="inline-flex items-center gap-1.5"
+                  data-reload={v.refreshSec}
+                  title={`${v.lastTick ? `Last tick ${v.lastTick.at}` : "No tick has finished yet"} · refreshes every ${v.refreshSec} s`}
+                >
+                  <Ring />
+                  <span className="min-w-[4ch] font-mono" data-countdown="">
+                    every {v.refreshSec} s
+                  </span>
+                </span>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-line-2 px-[9px] py-[3px]">
+                  <Icon name="lock" />
+                  Read-only
+                </span>
+              </>
+            )}
             {/* REQ-003-31: a plain form, so it works without JavaScript; the server answers with a signed-out page. */}
             {v.settings.access?.githubLogin === "on" && (
               <form method="post" action="/auth/logout">
@@ -238,9 +262,11 @@ export function Layout({ v, page, children }: { v: DashboardView; page: keyof ty
 }
 
 /** The note at the bottom of each page; the Overview puts it inside its band (#100). */
-export const Footer = ({ className = "mt-12 pt-5" }: { className?: string }) => (
+export const Footer = ({ className = "mt-12 pt-5", editing = false }: { className?: string; editing?: boolean }) => (
   <footer className={`wrap pb-8 text-[12px] text-faint ${className}`}>
-    Read-only: this page changes nothing. Approve, give feedback and merge on GitHub.
+    {editing
+      ? "Only these settings change here. Approve, give feedback and merge on GitHub."
+      : "Read-only: this page changes nothing. Approve, give feedback and merge on GitHub."}
   </footer>
 );
 

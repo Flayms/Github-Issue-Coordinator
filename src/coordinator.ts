@@ -54,6 +54,7 @@ function lastLines(screen: string, n: number): string {
 const PROPOSALS = ["proposed", "needs-refinement", "wontfix-proposed"];
 
 export interface CoordinatorDeps {
+  /** Read on every use, never copied: it may be a getter of the live config, so saved settings apply from the next tick on (REQ-003-36). */
   config: Config;
   store: Store;
   gh: Pick<
@@ -146,9 +147,11 @@ export class Coordinator {
   constructor(private readonly d: CoordinatorDeps) {
     this.now = d.now ?? (() => new Date());
     this.log = d.log ?? ((m) => console.log(`${new Date().toISOString()} ${m}`));
-    this.planner = new Planner({ ...d, log: this.log });
-    this.implementer = new Implementer({ ...d, log: this.log });
-    this.reviewer = new Reviewer({ ...d, log: this.log });
+    // A spread would copy `config` once; the Roles read it through `d` instead (REQ-003-36).
+    const roleDeps = Object.defineProperty({ ...d, log: this.log }, "config", { get: () => d.config });
+    this.planner = new Planner(roleDeps);
+    this.implementer = new Implementer(roleDeps);
+    this.reviewer = new Reviewer(roleDeps);
     d.store.adoptLegacyPause(this.accountNames()[0] as string);
   }
 

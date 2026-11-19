@@ -3,12 +3,13 @@
  * Setup check: `bun run doctor`. Verifies everything the Coordinator needs before its first start
  * (docs/setup.md) and prints what is missing. Read-only: it changes nothing.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DEFAULT_ACCOUNT } from "./accounts.ts";
-import { githubLoginOf, loadConfig } from "./config.ts";
+import { githubLoginOf, importConfig, loadConfig } from "./config.ts";
 import { GhToken } from "./github/gh-token.ts";
 import { API, baseHeaders } from "./github/http.ts";
+import { LiveConfig, OVERRIDES_FILE } from "./overrides.ts";
 import { tempSpaceChecks } from "./temp-space.ts";
 
 type Status = "ok" | "fail" | "warn";
@@ -43,6 +44,18 @@ try {
   report("ok", "config valid", `${config.repos.length} repositories, Owner ${config.owner.login} (${config.owner.id})`);
 } catch (e) {
   report("fail", "config valid", e instanceof Error ? e.message : String(e));
+}
+
+// REQ-003-36: the settings saved from the dashboard, laid over config.ts, must still make a valid config.
+if (config && existsSync(resolve(config.stateDir, OVERRIDES_FILE))) {
+  try {
+    const { raw, source } = await importConfig(process.env.COORDINATOR_CONFIG ?? "config.ts");
+    const live = new LiveConfig(raw, source);
+    report("ok", "settings overrides valid", `${live.path} (${Object.keys(live.overrides).join(", ") || "empty"})`);
+    config = live.current;
+  } catch (e) {
+    report("fail", "settings overrides valid", e instanceof Error ? e.message : String(e));
+  }
 }
 
 // REQ-005-08: sessions keep their temp files in their session folder (REQ-001-62); `/tmp` is often a small tmpfs.

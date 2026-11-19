@@ -38,7 +38,7 @@ Copy `config.example.ts` to `config.ts` and fill in:
 
 ## 4. Dashboard
 
-On by default at `127.0.0.1:8080`, read-only ([spec 003](specs/003-dashboard/spec.md)). Reach it over Tailscale (`tailscale serve --bg 8080`) or an SSH tunnel (`ssh -N -L 8080:127.0.0.1:8080 root@<vm>`), never directly from the internet. `dashboard: false` turns it off.
+On by default at `127.0.0.1:8080` ([spec 003](specs/003-dashboard/spec.md)). It changes nothing on GitHub; once you are signed in with GitHub, the Config page lets you change the limits, the poll interval, `checksGraceSeconds` and each Role's model and effort (globally and per repository). They apply from the next tick on and are kept in `<stateDir>/config.overrides.json`, over `config.ts`; delete that file (and restart) to go back to `config.ts`. Repositories, Accounts, access and `setup` commands change only in `config.ts`. Reach it over Tailscale (`tailscale serve --bg 8080`) or an SSH tunnel (`ssh -N -L 8080:127.0.0.1:8080 root@<vm>`), never directly from the internet. `dashboard: false` turns it off.
 
 **Sign in with GitHub** (on by default): only the Owner gets in. Until it is set up, the pages answer 503. Create an OAuth App: GitHub → Settings → Developer settings → OAuth Apps → New OAuth App:
 

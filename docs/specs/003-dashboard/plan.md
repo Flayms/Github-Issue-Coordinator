@@ -88,3 +88,14 @@ Approach: `scripts/dashboard-screenshots.ts` renders both pages from `test/fixtu
 - [x] Coordinator: steps for plan, revise, implement, review, Feedback round; the Owner's time at approve, reply and merge (`cleanup` says `merged`); checks per head; interrupted sessions (REQ-003-33)
 - [x] View model, page, tab, route, picker script (REQ-003-34)
 - [x] Mock Timings, README screenshot; docs: README, architecture, glossary
+
+### Edit settings (#123)
+
+**Approach.** `src/overrides.ts` keeps the Settings overrides in `<stateDir>/config.overrides.json`: a strict zod schema of the editable keys only (a model must be a name, so it can't become an option of the `claude` command line), merged into `config.ts`'s _input_ and validated by the config schema again, so the cross-field rules (e.g. `maxRunning ≤ maxLiveSessions`) hold for the result. In overrides, `null` removes `config.ts`'s value (no effort, or the global model in a repository). `LiveConfig` holds `base` (config.ts) and `current` and writes the file atomically (temp file + rename). The live config reaches its readers without copying: `src/index.ts` hands the Coordinator a getter for `config`, the Coordinator forwards it to the Roles instead of spreading its deps, `Worktrees` takes `maxWorktrees` as a function, and the poll loop reads `pollIntervalSec` while it waits. Non-editable settings (repositories, Accounts, `dashboard`, `stateDir`, `setup`) are read from `config.ts` only. `src/dashboard/settings-form.ts` lists one field per editable setting (from `config.ts`'s repositories) and turns a submitted form into overrides: only fields whose value differs from `config.ts` are written, and Reset rebuilds them from the effective values with that one field at `config.ts`'s value. `POST /config` needs the Owner's session, `Sec-Fetch-Site: same-origin` when sent, and a form token (an HMAC of the session cookie with the session key); a token never writes. Saved: 303 to `/config?saved=1`; invalid: 400 with the page, errors and entered values. The page doesn't refresh itself while it shows the form (no countdown, no meta refresh), so a refresh can't drop entered values or the errors. The request body is capped at 64 kB.
+
+- [x] Spec: REQ-003-36; REQ-003-05, REQ-003-07, Goal, Out of scope and Assumptions amended
+- [x] Overrides schema, merge, `LiveConfig` with atomic save; `importConfig` (REQ-003-36)
+- [x] Live config in the Coordinator and its Roles, `Worktrees`, the poll loop (REQ-003-36)
+- [x] Form fields and overrides from a form; `POST /config` with session, same-origin and form token checks (REQ-003-07, REQ-003-36)
+- [x] Form on the Config page, no refresh while editing; README screenshot shows the form
+- [x] `bun run doctor` validates the overrides file; docs: README, setup, architecture, glossary

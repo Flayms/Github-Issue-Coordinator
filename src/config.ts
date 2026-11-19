@@ -172,6 +172,8 @@ const configSchema = z
 export type Config = z.output<typeof configSchema>;
 export type ConfigInput = z.input<typeof configSchema>;
 export type Limits = Config["limits"];
+/** The `limits` keys, in the order of the schema. */
+export const LIMIT_KEYS = Object.keys(limitsSchema.shape) as (keyof Limits)[];
 export type RoleSettings = z.output<typeof roleSchema>;
 
 export class ConfigError extends Error {
@@ -196,11 +198,17 @@ export function parseConfig(raw: unknown, source?: string): Config {
   );
 }
 
-export async function loadConfig(path: string): Promise<Config> {
+/** The config module's default export, not yet validated, and its absolute path. */
+export async function importConfig(path: string): Promise<{ raw: unknown; source: string }> {
   const abs = resolve(path);
   if (!existsSync(abs)) throw new Error(`config file not found: ${abs}`);
   const mod = await import(abs);
-  return parseConfig(mod.default, abs);
+  return { raw: mod.default, source: abs };
+}
+
+export async function loadConfig(path: string): Promise<Config> {
+  const { raw, source } = await importConfig(path);
+  return parseConfig(raw, source);
 }
 
 const repoOf = (config: Config, repo: string) => {

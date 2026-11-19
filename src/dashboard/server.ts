@@ -1,17 +1,19 @@
 /**
- * Read-only dashboard server (spec 003), inside the Coordinator process. It serves the last tick's
- * snapshot, and the Timings page the recorded Timings (REQ-003-34): no store writes, and no GitHub
- * calls besides the sign-in's (REQ-003-07, REQ-003-08).
+ * Dashboard server (spec 003), inside the Coordinator process. It serves the last tick's snapshot, and
+ * the Timings page the recorded Timings (REQ-003-34): no store writes, and no GitHub calls besides the
+ * sign-in's (REQ-003-07, REQ-003-08). Its one write is the Owner's Settings overrides (REQ-003-36).
  */
 import { readFileSync } from "node:fs";
 import type { Config } from "../config.ts";
 import type { TickSnapshot } from "../coordinator.ts";
 import type { Fetch } from "../github/http.ts";
+import type { SettingsEditor } from "../overrides.ts";
 import { asset } from "./assets.ts";
 import {
   authorizeUrl,
   checkState,
   type DashboardLogin,
+  formToken,
   newSession,
   newState,
   SESSION_COOKIE,
@@ -25,6 +27,7 @@ import {
 } from "./auth.ts";
 import { renderConfig } from "./config-html.tsx";
 import { renderDashboard } from "./html.tsx";
+import { type SettingField, type SettingsForm, saveSettings, settingFields } from "./settings-form.ts";
 import { type TimingSource, timingsView } from "./timings.ts";
 import { renderTimings } from "./timings-html.tsx";
 import { type DashboardView, dashboardView } from "./view.ts";
@@ -43,11 +46,16 @@ const SECURITY_HEADERS = {
 };
 
 const ASSET_PREFIX = "/assets/";
+/** The Config form is a few kB; anything larger is refused before it is read. */
+const MAX_BODY_BYTES = 64 * 1024;
 /** Asset URLs carry a content hash (`?v=`), so a day of caching never shows a stale file after an update. */
 const ASSET_CACHE = "private, max-age=86400";
 
 export interface DashboardDeps {
+  /** `config.ts`; the pages show `settings.current` when there are `settings`. */
   config: Config;
+  /** The editable settings (REQ-003-36); without them the Config page is read-only. */
+  settings?: SettingsEditor;
   /** The configured token (REQ-003-07); without one, no request needs one. */
   token?: string;
   /** The GitHub sign-in's secrets (REQ-003-29); absent while it is off or not set up. */
@@ -88,6 +96,7 @@ export function startDashboard(d: DashboardDeps): DashboardServer | undefined {
     const server = Bun.serve({
       hostname: dash.host,
       port: dash.port,
+      maxRequestBodySize: MAX_BODY_BYTES,
       fetch: (req) => handle(req, d),
       error: (e) => {
         d.log(`dashboard: ${e.message}`);
@@ -131,13 +140,17 @@ async function handle(req: Request, d: DashboardDeps): Promise<Response> {
         `${COOKIE}=${d.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${COOKIE_MAX_AGE_SEC}`,
       ]);
     }
+    // The Owner's session cookie when it is valid: only a session may save settings (REQ-003-07).
+    let session: string | undefined;
     if (d.token || loginOn) {
       const presented = bearer(req) ?? cookie(req, COOKIE);
       const viaToken = d.token !== undefined && presented !== undefined && same(presented, d.token);
-      const viaSession =
-        login !== undefined && validSession(login.sessionKey, cookie(req, SESSION_COOKIE), d.config.owner.id, now);
-      if (!viaToken && !viaSession) return signInNeeded(req, url, loginOn, login);
+      const sessionCookie = cookie(req, SESSION_COOKIE);
+      if (login && validSession(login.sessionKey, sessionCookie, d.config.owner.id, now)) session = sessionCookie;
+      if (!viaToken && !session) return signInNeeded(req, url, loginOn, login);
     }
+    if (url.pathname === "/config" && req.method === "POST" && d.settings)
+      return await postConfig(req, url, d, d.settings, login, session, now);
     if (req.method !== "GET") return respond(405, "Method not allowed", { allow: "GET" });
     if (url.pathname.startsWith(ASSET_PREFIX)) {
       const a = asset(url.pathname.slice(ASSET_PREFIX.length));
@@ -146,12 +159,62 @@ async function handle(req: Request, d: DashboardDeps): Promise<Response> {
     }
     const page = PAGES.get(url.pathname);
     if (!page) return respond(404, "Not found");
-    const view = dashboardView(d.snapshot(), d.config, now, { repo: url.searchParams.get("repo") });
-    return respond(200, page(view, url, d, now), { "content-type": "text/html; charset=utf-8" });
+    const view = dashboardView(d.snapshot(), d.settings?.current ?? d.config, now, {
+      repo: url.searchParams.get("repo"),
+    });
+    const form = settingsForm(d, login, session, url.searchParams.get("saved") === "1");
+    return respond(200, page(view, url, d, now, form), { "content-type": "text/html; charset=utf-8" });
   } catch (e) {
     d.log(`dashboard: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}`);
     return respond(500, "Internal error");
   }
+}
+
+/** The Config form for the signed-in Owner (REQ-003-36); undefined for a token or without a sign-in. */
+function settingsForm(
+  d: DashboardDeps,
+  login: DashboardLogin | undefined,
+  session: string | undefined,
+  saved: boolean,
+  failed?: { errors: string[]; fields: SettingField[] },
+): SettingsForm | undefined {
+  if (!d.settings || !login || !session) return undefined;
+  return {
+    token: formToken(login.sessionKey, session),
+    fields: failed?.fields ?? settingFields(d.settings.base, d.settings.current),
+    errors: failed?.errors ?? [],
+    saved,
+  };
+}
+
+/**
+ * REQ-003-07 / REQ-003-36: saves the Config form; only the Owner's session, on this site, with the session's form
+ * token. Saved: back to the page (303); invalid: the page with the errors and the entered values (400).
+ */
+async function postConfig(
+  req: Request,
+  url: URL,
+  d: DashboardDeps,
+  settings: SettingsEditor,
+  login: DashboardLogin | undefined,
+  session: string | undefined,
+  now: Date,
+): Promise<Response> {
+  const site = req.headers.get("sec-fetch-site");
+  if (!login || !session || (site !== null && site !== "same-origin"))
+    return respond(403, "Forbidden: only the Owner's signed-in session can change settings.");
+  const form = await req.formData().catch(() => undefined);
+  const presented = form?.get("formToken");
+  if (!form || typeof presented !== "string" || !same(presented, formToken(login.sessionKey, session)))
+    return respond(403, "Forbidden: the form is out of date. Open the Config page again.");
+  const result = saveSettings(settings, form);
+  if (!result.errors.length) {
+    d.log("dashboard: settings saved");
+    return respond(303, "", { location: "/config?saved=1" });
+  }
+  const view = dashboardView(d.snapshot(), settings.current, now, { repo: url.searchParams.get("repo") });
+  const page = renderConfig(view, settingsForm(d, login, session, false, result));
+  return respond(400, page, { "content-type": "text/html; charset=utf-8" });
 }
 
 /** A browser opening a page goes to GitHub (REQ-003-29); scripts, assets and other methods get 401. */
@@ -226,9 +289,12 @@ const secure = (req: Request, url: URL) =>
 const NO_TIMINGS: TimingSource = { timedIssues: () => [], timings: () => [] };
 
 /** The pages: the Overview, the Config page (REQ-003-05) and the Timings page (REQ-003-34); all plain GET links. */
-const PAGES = new Map<string, (view: DashboardView, url: URL, d: DashboardDeps, now: Date) => string>([
+const PAGES = new Map<
+  string,
+  (view: DashboardView, url: URL, d: DashboardDeps, now: Date, form: SettingsForm | undefined) => string
+>([
   ["/", renderDashboard],
-  ["/config", renderConfig],
+  ["/config", (view, _url, _d, _now, form) => renderConfig(view, form)],
   [
     "/timings",
     (view, url, d, now) =>

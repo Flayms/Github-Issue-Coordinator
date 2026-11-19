@@ -3,13 +3,13 @@
  * issues, PRs, sessions and Events, and a fixed clock, so the images never show this project's own
  * issues and render the same on every run.
  */
-import { parseConfig, type Role } from "../../src/config.ts";
+import { type ConfigInput, parseConfig, type Role } from "../../src/config.ts";
 import type { RepoSnapshot, TickSnapshot } from "../../src/coordinator.ts";
 import type { SessionRecord, TimedIssue, Timing, TimingKind, TimingPhase } from "../../src/store.ts";
 
 export const MOCK_NOW = new Date("2026-11-18T14:30:00Z");
 
-export const MOCK_CONFIG = parseConfig({
+const MOCK_CONFIG_INPUT = {
   owner: { login: "ada", id: 1 },
   pollIntervalSec: 60,
   limits: { maxRunning: 3, maxLiveSessions: 5, maxWorktrees: 6, maxFeedbackRounds: 3 },
@@ -29,6 +29,15 @@ export const MOCK_CONFIG = parseConfig({
     tokenPath: "/etc/coordinator/dashboard-token",
     githubLogin: { clientId: "Ov23liMock", clientSecretPath: "/etc/coordinator/github-client-secret" },
   },
+} satisfies ConfigInput;
+
+/** The effective config: `config.ts` with one setting the Owner changed on the Config page (REQ-003-36). */
+export const MOCK_CONFIG = parseConfig(MOCK_CONFIG_INPUT);
+
+/** `config.ts` alone, for the Config form's "changed" marks: `maxRunning` was 2 there. */
+export const MOCK_CONFIG_BASE = parseConfig({
+  ...MOCK_CONFIG_INPUT,
+  limits: { ...MOCK_CONFIG_INPUT.limits, maxRunning: 2 },
 });
 
 const at = (minutesAgo: number) => new Date(MOCK_NOW.getTime() - minutesAgo * 60_000).toISOString();
