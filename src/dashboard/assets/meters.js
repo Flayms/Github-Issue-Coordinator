@@ -1,17 +1,18 @@
 /*
- * Capacity meters (spec 003): the moving liquid of REQ-003-24 and the stirring of REQ-003-26.
+ * Capacity and Usage quota meters (spec 003): the moving liquid of REQ-003-24 and the stirring of REQ-003-26.
  * Optional: without this script or WebGL the CSS liquid stays. With reduced motion it does nothing.
  *
  * One WebGL context, off-screen, draws every meter into its own strip of an atlas, and each strip
  * is copied into that meter's `.brew` canvas (browsers cap WebGL contexts, 2D canvases are cheap).
  * Each meter gets its own seed, so its flow has its own phase, speed and pattern. The liquid has a
- * rounded front that wobbles, broad swirls that never repeat (noise over time), caustics, a band of
- * light and a few bubbles. The pointer stirs it; it calms down in about 2 s. Drawn at about 30
- * frames a second with a capped pixel ratio, and only while the tab is shown and Capacity is in view.
+ * rounded front that wobbles, broad swirls that never repeat (noise over time), caustics and a band
+ * of light. The pointer stirs it; it calms down in about 2 s. Drawn at about 30 frames a second with
+ * a capped pixel ratio, and only while the tab is shown and Capacity or the Usage quota is in view.
  */
 (() => {
-  const capacity = document.getElementById("capacity");
-  if (!capacity) return;
+  /** The sections whose tubes hold liquid: Capacity (REQ-003-12) and the Usage quota (REQ-003-37). */
+  const SECTIONS = "#capacity, #usage-quota";
+  if (!document.querySelector(SECTIONS)) return;
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
   if (reduced.matches) return;
   const gl = document.createElement("canvas").getContext("webgl", {
@@ -83,21 +84,6 @@ void main(){
   // A band of light near the top that drifts, and refracted light near the bottom.
   col+=vec3(1.)*exp(-pow((q.y-.74)/.09,2.))*(.04+.34*smoothstep(.35,.85,noise(vec2(q.x*.55+t*.22*sp+seed*9.,seed*5.))));
   col+=vec3(.9,.9,1.)*exp(-pow((q.y-.15)/.06,2.))*.3*noise(vec2(q.x*1.1-t*.27*sp,seed*3.));
-
-  // A few bubbles rising slowly; stirring brings more, near the pointer.
-  for(int i=0;i<5;i++){
-    float fi=float(i);
-    float h1=hash(vec2(fi+1.,seed*91.)),h2=hash(vec2(seed*57.,fi+3.));
-    float life=fract(t*(.06+.07*h2)*(1.+stir)+h1);
-    float on=clamp(2.2+3.*stir-fi,0.,1.);
-    float bx=mix(.45+h2*max(fill-.9,0.),stirAt.x+(h1-.5)*.8,stir*.7)+.08*sin(t*.8+fi*2.);
-    vec2 bp=vec2(bx,.14+life*.72);
-    float rr=.075+.04*h1;
-    float bd=length(q-bp);
-    float disc=smoothstep(rr+px,rr-px,bd);
-    float ring=disc*(.3+.7*smoothstep(rr*.35,rr,bd));
-    col+=vec3(.9,.9,1.)*ring*on*sin(life*3.1416)*.55;
-  }
 
   // Rounded volume: the edge of the liquid is darker, with a thin lit meniscus.
   col*=1.-.32*smoothstep(-.14,0.,d);
@@ -201,7 +187,7 @@ void main(){
       { passive: true },
     );
   };
-  const tubes = () => [...capacity.querySelectorAll(".tube")];
+  const tubes = () => [...document.querySelectorAll("#capacity .tube, #usage-quota .tube")];
   tubes().forEach(add);
 
   // The atlas: one strip per meter, stacked.
@@ -276,12 +262,21 @@ void main(){
     last = 0;
   };
   document.addEventListener("visibilitychange", () => (document.hidden ? stop() : run()));
-  if ("IntersectionObserver" in window) {
-    new IntersectionObserver((entries) => {
-      shown = entries.some((e) => e.isIntersecting);
-      shown ? run() : stop();
-    }).observe(capacity);
-  }
+  // Each section reports only its own changes, so the ones in view are kept apart.
+  const inView = new Set();
+  const observer =
+    "IntersectionObserver" in window
+      ? new IntersectionObserver((entries) => {
+          for (const e of entries) e.isIntersecting ? inView.add(e.target) : inView.delete(e.target);
+          shown = inView.size > 0;
+          shown ? run() : stop();
+        })
+      : null;
+  const observe = () => {
+    for (const el of inView) if (!el.isConnected) inView.delete(el);
+    for (const el of document.querySelectorAll(SECTIONS)) observer?.observe(el);
+  };
+  observe();
   // Reduced motion turned on later: back to the still CSS liquid.
   reduced.addEventListener("change", () => {
     if (!reduced.matches) return run();
@@ -301,6 +296,7 @@ void main(){
       return kept;
     });
     for (const [i, tube] of tubes().entries()) if (!meters.some((m) => m.tube === tube)) add(tube, i);
+    observe();
     layout();
     meters.length ? run() : stop();
   });

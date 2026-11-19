@@ -519,33 +519,61 @@ describe("dashboard html", () => {
       expect(html).toMatch(/id="usage-quota"[\s\S]*?<h2[^>]*>Usage quota<\/h2>/);
     });
 
-    test("REQ-003-37 a capsule with each window's percent, ending in 'used', the reset line under it and the age as tooltip", () => {
+    /** The quota meters of a section: label, value text, tube columns, liquid span and the tooltip. */
+    const meters = (section: string) =>
+      [...section.matchAll(/<li title="([^"]*)" class="([^"]*)" role="meter"([^>]*)>([\s\S]*?)<\/li>/g)].map(
+        ([, title, cls, attrs, body]) => ({
+          title,
+          cls,
+          attrs,
+          body: body ?? "",
+          text: text(body ?? "").trim(),
+          tube: body?.match(/<span class="tube ([^"]*)">/)?.[1],
+          liquid: body?.match(/<span class="liquid ([^"]*)"/)?.[1],
+        }),
+      );
+
+    test("REQ-003-37 two meters per Account in the Capacity tube, filled to the nearest 10 %, with the percent used", () => {
       const { section } = page([one]);
-      expect(text(section)).toContain("5-hour 38% · weekly 92% used");
-      expect(text(section)).toContain("Claude subscription · resets in 3 h 12 min and Fri 09:00 UTC");
-      expect(section).toMatch(/<li title="as of 4 min ago" class="[^"]*rounded-full border border-line-2/);
-      // Header pill style: muted labels, the numbers in the text colour, from 90 % in accent purple, never gold.
-      expect(section).toMatch(/text-muted/);
-      expect(section).toMatch(/<b class="[^"]*text-fg[^"]*">38%<\/b>/);
-      expect(section).toMatch(/<b class="[^"]*text-acc-hi[^"]*">92%<\/b>/);
+      const [five, week] = meters(section);
+      expect(meters(section)).toHaveLength(2);
+      expect(five?.text).toBe("5-hour window38% used");
+      expect(week?.text).toBe("Weekly92% used");
+      // The same glass tube and liquid as Capacity (REQ-003-24): tenths, no Slot marks, a canvas for the moving liquid.
+      for (const m of [five, week]) {
+        expect(m?.tube).toContain("grid-cols-10");
+        expect(m?.body).toContain('<canvas class="brew" aria-hidden="true"></canvas>');
+        expect(m?.body).not.toContain('class="slots');
+      }
+      expect(five?.liquid).toBe("col-span-4");
+      expect(week?.liquid).toBe("col-span-9");
+      expect(five?.attrs).toContain('aria-valuemin="0" aria-valuemax="100" aria-valuenow="38"');
+      expect(five?.attrs).toContain('aria-label="5-hour window: 38% used"');
+      // Laid out like Capacity: side by side, on a phone too.
+      expect(section).toMatch(/<ul class="grid grid-cols-2 gap-x-6">\s*<li title=/);
+      const capacityLi = renderDashboard(base).match(/<li class="([^"]*)" role="meter"/)?.[1];
+      expect((five?.cls ?? "").split(" ")).toEqual(expect.arrayContaining(capacityLi?.split(" ") ?? ["?"]));
+      // Each tube at the bottom of its row, so the pair lines up when a label wraps.
+      expect(five?.cls).toContain("grid-rows-[1fr_auto]");
+      // The old pill and violet bars are gone.
+      expect(section).not.toContain("quota-bar");
+      expect(section).not.toContain("rounded-full border");
+    });
+
+    test("REQ-003-37 from 90 % the value is accent purple, never gold; the reset line under the meters, the age as tooltip", () => {
+      const { section } = page([one]);
+      const [five, week] = meters(section);
+      expect(five?.body).toMatch(/<span class="[^"]*font-display[^"]*">38<span/);
+      expect(five?.body).not.toContain("text-acc-hi");
+      expect(week?.body).toMatch(/<span class="[^"]*font-display[^"]*text-acc-hi[^"]*">92<span/);
       expect(section).not.toMatch(/warn/);
+      expect(five?.title).toBe("as of 4 min ago");
+      expect(week?.title).toBe("as of 4 min ago");
+      const line = section.indexOf("Claude subscription · resets in 3 h 12 min and Fri 09:00 UTC");
+      expect(line).toBeGreaterThan(section.lastIndexOf('role="meter"'));
     });
 
-    test("REQ-003-37 small violet bars that drop out on a phone; the capsule wraps under the heading", () => {
-      const { section } = page([one]);
-      const bars = [...section.matchAll(/<span class="(quota-bar [^"]*)"[^>]*><span class="([^"]*)"/g)];
-      expect(bars).toHaveLength(2);
-      for (const [, bar] of bars)
-        expect(bar).toMatch(/(^| )hidden( |$).*sm:inline-block|sm:inline-block.*(^| )hidden( |$)/);
-      expect(bars.map(([, , fill]) => fill)).toEqual([
-        expect.stringContaining("w-4/10"),
-        expect.stringContaining("w-9/10"),
-      ]);
-      expect(bars[0]?.[2]).toContain("bg-acc");
-      expect(section).toMatch(/^id="usage-quota"[^>]*>\s*<div class="[^"]*flex flex-wrap/);
-    });
-
-    test("REQ-003-38 each Account's capsule starts with its name; a paused one says until when; – for a missing window", () => {
+    test("REQ-003-38 several Accounts: the name above each pair; a paused one says until when; – for a missing window", () => {
       const { section } = page([
         { ...one, account: "main", pausedUntil: "14:30 UTC", line: "main · resets in 3 h 12 min" },
         {
@@ -558,19 +586,30 @@ describe("dashboard html", () => {
           line: "spare · resets Fri 09:00 UTC",
         },
       ]);
-      const t = text(section);
-      expect(t).toContain("main · paused until 14:30 UTC");
-      expect(t).not.toContain("main · 5-hour");
-      expect(t).toContain("spare · 5-hour – · weekly 24% used");
-      expect(t).toContain("main · resets in 3 h 12 min");
-      expect(t).toContain("spare · resets Fri 09:00 UTC");
+      expect(section).toMatch(/>main<\/p><p[^>]*>paused until <b[^>]*>14:30 UTC<\/b><\/p>/);
+      // Only the spare Account has meters; its name comes before them, its line after.
+      const ms = meters(section);
+      expect(ms.map((m) => m.text)).toEqual(["5-hour window– used", "Weekly24% used"]);
+      expect(ms[0]?.liquid).toBeUndefined();
+      expect(ms[0]?.attrs).not.toContain("aria-valuenow");
+      expect(ms[1]?.liquid).toBe("col-span-2");
+      expect(section).toMatch(/>spare<\/p>\s*<ul class="grid grid-cols-2/);
+      const order3 = ["main", "paused until", "main · resets", "spare", 'role="meter"', "spare · resets"].map((s) =>
+        section.indexOf(s),
+      );
+      expect([...order3].sort((a, b) => a - b)).toEqual(order3);
+    });
+
+    test("REQ-003-38 a single Account has no name above its meters", () => {
+      const { section } = page([one]);
+      expect(section).not.toMatch(/<\/h2>\s*<div[^>]*>\s*<p/);
     });
 
     test("REQ-003-38 with no report the section says when it will show", () => {
       const { section } = page([]);
       expect(section).toContain("Usage quota");
       expect(text(section)).toContain("Shown once a session has reported its usage");
-      expect(section).not.toContain("rounded-full");
+      expect(section).not.toContain('class="tube');
     });
   });
 
@@ -701,10 +740,22 @@ describe("dashboard html", () => {
       expect(js).toMatch(/uniform float seed/);
       expect(overview()).toMatch(/<script src="\/assets\/meters\.js\?v=[0-9a-f]+" defer=""><\/script>/);
     });
+    test("REQ-003-24 the liquid has no bubbles, and the Usage quota's tubes move too", () => {
+      const js = asset("meters.js");
+      expect(js).not.toMatch(/bubble/i);
+      // No loop in the shader (the bubbles were its only one besides the noise octaves).
+      const shader = js.slice(js.indexOf("void main(){\n"), js.indexOf("}`;"));
+      expect(shader).not.toMatch(/for\s*\(/);
+      expect(js).toContain("#usage-quota");
+      expect(js).toMatch(/\.observe\(/);
+      expect(js.match(/getContext\("webgl"/g)?.length).toBe(1);
+    });
   });
 
   test("REQ-003-26 the pointer stirs a meter's liquid, a tap on a phone too, and it calms down", () => {
     const js = asset("meters.js");
+    // REQ-003-26: stirring brings no bubbles.
+    expect(js).not.toMatch(/bubble/i);
     expect(js).toContain('"pointermove"');
     expect(js).toContain('"pointerdown"');
     expect(js).toMatch(/uniform float stir/);
