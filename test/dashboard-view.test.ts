@@ -115,6 +115,7 @@ describe("dashboard view", () => {
         closesIn: null,
         name: "#5 Fix login · Implementer · app",
         model: "sonnet",
+        modelName: "Sonnet (latest)",
       },
       {
         role: "Planner",
@@ -131,6 +132,7 @@ describe("dashboard view", () => {
         closesIn: "at the next tick",
         name: "Planner · #6, #7 · app",
         model: "opus",
+        modelName: "Opus (latest)",
       },
     ]);
   });
@@ -198,6 +200,8 @@ describe("dashboard view", () => {
       NOW,
     );
     expect(v.sessions.map((s) => s.model)).toEqual(["claude-opus-5-5", "haiku"]);
+    // REQ-003-41: and names it.
+    expect(v.sessions.map((s) => s.modelName)).toEqual(["Opus 5.5", "Haiku (latest)"]);
   });
 
   test("REQ-003-01 marks a session whose tmux window is gone", () => {
@@ -440,7 +444,7 @@ describe("dashboard view", () => {
     ]);
   });
 
-  test("REQ-003-05 shows the effective settings per Role and repository, without secrets", () => {
+  test("REQ-003-05 / REQ-003-41 shows the effective settings per Role and repository, by name, without secrets", () => {
     const v = dashboardView(snapshot(), config, NOW);
     expect(v.settings.pollIntervalSec).toBe(45);
     expect(v.settings.limits).toEqual(config.limits);
@@ -450,19 +454,19 @@ describe("dashboard view", () => {
         setup: "bun install",
         autoMerge: "off",
         roles: [
-          { role: "Planner", model: "opus", effort: "high" },
-          { role: "Implementer", model: "sonnet", effort: null },
-          { role: "Reviewer", model: "haiku", effort: "low" },
+          { role: "Planner", model: "opus", modelName: "Opus (latest)", effort: "high" },
+          { role: "Implementer", model: "sonnet", modelName: "Sonnet (latest)", effort: null },
+          { role: "Reviewer", model: "haiku", modelName: "Haiku (latest)", effort: "low" },
         ],
-        overrides: [{ role: "Reviewer", model: "haiku", effort: "low" }],
+        overrides: [{ role: "Reviewer", model: "haiku", modelName: "Haiku (latest)", effort: "low" }],
         counts: null,
       },
       expect.objectContaining({ name: "octo/lib", setup: null, overrides: [] }),
     ]);
     expect(v.settings.roles).toEqual([
-      { role: "Planner", model: "opus", effort: "high" },
-      { role: "Implementer", model: "sonnet", effort: null },
-      { role: "Reviewer", model: "opus", effort: null },
+      { role: "Planner", model: "opus", modelName: "Opus (latest)", effort: "high" },
+      { role: "Implementer", model: "sonnet", modelName: "Sonnet (latest)", effort: null },
+      { role: "Reviewer", model: "opus", modelName: "Opus (latest)", effort: null },
     ]);
     expect(v.settings.access).toEqual({ host: "0.0.0.0", port: 8080, tokenRequired: true, githubLogin: "on" });
     const all = JSON.stringify(v) + renderDashboard(v) + renderConfig(v);

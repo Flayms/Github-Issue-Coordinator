@@ -714,7 +714,8 @@ describe("dashboard html", () => {
 
   test("REQ-003-01 each session shows its model and its Remote Control name, with a copy button only for scripts", () => {
     const html = overview();
-    expect(html).toContain("claude-sonnet-5-5");
+    // REQ-003-41: by name, the id on hover.
+    expect(html).toContain('<span class="font-mono text-[11px]" title="claude-sonnet-5-5">Sonnet 5.5</span>');
     expect(html).toContain("#6 Add search · Implementer · app");
     expect(html).toMatch(/<button[^>]*data-copy="#6 Add search · Implementer · app"[^>]*hidden/);
   });
@@ -957,7 +958,7 @@ describe("dashboard html", () => {
     expect(html).toContain("No GitHub calls");
     expect(html).toContain("GitHub sign-in not set up");
     expect(html).toContain("maxWorktrees");
-    expect(html).toMatch(/Reviewer[\s\S]*haiku[\s\S]*low/);
+    expect(html).toMatch(/Reviewer[\s\S]*title="haiku">Haiku \(latest\)<[\s\S]*low/);
     expect(html).toContain("bun install");
     expect(html).toMatch(/Auto-merge<\/dt>\s*<dd[^>]*>(<code[^>]*>)?off/); // REQ-001-65
     expect(html).not.toContain("Sandbox domains");

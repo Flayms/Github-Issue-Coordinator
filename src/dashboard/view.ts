@@ -14,6 +14,7 @@ import {
 } from "../config.ts";
 import type { AccountSnapshot, RepoSnapshot, TickSnapshot } from "../coordinator.ts";
 import type { ChecksState } from "../github/client.ts";
+import { modelLabel } from "../models.ts";
 import { ROLE_NAMES } from "../note.ts";
 import { remoteControlName } from "../runner.ts";
 import type { WaitReason, WorkKind } from "../scheduler.ts";
@@ -91,6 +92,8 @@ export interface SessionView {
   name: string;
   /** The model the session reported (REQ-001-29), else the configured one. */
   model: string;
+  /** `model` by name, e.g. "Opus 5.5" (REQ-003-41). */
+  modelName: string;
 }
 
 export interface PullView {
@@ -174,6 +177,8 @@ export interface BlockedView extends IssueLink {
 export interface RoleView {
   role: string;
   model: string;
+  /** `model` by name, e.g. "Opus (latest)" (REQ-003-41). */
+  modelName: string;
   effort: string | null;
 }
 
@@ -322,6 +327,7 @@ export function dashboardView(
     closesIn: idle(s) ? closesIn(s.lastActivityAt) : null,
     name: remoteControlName(s),
     model: s.modelId ?? configuredModel(config, s.repo, s.role),
+    modelName: modelLabel(s.modelId ?? configuredModel(config, s.repo, s.role)),
   }));
   sessions.sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state]);
 
@@ -588,6 +594,7 @@ function configuredModel(config: Config, repo: string, role: Role): string {
 const roleView = (role: Role, s: { model: string; effort?: string }): RoleView => ({
   role: ROLE_NAMES[role],
   model: s.model,
+  modelName: modelLabel(s.model),
   effort: s.effort ?? null,
 });
 

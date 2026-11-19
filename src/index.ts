@@ -78,6 +78,7 @@ async function main() {
     token: dashboardToken,
     login: dashboardLogin,
     snapshot: () => coordinator.snapshot(),
+    reportedModels: () => store.reportedModelIds(),
     timings: store,
     log,
   });

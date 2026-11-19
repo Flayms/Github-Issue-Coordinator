@@ -26,7 +26,9 @@ export default defineConfig({
     maxWorktrees: 5,
     maxFeedbackRounds: 2,
   },
-  // Model and optional effort (low | medium | high | xhigh | max) per Role (REQ-001-22).
+  // Model and optional effort (low | medium | high | xhigh | max) per Role (REQ-001-22). Any `claude --model` value:
+  // an alias (opus, sonnet, haiku, fable) or a model id (claude-opus-5-5). The Config page offers the Model catalogue
+  // of src/models.ts and keeps a value from here that isn't in it (REQ-003-40).
   roles: {
     planner: { model: "opus", effort: "high" },
     implementer: { model: "sonnet" },

@@ -521,7 +521,9 @@ function Session({ s }: { s: SessionView }) {
       </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-white/40">
         <span>{s.repo}</span>
-        <span className="font-mono text-[11px]">{s.model}</span>
+        <span className="font-mono text-[11px]" title={s.model}>
+          {s.modelName}
+        </span>
         <span>since {s.startedAt ? formatTime(s.startedAt) : "–"}</span>
         <button
           className="ml-auto inline-flex cursor-pointer items-center gap-1.5 font-medium text-[12px] text-white/40 leading-[1.2] transition-colors hover:text-acc-hi [&.done]:text-ok"

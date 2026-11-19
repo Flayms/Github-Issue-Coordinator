@@ -3,6 +3,7 @@
  * submitted form makes. Only these fields exist, so nothing else can be set from the dashboard.
  */
 import { type AutoMergeMode, type Config, ConfigError, type Effort, LIMIT_KEYS, ROLES, type Role } from "../config.ts";
+import { inCatalogue } from "../models.ts";
 import type { Overrides, SettingsEditor } from "../overrides.ts";
 
 export type FieldKind = "number" | "model" | "effort" | "autoMerge";
@@ -29,6 +30,8 @@ export interface SettingsForm {
   /** Why saving failed; nothing was saved. */
   errors: string[];
   saved: boolean;
+  /** The models the sessions reported, so an alias's option says what it means now (REQ-003-40). */
+  reportedModels: string[];
 }
 
 const whole = (v: string): number | undefined => (/^\s*\d+\s*$/.test(v) ? Number(v) : undefined);
@@ -76,6 +79,9 @@ function textField(
     set: (o, value) => {
       const t = value.trim();
       if (!t && required) return `${name}: needs a ${kind === "model" ? "model" : "value"}`;
+      // REQ-003-40: a model from the list, or the one the field already has (config.ts's or a saved one).
+      if (kind === "model" && t && !inCatalogue(t) && t !== b && t !== v)
+        return `${name}: must be a model from the list`;
       put(o, t || null);
     },
   };
