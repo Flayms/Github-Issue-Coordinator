@@ -227,6 +227,79 @@
     color: #fff;
   }
 
+  /*
+   * #169 / REQ-003-17: the Model select's group headers (Latest / Pinned) on the same dark background,
+   * muted. Where the browser supports the customizable select (Chromium), the picker is drawn in the
+   * page and takes the dashboard's colours, also for the hovered or keyboard-focused option; other
+   * browsers keep their native popup with the dark colours above.
+   */
+  optgroup {
+    background-color: var(--color-ink-2);
+    color: var(--color-muted);
+  }
+  @supports (appearance: base-select) {
+    select,
+    ::picker(select) {
+      appearance: base-select;
+    }
+    /*
+     * The closed select as before: as tall as the native one, one line, the chevron at the end and
+     * always in view. A label too long for a narrow select (a phone) wraps and only its first line
+     * shows, since the select clips at its content box.
+     */
+    select {
+      justify-content: space-between;
+      align-items: start;
+      line-height: normal;
+      block-size: calc(1lh + 16px);
+      overflow: clip;
+      overflow-clip-margin: content-box;
+      overflow-wrap: anywhere;
+    }
+    /* Small enough to fit the room Chrome leaves next to the widest option (docs/known-pitfalls.md). */
+    select::picker-icon {
+      content: "";
+      width: 10px;
+      height: 10px;
+      margin-inline-start: 4px;
+      align-self: center;
+      flex: none;
+      background-color: currentColor;
+      mask:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M1.5 3.5 5 7l3.5-3.5' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+        center / contain no-repeat;
+    }
+    ::picker(select) {
+      background-color: var(--color-ink-2);
+      color: var(--color-fg);
+      border: 1px solid var(--color-line-2);
+      border-radius: 8px;
+      padding: 4px;
+      margin-block: 4px;
+      max-width: calc(100vw - 32px);
+      max-height: min(24rem, 60dvh);
+      overflow-y: auto;
+      scrollbar-color: var(--color-acc-lo) transparent;
+    }
+    option {
+      padding: 4px 8px;
+      border-radius: 5px;
+    }
+    /* The checked option is marked by its accent background. */
+    option::checkmark {
+      display: none;
+    }
+    option:hover,
+    option:focus-visible {
+      background-color: color-mix(in oklab, var(--color-acc) 18%, var(--color-ink-2));
+      color: #fff;
+      outline: none;
+    }
+    option:checked {
+      background-color: var(--color-acc-lo);
+    }
+  }
+
   /* REQ-003-39: a jump to an anchor (e.g. /#pipeline) puts its heading below the fixed header. */
   [id] {
     scroll-margin-top: calc(72px + env(safe-area-inset-top));
