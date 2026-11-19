@@ -252,7 +252,7 @@ function Summary({ v }: { v: DashboardView }) {
             icon="bolt"
             n={s.working}
             label={s.working === 1 ? "agent working" : "agents working"}
-            why="Planner, Implementer or Reviewer running now"
+            why={s.workingLine}
           />
           <Stat
             icon="hourglass"
@@ -530,20 +530,18 @@ function Session({ s }: { s: SessionView }) {
 }
 
 /**
- * REQ-003-20: one part of the Activity timeline, its head a dot on the timeline with what part of time
- * it is (done, now, next). `className` places it: Now, Next, Recent on a phone, time order from lg on.
+ * REQ-003-20: one part of the Activity timeline, its head a dot on the timeline and its title; Now's dot
+ * glows as the current part (#146: no second label repeating the title). `className` places it: Now, Next, Recent on a phone, time order from lg on.
  */
 function Phase({
   id,
   title,
-  tag,
   current = false,
   className,
   children,
 }: {
   id: string;
   title: string;
-  tag: string;
   current?: boolean;
   className: string;
   children: ReactNode;
@@ -558,11 +556,6 @@ function Phase({
           }`}
         />
         {title}
-        <span
-          className={`font-mono font-semibold text-[11px] uppercase tracking-[0.14em] ${current ? "text-acc-hi" : "text-white/40"}`}
-        >
-          {tag}
-        </span>
       </h3>
       {children}
     </section>
@@ -623,7 +616,7 @@ function Capped({ id, items, list }: { id: string; items: ReactNode[]; list: (it
 
 /** REQ-003-01: the open sessions, running ones first; idle ones say they wait, not that they work (#74). */
 const Now = ({ v }: { v: DashboardView }) => (
-  <Phase id="now" title="Now" tag="now" current className="order-1 lg:order-none">
+  <Phase id="now" title="Now" current className="order-1 lg:order-none">
     {v.sessions.length ? (
       <Capped
         id="now"
@@ -700,7 +693,7 @@ const Event = ({ e }: { e: EventView }) => (
 
 /** REQ-003-16: the newest Events, five at first and the rest behind an expander (REQ-003-23). */
 const Recent = ({ v }: { v: DashboardView }) => (
-  <Phase id="recent" title="Recent" tag="done" className="order-3 lg:order-none">
+  <Phase id="recent" title="Recent" className="order-3 lg:order-none">
     {v.recent.length ? (
       <Capped
         id="recent"
@@ -788,7 +781,7 @@ function Next({ v }: { v: DashboardView }) {
     )),
   ];
   return (
-    <Phase id="next" title="Next" tag="next" className="order-2 lg:order-none">
+    <Phase id="next" title="Next" className="order-2 lg:order-none">
       {steps.length ? (
         <Capped id="next" items={steps} list={(items) => <ol>{items}</ol>} />
       ) : (

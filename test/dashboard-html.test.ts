@@ -217,7 +217,7 @@ describe("dashboard html", () => {
       /<h1 class="[^"]*text-white[^"]*"><span class="text-acc-hi">2<\/span> things need you<\/h1>/,
     );
     for (const [n, label, why] of [
-      [1, "agent working", "Planner, Implementer or Reviewer running now"],
+      [1, "agent working", "Implementer running now"],
       [1, "job waiting for a slot", "Starts when a session frees up"],
       [1, "blocked", "Waits for another issue to finish"],
     ])
@@ -741,12 +741,12 @@ describe("dashboard html", () => {
     expect(activity).toMatch(/<h2 [^>]*>Activity <span[^>]*>1 running · 0 idle · 1 queued<\/span><\/h2>/);
     const head = (id: string) =>
       activity.match(new RegExp(`<section id="${id}" class="([^"]*)"><h3 [^>]*>([\\s\\S]*?)</h3>`));
-    expect(head("recent")?.[2]).toContain("Recent");
-    expect(head("recent")?.[2]).toContain("done");
-    expect(head("now")?.[2]).toContain("Now");
-    expect(head("now")?.[2]).toContain("now");
-    expect(head("next")?.[2]).toContain("Next");
-    expect(head("next")?.[2]).toContain("next");
+    // #146: each part has a single heading, no second label repeating it; Now's dot marks it current.
+    const text = (h?: string) => h?.replace(/<[^>]*>/g, "").trim();
+    expect(text(head("recent")?.[2])).toBe("Recent");
+    expect(text(head("now")?.[2])).toBe("Now");
+    expect(text(head("next")?.[2])).toBe("Next");
+    expect(head("now")?.[2]).toMatch(/<span aria-hidden="true" class="[^"]*\bbg-acc\b[^"]*shadow-/);
     // Time order from lg on (the DOM order), Now, Next, Recent on a phone.
     expect(head("now")?.[1]).toMatch(/\border-1\b.*\blg:order-none\b/);
     expect(head("next")?.[1]).toMatch(/\border-2\b.*\blg:order-none\b/);
@@ -1209,6 +1209,15 @@ describe("dashboard html", () => {
       expect(js().indexOf("--glow-y")).toBeLessThan(js().indexOf('getContext("webgl"'));
       expect(js()).toContain('matchMedia("(prefers-reduced-motion: reduce)")');
     });
+  });
+
+  test("REQ-003-17 the dropdown of a select is dark with readable text, not the browser's white popup (#145)", () => {
+    const css = asset("dashboard.css");
+    const rule = css.match(/(?:^|[}\s])select,\s*option\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(rule).toMatch(/background-color:\s*var\(--color-ink-2\)/);
+    expect(rule).toMatch(/(?:^|[;\s])color:\s*var\(--color-fg\)/);
+    expect(rule).toMatch(/color-scheme:\s*dark/);
+    expect(css).toMatch(/option:checked[^{]*\{[^}]*background-color:\s*var\(--color-acc-lo\)/);
   });
 
   test("REQ-003-19 the stylesheet is built from its Tailwind source and has a rule for every class the pages use", () => {

@@ -125,6 +125,8 @@ export interface SummaryView {
   needYou: number;
   /** Running sessions. */
   working: number;
+  /** The working count's line: the running Roles, e.g. "Planner and 2 Reviewers running now". */
+  workingLine: string;
   /** Queued work that waits for a slot. */
   queued: number;
   /** Blocked issues. */
@@ -457,6 +459,7 @@ export function dashboardView(
   const summary: SummaryView = {
     needYou: yourMove.reduce((n, g) => n + g.items.length, 0),
     working: running.length,
+    workingLine: workingLine(runningSessions.map((s) => s.role)),
     queued: queue.filter((q) => q.waiting).length,
     blocked: blocked.length,
   };
@@ -563,6 +566,17 @@ function describe(phase: IssueState, ready: boolean, blockedBy: number[]): { sta
 }
 
 /** A session of a repository no longer configured shows no model rather than failing the page. */
+/** REQ-003-11: the running Roles in Planner, Implementer, Reviewer order, counted when several. */
+function workingLine(roles: Role[]): string {
+  const parts = ROLES.flatMap((role) => {
+    const n = roles.filter((r) => r === role).length;
+    return n === 0 ? [] : [n === 1 ? ROLE_NAMES[role] : `${n} ${ROLE_NAMES[role]}s`];
+  });
+  if (parts.length === 0) return "No agent running";
+  const last = parts.pop();
+  return `${parts.length > 0 ? `${parts.join(", ")} and ${last}` : last} running now`;
+}
+
 function configuredModel(config: Config, repo: string, role: Role): string {
   try {
     return roleSettings(config, repo, role).model;

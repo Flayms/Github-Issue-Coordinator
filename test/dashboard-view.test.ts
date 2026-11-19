@@ -605,7 +605,27 @@ describe("dashboard view", () => {
       NOW,
     );
     // needYou is the total of Your move: 1 PR, 2 failed, 1 question, 2 plans, 1 close.
-    expect(v.summary).toEqual({ needYou: 7, working: 1, queued: 1, blocked: 1 });
+    expect(v.summary).toEqual({
+      needYou: 7,
+      working: 1,
+      workingLine: "Implementer running now",
+      queued: 1,
+      blocked: 1,
+    });
+  });
+
+  test("REQ-003-11 the working count's line names the running Roles in Planner, Implementer, Reviewer order", () => {
+    const line = (roles: ("planner" | "implementer" | "reviewer")[]) =>
+      dashboardView(
+        { ...owed(), sessions: roles.map((role, i) => session({ id: i + 1, role, issues: [i + 1] })) },
+        config,
+        NOW,
+      ).summary.workingLine;
+    expect(line([])).toBe("No agent running");
+    expect(line(["reviewer"])).toBe("Reviewer running now");
+    expect(line(["reviewer", "planner", "reviewer"])).toBe("Planner and 2 Reviewers running now");
+    expect(line(["implementer", "implementer", "implementer"])).toBe("3 Implementers running now");
+    expect(line(["reviewer", "implementer", "planner"])).toBe("Planner, Implementer and Reviewer running now");
   });
 
   describe("Usage quota", () => {
