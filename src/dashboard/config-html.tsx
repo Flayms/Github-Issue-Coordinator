@@ -4,7 +4,7 @@
  * reaches it. For the signed-in Owner the editable settings are a form (REQ-003-36).
  */
 import type { ReactNode } from "react";
-import { EFFORTS, isLoopback, ROLES } from "../config.ts";
+import { AUTO_MERGE_MODES, type AutoMergeMode, EFFORTS, isLoopback, ROLES } from "../config.ts";
 import { ROLE_NAMES } from "../note.ts";
 import type { SettingField, SettingsForm } from "./settings-form.ts";
 import { Count, Empty, Footer, Icon, Label, Layout, plural, renderPage } from "./ui.tsx";
@@ -122,7 +122,14 @@ function Models({ s }: { s: SettingsView }) {
   );
 }
 
-function Repo({ r }: { r: SettingsView["repos"][number] }) {
+/** REQ-001-65: what each mode merges, so the page says it next to the mode. */
+const AUTO_MERGE_LABELS: Record<AutoMergeMode, string> = {
+  off: "off",
+  evaluated: "evaluated (low risk only)",
+  all: "all",
+};
+
+function Repo({ r, form }: { r: SettingsView["repos"][number]; form?: SettingsForm }) {
   const c = r.counts;
   return (
     <li className="grid gap-2 border-line border-t py-3.5 first:border-t-0">
@@ -148,16 +155,22 @@ function Repo({ r }: { r: SettingsView["repos"][number] }) {
       <dl className="grid grid-cols-[auto_1fr] gap-x-3.5 gap-y-1.5 text-[13px]">
         <dt className="text-faint">Setup</dt>
         <dd className="min-w-0 wrap-anywhere">{r.setup ? <code className="font-mono">{r.setup}</code> : "–"}</dd>
-        <dt className="text-faint">Auto-merge</dt>
+        <dt className="text-faint">
+          {form ? <label htmlFor={fieldId(`repos.${r.name}.autoMerge`)}>Auto-merge</label> : "Auto-merge"}
+        </dt>
         <dd className="min-w-0">
-          <code className="font-mono">{r.autoMerge}</code>
+          {form ? (
+            <RepoAutoMerge form={form} repo={r.name} />
+          ) : (
+            <code className="font-mono">{AUTO_MERGE_LABELS[r.autoMerge]}</code>
+          )}
         </dd>
       </dl>
     </li>
   );
 }
 
-function Repos({ s }: { s: SettingsView }) {
+function Repos({ s, form }: { s: SettingsView; form?: SettingsForm }) {
   return (
     <section id="repos">
       <Label>
@@ -166,7 +179,7 @@ function Repos({ s }: { s: SettingsView }) {
       {s.repos.length ? (
         <ul>
           {s.repos.map((r) => (
-            <Repo key={r.name} r={r} />
+            <Repo key={r.name} r={r} form={form} />
           ))}
         </ul>
       ) : (
@@ -264,6 +277,51 @@ function EffortField({ f, label, inherit }: { f: SettingField; label: string; in
       </select>
       <Changed f={f} empty={inherit === undefined ? "default" : "the global effort"} />
     </>
+  );
+}
+
+/** Sized to its options, also inside a repository card's grid. */
+const autoMergeSelect = `${input.replace("w-full ", "")} w-auto`;
+
+/** REQ-003-36: the auto-merge mode; in a repository, empty means the global mode. */
+function AutoMergeField({ f, inherit }: { f: SettingField; inherit?: string }) {
+  return (
+    <>
+      <select id={fieldId(f.name)} name={f.name} defaultValue={f.value} className={autoMergeSelect}>
+        {inherit !== undefined && <option value="">{`global (${inherit})`}</option>}
+        {AUTO_MERGE_MODES.map((m) => (
+          <option key={m} value={m}>
+            {AUTO_MERGE_LABELS[m]}
+          </option>
+        ))}
+      </select>
+      <Changed f={f} empty={inherit === undefined ? "–" : "the global mode"} />
+    </>
+  );
+}
+
+function RepoAutoMerge({ form, repo }: { form: SettingsForm; repo: string }) {
+  const f = form.fields.find((x) => x.name === `repos.${repo}.autoMerge`);
+  const global = form.fields.find((x) => x.name === "autoMerge")?.value ?? "off";
+  return f ? <AutoMergeField f={f} inherit={global} /> : null;
+}
+
+function EditAutoMerge({ form }: { form: SettingsForm }) {
+  const f = form.fields.find((x) => x.name === "autoMerge");
+  if (!f) return null;
+  return (
+    <section id="auto-merge" className="mt-10">
+      <Label>Auto-merge</Label>
+      <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
+        <div>
+          <AutoMergeField f={f} />
+        </div>
+        <label htmlFor={fieldId(f.name)} className="max-w-[60ch] pt-1.5 text-[13px] text-muted">
+          What the Coordinator merges itself once a reviewed PR passed its checks: nothing, PRs the Reviewer rated low
+          risk, or all. A repository can set its own mode below.
+        </label>
+      </div>
+    </section>
   );
 }
 
@@ -392,10 +450,11 @@ function EditForm({ form, s }: { form: SettingsForm; s: SettingsView }) {
         <span>Applies from the next tick on; running sessions keep going. Changes are kept in the state dir.</span>
       </div>
       <Notice form={form} />
+      <EditAutoMerge form={form} />
       <EditLimits form={form} />
       <div className="mt-10 grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
         <EditModels form={form} s={s} />
-        <Repos s={s} />
+        <Repos s={s} form={form} />
       </div>
       <div className="mt-8">
         <SaveButton />

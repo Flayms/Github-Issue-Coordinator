@@ -12,6 +12,7 @@ export const MOCK_NOW = new Date("2026-11-18T14:30:00Z");
 const MOCK_CONFIG_INPUT = {
   owner: { login: "ada", id: 1 },
   pollIntervalSec: 60,
+  autoMerge: "evaluated",
   limits: { maxRunning: 3, maxLiveSessions: 5, maxWorktrees: 6, maxFeedbackRounds: 3 },
   roles: {
     planner: { model: "opus", effort: "high" },

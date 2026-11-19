@@ -7,6 +7,7 @@ import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { z } from "zod";
 import {
+  AUTO_MERGE_MODES,
   type Config,
   ConfigError,
   type ConfigInput,
@@ -24,6 +25,7 @@ export const OVERRIDES_FILE = "config.overrides.json";
 const model = z.string().regex(/^[A-Za-z0-9][\w.:[\]-]*$/, "must be a model name");
 /** `null` removes `config.ts`'s value: no effort (Claude's default) globally, the global one in a repository. */
 const effort = z.enum(EFFORTS).nullable();
+const autoMerge = z.enum(AUTO_MERGE_MODES);
 const perRole = <T extends z.ZodType>(r: T) =>
   z.strictObject({ planner: r.optional(), implementer: r.optional(), reviewer: r.optional() });
 
@@ -32,12 +34,17 @@ const overridesSchema = z.strictObject({
   checksGraceSeconds: z.number().optional(),
   limits: z.strictObject(Object.fromEntries(LIMIT_KEYS.map((k) => [k, z.number().optional()]))).optional(),
   roles: perRole(z.strictObject({ model: model.optional(), effort: effort.optional() })).optional(),
-  /** By repository name; a `null` model removes `config.ts`'s override, so the global model applies. */
+  /** REQ-001-65; the old name `risk-evaluated` is only read from `config.ts`. */
+  autoMerge: autoMerge.optional(),
+  /**
+   * By repository name; a `null` model or `autoMerge` removes `config.ts`'s override, so the global one applies.
+   */
   repos: z
     .record(
       z.string(),
       z.strictObject({
-        roles: perRole(z.strictObject({ model: model.nullable().optional(), effort: effort.optional() })),
+        roles: perRole(z.strictObject({ model: model.nullable().optional(), effort: effort.optional() })).optional(),
+        autoMerge: autoMerge.nullable().optional(),
       }),
     )
     .optional(),
@@ -112,11 +119,15 @@ export function applyOverrides(raw: ConfigInput, o: Overrides): ConfigInput {
     ...raw,
     ...(o.pollIntervalSec !== undefined && { pollIntervalSec: o.pollIntervalSec }),
     ...(o.checksGraceSeconds !== undefined && { checksGraceSeconds: o.checksGraceSeconds }),
+    ...(o.autoMerge !== undefined && { autoMerge: o.autoMerge }),
     ...(o.limits && { limits: merge(raw.limits, o.limits) }),
     ...(o.roles && raw.roles && { roles: { ...raw.roles, ...mergeRoles(raw.roles, o.roles) } }),
     repos: raw.repos?.map((r) => {
       const p = repoPatch(r.name);
-      return p ? { ...r, roles: mergeRoles(r.roles, p.roles) } : r;
+      if (!p) return r;
+      const { autoMerge, ...rest } = { ...r, ...(p.roles && { roles: mergeRoles(r.roles, p.roles) }) };
+      const mode = p.autoMerge === undefined ? autoMerge : (p.autoMerge ?? undefined);
+      return mode === undefined ? rest : { ...rest, autoMerge: mode };
     }),
   };
 }

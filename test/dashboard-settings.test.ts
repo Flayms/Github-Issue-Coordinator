@@ -98,6 +98,8 @@ describe("dashboard settings", () => {
       "roles.planner.effort",
       "repos.octo/app.roles.reviewer.model",
       "repos.octo/app.roles.reviewer.effort",
+      "autoMerge",
+      "repos.octo/app.autoMerge",
     ])
       expect(html).toContain(`name="${name}"`);
     // The page doesn't refresh itself while it shows the form, so entered values stay.
@@ -154,6 +156,52 @@ describe("dashboard settings", () => {
       "repos.octo/app.roles.reviewer.effort",
     ]);
     expect(page).toContain("config.ts: 2");
+  });
+
+  test("REQ-003-36 autoMerge is a select globally and per repository, and saving it applies at once", async () => {
+    const { url, settings, path } = start();
+    const page = async () => (await fetch(`${url}/config`, { headers: { cookie: owner.cookie } })).text();
+    const select = (html: string, name: string) =>
+      new RegExp(`<select [^>]*name="${name.replace(/[./]/g, "\\$&")}"[^>]*>(.*?)</select>`).exec(html)?.[1] ?? "";
+    const options = (html: string) =>
+      [...html.matchAll(/<option value="([^"]*)"[^>]*>([^<]*)</g)].map((m) => [m[1], m[2]]);
+    const before = await page();
+    expect(options(select(before, "autoMerge"))).toEqual([
+      ["off", "off"],
+      ["evaluated", "evaluated (low risk only)"],
+      ["all", "all"],
+    ]);
+    expect(options(select(before, "repos.octo/app.autoMerge"))).toEqual([
+      ["", "global (off)"],
+      ["off", "off"],
+      ["evaluated", "evaluated (low risk only)"],
+      ["all", "all"],
+    ]);
+
+    const res = await post(url, { formToken: FORM_TOKEN, autoMerge: "evaluated", "repos.octo/app.autoMerge": "all" });
+    expect(res.status).toBe(303);
+    expect(settings.current.autoMerge).toBe("evaluated");
+    expect(settings.current.repos[0]?.autoMerge).toBe("all");
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
+      autoMerge: "evaluated",
+      repos: { "octo/app": { autoMerge: "all" } },
+    });
+    const after = await page();
+    expect(select(after, "autoMerge")).toMatch(/<option value="evaluated" selected/);
+    expect(select(after, "repos.octo/app.autoMerge")).toMatch(/<option value="all" selected/);
+    expect(resets(after)).toEqual(["autoMerge", "repos.octo/app.autoMerge"]);
+    expect(after).toContain("config.ts: off");
+    expect(after).toContain("config.ts: the global mode");
+
+    // Back to the global mode: the repository's override goes away.
+    await post(url, { formToken: FORM_TOKEN, autoMerge: "evaluated", "repos.octo/app.autoMerge": "" });
+    expect(settings.overrides).toEqual({ autoMerge: "evaluated" });
+    expect(settings.current.repos[0]?.autoMerge).toBeUndefined();
+
+    const bad = await post(url, { formToken: FORM_TOKEN, autoMerge: "risky" });
+    expect(bad.status).toBe(400);
+    expect(await bad.text()).toContain("autoMerge:");
+    expect(settings.current.autoMerge).toBe("evaluated");
   });
 
   test("REQ-003-36 an invalid value shows the error, keeps the entered values and saves nothing", async () => {

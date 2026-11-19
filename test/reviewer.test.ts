@@ -396,7 +396,7 @@ describe("REQ-002-16 / REQ-001-65 / REQ-001-66 Risk tier and auto-merge", () => 
   });
 
   test("REQ-001-66 an auto-merge takes the PR out of draft, squash-merges the reviewed head and says why", async () => {
-    expect(await reviewer.autoMerge("octo/app", 9, "h2", { mode: "risk-evaluated", risk: "low" })).toBe(true);
+    expect(await reviewer.autoMerge("octo/app", 9, "h2", { mode: "evaluated", risk: "low" })).toBe(true);
     expect(gh.calls.filter((c) => c[0] === "setDraft" || c[0] === "mergePull")).toEqual([
       ["setDraft", 9, false],
       ["mergePull", 9, { sha: "h2", method: "squash" }],
@@ -404,7 +404,7 @@ describe("REQ-002-16 / REQ-001-65 / REQ-001-66 Risk tier and auto-merge", () => 
     const [, pr, body] = gh.of("createComment")[0] as [string, number, string];
     expect(pr).toBe(9);
     expect(body).toStartWith("> [!Note]\n> 🤖 Coordinator writing on behalf of octo");
-    expect(body).toContain("`risk-evaluated`");
+    expect(body).toContain("`evaluated`");
     expect(body).toContain("**low**");
     expect(gh.of("addAssignees")).toEqual([]);
   });

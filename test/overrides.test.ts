@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ConfigError, type ConfigInput, roleSettings } from "../src/config.ts";
+import { autoMergeMode, ConfigError, type ConfigInput, roleSettings } from "../src/config.ts";
 import { LiveConfig, OVERRIDES_FILE, type Overrides } from "../src/overrides.ts";
 
 let dirs: string[] = [];
@@ -77,6 +77,23 @@ describe("Settings overrides", () => {
     expect(roleSettings(c, "octo/app", "reviewer")).toEqual({ model: "opus" });
   });
 
+  test("REQ-003-36 autoMerge is set globally and per repository; a repository's null falls back to the global mode", () => {
+    const { dir } = setup({
+      autoMerge: "evaluated",
+      repos: { "octo/app": { autoMerge: null }, "octo/web": { autoMerge: "all" } },
+    } satisfies Overrides);
+    const input: ConfigInput = {
+      ...raw(dir),
+      autoMerge: "off",
+      repos: [{ name: "octo/app", autoMerge: "all" }, { name: "octo/web" }, { name: "octo/lib", autoMerge: "off" }],
+    };
+    const c = new LiveConfig(input, "config.ts").current;
+    expect(c.autoMerge).toBe("evaluated");
+    expect(autoMergeMode(c, "octo/app")).toBe("evaluated");
+    expect(autoMergeMode(c, "octo/web")).toBe("all");
+    expect(autoMergeMode(c, "octo/lib")).toBe("off");
+  });
+
   test("REQ-003-36 overrides of a repository no longer in config.ts are ignored", () => {
     const { input } = setup({ repos: { "octo/gone": { roles: { planner: { model: "haiku" } } } } });
     const live = new LiveConfig(input, "config.ts");
@@ -86,7 +103,7 @@ describe("Settings overrides", () => {
   test("REQ-003-36 a file that isn't valid, or sets a key that can't be changed, is refused with the reason", () => {
     const load = (o: unknown) => issuesOf(() => new LiveConfig(setup(o).input, "config.ts"));
     expect(load("{not json")[0]).toStartWith("(root): not JSON");
-    for (const key of ["accounts", "owner", "github", "dashboard", "stateDir", "autoMerge"])
+    for (const key of ["accounts", "owner", "github", "dashboard", "stateDir"])
       expect(load({ [key]: [] })).toContain(`(root): Unrecognized key: "${key}"`);
     // Repositories can't be added or replaced, only their Roles' settings changed.
     expect(load({ repos: [{ name: "evil/repo" }] })).not.toEqual([]);
@@ -104,6 +121,9 @@ describe("Settings overrides", () => {
       "roles.planner.model:",
     );
     expect(load({ roles: { planner: { effort: "huge" } } })[0]).toStartWith("roles.planner.effort:");
+    expect(load({ autoMerge: "always" })[0]).toStartWith("autoMerge:");
+    expect(load({ autoMerge: null })[0]).toStartWith("autoMerge:");
+    expect(load({ repos: { "octo/app": { autoMerge: "risky" } } })[0]).toStartWith("repos.octo/app.autoMerge:");
   });
 
   test("REQ-003-36 save validates, writes the file and applies at once; an invalid save changes nothing", () => {

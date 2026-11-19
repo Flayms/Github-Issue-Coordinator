@@ -452,10 +452,10 @@ export function deriveActions(s: Snapshot): Action[] {
       pull.checks === "success" || (pull.checks === "none" && now - Date.parse(pull.headSeenAt) >= graceMs);
     if (!passed) continue;
     const done = { repo: s.repo, pr: w.prNumber, issues: w.issues, headSha: pull.headSha };
-    // REQ-001-65: `risk-evaluated` merges only a head the Review rated `low`. REQ-001-66: only once GitHub says it
+    // REQ-001-65: `evaluated` merges only a head the Review rated `low`. REQ-001-66: only once GitHub says it
     // can be merged; a known conflict whose round already ran goes to the Owner, as in `off`.
     const mode = s.autoMerge ?? "off";
-    if (mode === "off" || (mode === "risk-evaluated" && w.reviewRisk !== "low") || pull.mergeable === false)
+    if (mode === "off" || (mode === "evaluated" && w.reviewRisk !== "low") || pull.mergeable === false)
       actions.push({ type: "ready", ...done });
     else if (pull.mergeable === true) actions.push({ type: "merge", ...done, mode, risk: w.reviewRisk });
   }
