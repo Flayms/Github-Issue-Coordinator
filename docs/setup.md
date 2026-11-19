@@ -1,84 +1,216 @@
 # Setup
 
-One-time steps after the [prerequisites](../README.md#prerequisites). `bun run doctor` checks the result.
+One-time steps to get the Coordinator running. Work through them in order; `bun run doctor` checks the result.
 
-Everything runs as root on the VM. Agents run with permission prompts skipped and no sandbox; the Coordinator starts them with `IS_SANDBOX=1`, without which Claude Code refuses that as root ([spec 005](specs/005-vm-runtime/spec.md)). The only boundary is GitHub: the PAT below.
+| Step                                                                        | Needed                        |
+| --------------------------------------------------------------------------- | ----------------------------- |
+| [Prerequisites](#prerequisites)                                             | **Required**                  |
+| [1. GitHub access: a fine-grained PAT](#1-github-access-a-fine-grained-pat) | **Required**                  |
+| [2. Each managed repository](#2-each-managed-repository)                    | **Required**                  |
+| [3. Configure](#3-configure)                                                | **Required**                  |
+| [4. Dashboard](#4-dashboard)                                                | On by default; sign-in needed |
+| [5. Run as a service](#5-run-as-a-service)                                  | Recommended                   |
+| [6. Verify](#6-verify)                                                      | **Required**                  |
+
+> [!IMPORTANT]
+> Everything runs as root on a VM dedicated to the Coordinator. Agents run with permission prompts skipped and no sandbox, so keep nothing else of value there. The Coordinator starts them with `IS_SANDBOX=1`, without which Claude Code refuses that as root ([spec 005](specs/005-vm-runtime/spec.md)). The only boundary is GitHub: the PAT in step 1.
+
+## Prerequisites
+
+**Required.** A Linux VM (e.g. Ubuntu), used as root.
+
+- [ ] tmux, git and the GitHub CLI:
+
+  ```sh
+  apt install -y tmux git gh
+  ```
+- [ ] [Bun](https://bun.sh):
+
+  ```sh
+  curl -fsSL https://bun.sh/install | bash
+  ```
+- [ ] [Claude Code](https://code.claude.com):
+
+  ```sh
+  curl -fsSL https://claude.ai/install.sh | bash
+  ```
+- [ ] Run `claude` once and `/login` with your subscription. Remote Control needs this login, not `claude setup-token`.
+- [ ] The Coordinator itself:
+
+  ```sh
+  git clone https://github.com/Flayms/Github-Issue-Coordinator.git ~/github-issue-coordinator
+  cd ~/github-issue-coordinator && bun install
+  ```
 
 ## 1. GitHub access: a fine-grained PAT
 
-GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token:
+**Required.** GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token.
 
-- Resource owner: the account that owns the repositories (your own for your personal repositories). The Coordinator's comments then show as yours; it recognises its own by the agent note they start with (REQ-005-03), so don't start a comment of your own with it.
-- Repository access: **Only select repositories**, the ones the Coordinator should manage.
-- Permissions: **Contents**, **Issues**, **Pull requests**, **Workflows** read & write; **Commit statuses**, **Actions** read-only. If `bun run doctor` says check runs aren't readable, add the read permission GitHub offers for checks.
+| Setting           | Value                                                                            |
+| ----------------- | -------------------------------------------------------------------------------- |
+| Resource owner    | The account that owns the repositories (your own for your personal repositories) |
+| Repository access | **Only select repositories**: the ones the Coordinator should manage             |
+| Read & write      | **Contents**, **Issues**, **Pull requests**, **Workflows**                       |
+| Read-only         | **Commit statuses**, **Actions**                                                 |
 
-```sh
-gh auth login --with-token <<< 'github_pat_…'
-```
+- [ ] Create the token with the settings above.
+- [ ] Log in with it:
 
-The Coordinator reads it with `gh auth token` and picks up a new one within 5 minutes.
+  ```sh
+  gh auth login --with-token <<< 'github_pat_…'
+  ```
+
+Good to know:
+
+- The Coordinator reads it with `gh auth token` and picks up a new one within 5 minutes.
+- Its comments show as yours. It recognises its own by the agent note they start with (REQ-005-03), so don't start a comment of your own with it.
+- If `bun run doctor` says check runs aren't readable, add the read permission GitHub offers for checks.
 
 ## 2. Each managed repository
 
-- **Ruleset** (Settings → Rules → Rulesets → New branch ruleset): target the default branch, empty bypass list, rules **Restrict deletions**, **Block force pushes**, **Require a pull request before merging** (0 approvals). This keeps pushes off the default branch; agents never merge, and the Coordinator merges only with `autoMerge` on (step 3). Optional, if the repository has CI: add **Require status checks to pass** with its check (for this repository: `check` from `.github/workflows/ci.yml`).
-- **Old review workflow:** disable any GitHub Actions workflow that reviews PRs with Claude; the Reviewer replaces it.
+**Required**, for every repository in `repos`.
+
+- [ ] **Add a ruleset:** Settings → Rules → Rulesets → New branch ruleset.
+
+  | Setting       | Value                                                                                                                      |
+  | ------------- | -------------------------------------------------------------------------------------------------------------------------- |
+  | Target        | The default branch                                                                                                         |
+  | Bypass list   | Empty                                                                                                                      |
+  | Rules         | **Restrict deletions**                                                                                                     |
+  |               | **Block force pushes**                                                                                                     |
+  |               | **Require a pull request before merging** (0 approvals)                                                                    |
+  | Optional rule | **Require status checks to pass**, if the repository has CI (for this repository: `check` from `.github/workflows/ci.yml`) |
+
+  This keeps pushes off the default branch. Agents never merge; the Coordinator merges only with `autoMerge` on (step 3).
+- [ ] **Disable the old review workflow:** any GitHub Actions workflow that reviews PRs with Claude. The Reviewer replaces it.
 
 ## 3. Configure
 
-Copy `config.example.ts` to `config.ts` and fill in:
+**Required.**
 
-- `owner`: your login and numeric id (`gh api users/<login> --jq .id`).
-- `roles`: a model per Role (`sonnet`, `opus`, …), optionally an effort.
-- `repos`: each managed repository, with its `setup` command (e.g. `bun install`) for new Worktrees.
-- Optional: `stateDir`, `limits`, `autoMerge`, `accounts`, `dashboard`, `github.commitAuthor` (see `config.example.ts`).
+- [ ] Copy the example:
 
-**Auto-merge (optional):** `autoMerge: "evaluated"` (recommended) lets the Coordinator squash-merge reviewed PRs the Reviewer rated low risk; `"all"` merges every reviewed PR whose checks passed; a repository's own `autoMerge` wins. Once signed in, you can also change both on the dashboard's Config page. The old name `"risk-evaluated"` still works; `bun run doctor` warns about it. The PAT's **Contents** and **Pull requests** write permissions already allow it. The ruleset from step 2 allows it as long as it requires 0 approvals: a ruleset or branch protection that requires an approving review (or anything else the PAT can't satisfy) makes GitHub refuse the merge, and the PR is then left ready for you with GitHub's reason in a comment.
+  ```sh
+  cp config.example.ts config.ts
+  ```
+- [ ] Fill in:
 
-**More than one subscription (optional):** when one hits its usage limit, the Coordinator goes on with the next ([spec 004](specs/004-accounts/spec.md)). Log in to each extra one in its own folder (`CLAUDE_CONFIG_DIR=/root/.claude-spare claude`, then `/login`) and list them in `accounts`. A session shows up in the Claude app only under the account it runs on.
+  | Key     | What                                                                                     |
+  | ------- | ---------------------------------------------------------------------------------------- |
+  | `owner` | Your login and numeric id (`gh api users/<login> --jq .id`)                              |
+  | `roles` | A model per Role (`sonnet`, `opus`, …), optionally an effort                             |
+  | `repos` | Each managed repository, with its `setup` command (e.g. `bun install`) for new Worktrees |
+
+**Optional:** `stateDir`, `limits`, `autoMerge`, `accounts`, `dashboard`, `github.commitAuthor` (see `config.example.ts`).
+
+### Auto-merge (optional)
+
+- [ ] Set `autoMerge: "evaluated"` (recommended) to let the Coordinator squash-merge reviewed PRs the Reviewer rated low risk, or `"all"` for every reviewed PR whose checks passed. A repository's own `autoMerge` wins.
+
+Good to know:
+
+- Once signed in, you can also change both on the dashboard's Config page.
+- The old name `"risk-evaluated"` still works; `bun run doctor` warns about it.
+- The PAT's **Contents** and **Pull requests** write permissions already allow it.
+- The ruleset from step 2 allows it as long as it requires 0 approvals. A ruleset or branch protection that requires an approving review (or anything else the PAT can't satisfy) makes GitHub refuse the merge; the PR is then left ready for you with GitHub's reason in a comment.
+
+### More than one subscription (optional)
+
+When one Account hits its usage limit, the Coordinator goes on with the next ([spec 004](specs/004-accounts/spec.md)).
+
+- [ ] Log in to each extra one in its own folder:
+
+  ```sh
+  CLAUDE_CONFIG_DIR=/root/.claude-spare claude   # then /login
+  ```
+- [ ] List them in `accounts`.
+
+A session shows up in the Claude app only under the Account it runs on.
 
 ## 4. Dashboard
 
-On by default at `127.0.0.1:8080` ([spec 003](specs/003-dashboard/spec.md)). It changes nothing on GitHub; once you are signed in with GitHub, the Config page lets you change the limits, the poll interval, `checksGraceSeconds` and each Role's model and effort (globally and per repository). They apply from the next tick on and are kept in `<stateDir>/config.overrides.json`, over `config.ts`; delete that file (and restart) to go back to `config.ts`. Repositories, Accounts, access and `setup` commands change only in `config.ts`. Reach it over Tailscale (`tailscale serve --bg 8080`) or an SSH tunnel (`ssh -N -L 8080:127.0.0.1:8080 root@<vm>`), never directly from the internet. `dashboard: false` turns it off.
+**On by default** at `127.0.0.1:8080` ([spec 003](specs/003-dashboard/spec.md)); `dashboard: false` turns it off. Until the sign-in is set up, its pages answer 503.
 
-**Sign in with GitHub** (on by default): only the Owner gets in. Until it is set up, the pages answer 503. Create an OAuth App: GitHub → Settings → Developer settings → OAuth Apps → New OAuth App:
+### Reach it
 
-- Homepage URL: the URL you open the dashboard with, e.g. `https://<vm>.<tailnet>.ts.net` (Tailscale) or `http://127.0.0.1:8080` (SSH tunnel).
-- Authorization callback URL: that URL + `/auth/callback`, e.g. `https://<vm>.<tailnet>.ts.net/auth/callback`. Open the dashboard with exactly that host, or the sign-in ends with 400.
-- Generate a client secret and keep it in a file:
+- [ ] Keep it on loopback and use one of these, never the open internet:
+  - Tailscale: `tailscale serve --bg 8080`
+  - an SSH tunnel: `ssh -N -L 8080:127.0.0.1:8080 root@<vm>`
 
-```sh
-mkdir -p ~/.config/coordinator && (umask 077 && cat > ~/.config/coordinator/github-client-secret) # paste, then Ctrl-D
-```
+### Sign in with GitHub
 
-```ts
-dashboard: { githubLogin: { clientId: "Ov23li…", clientSecretPath: "/root/.config/coordinator/github-client-secret" } },
-```
+**Required** unless you turn it off. Only the Owner gets in.
 
-The sign-in asks for no scopes: it reads only who you are and drops GitHub's token right after. The session lasts 30 days, also across restarts; its key is `<stateDir>/dashboard-session.key` (deleting it signs everyone out). "Sign out" is in the header. `githubLogin: false` turns the sign-in off, for loopback-only use.
+- [ ] Create an OAuth App: GitHub → Settings → Developer settings → OAuth Apps → New OAuth App.
 
-**Token for scripts (optional):**
+  | Field                      | Value                                                                                                                         |
+  | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+  | Homepage URL               | The URL you open the dashboard with, e.g. `https://<vm>.<tailnet>.ts.net` (Tailscale) or `http://127.0.0.1:8080` (SSH tunnel) |
+  | Authorization callback URL | That URL + `/auth/callback`, e.g. `https://<vm>.<tailnet>.ts.net/auth/callback`                                               |
 
-```sh
-(umask 077 && openssl rand -hex 32 > ~/.config/coordinator/dashboard-token)
-```
+  Open the dashboard with exactly that host, or the sign-in ends with 400.
+- [ ] Generate a client secret and keep it in a file:
 
-```ts
-dashboard: { tokenPath: "/root/.config/coordinator/dashboard-token", githubLogin: { … } },
-```
+  ```sh
+  mkdir -p ~/.config/coordinator && (umask 077 && cat > ~/.config/coordinator/github-client-secret) # paste, then Ctrl-D
+  ```
+- [ ] Add it to `config.ts`:
+
+  ```ts
+  dashboard: { githubLogin: { clientId: "Ov23li…", clientSecretPath: "/root/.config/coordinator/github-client-secret" } },
+  ```
+
+Good to know:
+
+- The sign-in asks for no scopes: it reads only who you are and drops GitHub's token right after.
+- The session lasts 30 days, also across restarts. Its key is `<stateDir>/dashboard-session.key`; deleting it signs everyone out.
+- "Sign out" is in the header.
+- `githubLogin: false` turns the sign-in off, for loopback-only use.
+
+### Token for scripts (optional)
+
+- [ ] Create one:
+
+  ```sh
+  (umask 077 && openssl rand -hex 32 > ~/.config/coordinator/dashboard-token)
+  ```
+- [ ] Add it to `config.ts`:
+
+  ```ts
+  dashboard: { tokenPath: "/root/.config/coordinator/dashboard-token", githubLogin: { … } },
+  ```
 
 Send it as `Authorization: Bearer <token>`, or open the dashboard once as `…/?token=<token>` and a cookie keeps it. Off loopback, the dashboard needs the sign-in or a token.
 
+### Settings on the Config page
+
+- Once signed in, the Config page lets you change the limits, the poll interval, `checksGraceSeconds`, the auto-merge mode and each Role's model and effort (globally and per repository). The dashboard changes nothing on GitHub.
+- They apply from the next tick on and are kept in `<stateDir>/config.overrides.json`, over `config.ts`. Delete that file (and restart) to go back to `config.ts`.
+- Repositories, Accounts, access and `setup` commands change only in `config.ts`.
+
 ## 5. Run as a service
 
-The unit assumes the checkout at `/root/github-issue-coordinator`; adjust its paths otherwise.
+**Recommended** (otherwise `bun start`). The unit assumes the checkout at `/root/github-issue-coordinator`; adjust its paths otherwise.
 
-```sh
-cp deploy/github-issue-coordinator.service /etc/systemd/system/
-systemctl daemon-reload && systemctl enable --now github-issue-coordinator
-journalctl -u github-issue-coordinator -f
-```
+- [ ] Install and start it:
+
+  ```sh
+  cp deploy/github-issue-coordinator.service /etc/systemd/system/
+  systemctl daemon-reload && systemctl enable --now github-issue-coordinator
+  ```
+- [ ] Follow its log:
+
+  ```sh
+  journalctl -u github-issue-coordinator -f
+  ```
 
 Restarts leave running agent sessions alone; the Coordinator picks them up again. To watch one directly: `tmux attach -t coordinator`.
+
+## 6. Verify
+
+- [ ] `bun run doctor` says "All set." (it names the step to fix otherwise).
+- [ ] Open the dashboard and sign in with GitHub.
+- [ ] Open an issue in a managed repository: once a Planner Slot is free, it gets `agent:planning`, then an Assessment.
 
 ## Later
 

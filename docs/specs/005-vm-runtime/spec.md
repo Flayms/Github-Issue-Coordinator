@@ -53,7 +53,7 @@ Deprecates REQ-001-15, REQ-001-25, REQ-001-26, REQ-001-30, REQ-001-53, REQ-001-5
 
 ### REQ-005-06 One script sets up the VM
 
-> **Deprecated** (#94 follow-up): Bun, Claude Code and the system tools are prerequisites in the README; the systemd unit is copied by hand (docs/setup.md). The script installed nothing a few documented commands don't.
+> **Deprecated** (#94 follow-up): Bun, Claude Code and the system tools are prerequisites in the README (now `docs/setup.md`, #149); the systemd unit is copied by hand (docs/setup.md). The script installed nothing a few documented commands don't.
 
 - **Given** a fresh Ubuntu VM
 - **When** the Owner runs `bash deploy/setup-vm.sh` as root, or as a normal user with `sudo`

@@ -10,6 +10,7 @@ Keep the docs up to date when something changes.
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------- |
 | `README.md`              | User facing description. Keep up to date.                                                                         |
 | `docs/architecture.md`   | Architecture overview                                                                                             |
+| `docs/how-it-works.md`   | The full workflow, auto-merge, dashboard and Role prompts behind the README's short version. Keep up to date.     |
 | `docs/glossary.md`       | Definitions of domain terms                                                                                       |
 | `docs/known-pitfalls.md` | if you encounter problems or pitfalls add them here, either to avoid them in the future or for us to fix later on |
 | `docs/specs/README.md`   | Index of feature specs with their status, conventions and template                                                |

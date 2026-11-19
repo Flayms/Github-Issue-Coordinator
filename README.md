@@ -2,45 +2,80 @@
 
 [![CI](https://github.com/Flayms/Github-Issue-Coordinator/actions/workflows/ci.yml/badge.svg)](https://github.com/Flayms/Github-Issue-Coordinator/actions/workflows/ci.yml)
 
-A self-hosted Bun daemon that polls GitHub and runs Claude Code agents. They triage, plan, implement and review your issues (one Worktree per issue), with your approval as the gate. Every agent session also shows up in the Claude app, where you can follow it live and chat with it.
+A self-hosted Bun daemon that turns your GitHub issues into reviewed pull requests: Claude Code agents triage, plan, implement and review them, and nothing is built or merged without your approval.
+
+<p>
+  <img src="docs/images/dashboard-desktop.png" alt="The dashboard's Overview on a wide screen: what needs you, the counts, Capacity and the Usage quota" width="75%">
+  <img src="docs/images/dashboard-phone.png" alt="The top of the Overview on a phone" width="21.6%">
+</p>
+
+## Features
+
+- **Approval gates:** a Planner proposes, you `/approve`; only your issues and comments count.
+- **One Worktree per issue:** each issue (or Bundle) gets its own branch, checkout and draft PR.
+- **Review and Feedback rounds:** a Reviewer with a fresh context reviews every PR; findings, failing checks and conflicts go back to the Implementer.
+- **Optional auto-merge:** the Coordinator merges reviewed PRs the Reviewer rated low risk, or none, or all.
+- **Several Accounts:** when one Claude subscription hits its usage limit, work goes on with the next.
+- **Live sessions:** every agent session shows up in the Claude app, where you can follow it and chat with it.
+- **Dashboard:** what needs you, what runs and why the rest waits, on your phone too.
+
+## Quick start
+
+You need a Linux VM dedicated to the Coordinator with tmux, git, `gh`, [Bun](https://bun.sh) and [Claude Code](https://code.claude.com) logged in ([prerequisites](docs/setup.md#prerequisites)).
+
+```sh
+git clone https://github.com/Flayms/Github-Issue-Coordinator.git ~/github-issue-coordinator
+cd ~/github-issue-coordinator && bun install
+gh auth login                    # with a fine-grained PAT
+cp config.example.ts config.ts   # fill in the Owner, Roles and repositories
+bun run doctor                   # checks the setup
+bun start                        # or run it as the systemd service
+```
+
+The [setup guide](docs/setup.md) walks through each step: the PAT, the ruleset, the config, the dashboard and the service.
 
 ## How it works
 
-1. **You open an issue.** Only issues you authored are considered, plus Split-off issues the Planner proposed (below); comments, labels and reviews by anyone else are ignored.
-2. **The Planner assesses it** and posts an Assessment comment: proposed approach, questions, and Coordination notes ("do together with #N", "blocked by #N"). Label: `agent:proposed`, `agent:needs-refinement` or `agent:wontfix-proposed`. Comment with feedback to revise the plan: the Assessment is edited in place, and the Planner answers below your comment with a short Reply saying what changed and why. Editing the issue description instead plans it from scratch, without the old plan. If the issue or your comment links to another issue or PR of the same repository (`#N` or its URL), the Planner also gets its recent history: state, labels, timeline events, Reviews and last comments (up to 5 linked items per issue). If an issue mixes independent changes, or the Planner finds a separate bug, it can split off new issues: the Coordinator creates them (at most 5 per Assessment, never twice), links them back, lists them under Coordination, and plans them like your own issues. They still need your approval. When you ask to see options or how something will look, the Planner renders mockups and the Assessment shows them, so you choose before anything is built.
-3. **You approve** with `/approve [notes]` or the `agent:approved` label. Nothing said inside a session counts as approval.
-4. **The Implementer works on it** in its own Worktree and branch (`agent/<issue>-<slug>`); bundled issues share one. A Bundle waits while you are still discussing one of its issues (an unanswered comment, or a plan being revised). The Coordinator pushes and opens a **draft** PR that closes the issues, so it can't be merged before its Review. Screenshots of UI changes the Implementer captured show in the PR body; they are kept on the branch `agent-screenshots`, never in the PR's commits.
-5. **The Reviewer reviews the PR** as soon as it is pushed, alongside its checks, unless it has merge conflicts, as one review with inline comments (never an approval). The Reviewer reports only findings worth fixing (no nits or matters of taste). A Review without findings labels the PR `agent:reviewed`, and once its checks pass the PR is marked ready for review and assigned to you, so it shows under your assigned PRs on GitHub. Every finding and failing checks go back to the Implementer, in one round when they concern the same commit, up to `maxFeedbackRounds` times, then the PR is labelled `agent:failed`. Merge conflicts go back too, but don't count toward that limit: the Coordinator fetches the default branch and the Implementer merges it, also after a PR was already reviewed. The Implementer answers each finding on the PR (`fixed` or `declined` with a reason), and the next Review sees those answers. If an automatic round ends without a new commit (findings declined, checks still failing, conflicts still there), the Coordinator says why in a PR comment and the PR waits for you: `/agent <text>` to have it fixed anyway, mark it ready yourself, or merge it yourself. `/agent <text>` on a conflicting PR, also a failed one, fetches the default branch first and asks for the merge. Any new commit pushed after a Review turns the PR back into a draft until that commit is reviewed, and an `agent:reviewed` PR goes back to `agent:pr-open`; a failed PR stays a draft. [Labels](#labels) shows the whole lifecycle.
-6. **You merge** once the PR has left draft (or click "Ready for review" yourself to override). The Worktree and sessions are cleaned up. With **auto-merge** on, the Coordinator merges it for you instead (below).
+```mermaid
+flowchart LR
+    issue["Issue"] --> plan["Assessment"]
+    plan -- "feedback" --> plan
+    plan -- "/approve" --> impl["Draft PR"]
+    impl --> review["Review"]
+    review -- "findings" --> impl
+    review -- "no findings" --> merge["Merge"]
+```
 
-**Auto-merge (optional).** Every Review also names a **Risk tier** (`low`, `medium` or `high`) with a one-line reason, shown in the Review. `autoMerge` decides what the Coordinator merges itself, at the moment the PR would otherwise leave draft for you (no findings, checks passed): `off` (default) merges nothing; `evaluated` (recommended) merges PRs rated `low` and leaves the rest to you; `all` merges every such PR. Set it globally or per repository, in `config.ts` or on the dashboard's Config page (`risk-evaluated`, its old name, still works and `bun run doctor` warns about it). No gate is skipped: PRs with findings, declined findings, failing checks, conflicts or your `/agent` comment waiting are never merged, and a PR that changes `.github/workflows/` is always rated `high`. The merge is a squash pinned to the reviewed commit; the Coordinator comments on the PR why it merged. If GitHub refuses (e.g. a ruleset requires an approval), the PR is ready for you as usual, with the reason in a comment.
+1. **You open an issue.** Comments, labels and reviews by anyone else are ignored.
+2. **The Planner assesses it** in an Assessment comment. Comment to revise it; it answers with a Reply.
+3. **You approve** with `/approve [notes]` or the `agent:approved` label.
+4. **The Implementer works on it** in its own Worktree; the Coordinator opens a draft PR.
+5. **The Reviewer reviews the PR.** Findings and failing checks start a Feedback round, up to `maxFeedbackRounds`.
+6. **You merge** once the PR leaves draft, and the Worktree is cleaned up.
 
-**Runs on a VM of its own.** Agents run with Claude Code's permission prompts skipped and no sandbox: on that VM they may do whatever they want. The only boundary is GitHub: the Coordinator and the agents share one fine-grained PAT, logged in with `gh`, limited to the repositories you choose ([spec 005](docs/specs/005-vm-runtime/spec.md)). Agents read GitHub with `gh` to look up context their prompt leaves out; posting, labelling, pushing and opening PRs is left to the Coordinator.
+The details, from Split-off issues to merge conflicts, are in [docs/how-it-works.md](docs/how-it-works.md).
 
-**Several Claude subscriptions (optional).** List them as `accounts` in the config; sessions run on the first one. When it hits its usage limit, it is paused and work, including the cut-off session, goes on with the next one. New work waits only while every Account is paused.
+## Dashboard
 
-**Dashboard (on by default).** A mobile-friendly page leads with how many things need you and lists them in groups right under it (PRs to merge, failed issues, questions to answer, plans to approve, issues to close; a long list shows 5 and "Show N more"), next to what is running and the capacity (running and live sessions, Slots, Worktrees); then Activity as one timeline: what the Coordinator did recently (PRs opened, Reviews, failures with their reason), the agent sessions now (running ones first, with their model and Remote Control names; idle ones say when they close), and what runs next and why each item waits; then a pipeline of every issue's phase and PR (checks, mergeability, Feedback rounds) that says what each one needs, filterable by repository. A Config page shows the settings without secrets, and lets you change limits, poll interval, the auto-merge mode and each Role's model and effort (also per repository) once you are signed in; they apply from the next tick on, without a restart, and are kept over `config.ts` in the state dir. It refreshes in place every poll interval, keeping the scroll position and what you opened (without JavaScript it reloads instead), and loads nothing from other origins (its fonts are self-hosted). It changes nothing on GitHub; it is on by default (`dashboard: false` turns it off), listens on loopback, is meant to be reached over Tailscale or an SSH tunnel, and lets only you in with "Sign in with GitHub" (a GitHub OAuth App; a token still works for scripts) ([setup](docs/setup.md#4-dashboard), [spec 003](docs/specs/003-dashboard/spec.md)).
+- **Overview:** what needs you, Capacity and the Usage quota, Activity (Recent, Now, Next) and the Pipeline.
+- **Config:** the settings without secrets; once signed in, change limits, auto-merge and models without a restart.
+- **Timings:** how long each step of an issue took.
+- On by default at `127.0.0.1:8080`, reached over Tailscale or an SSH tunnel, "Sign in with GitHub" for you only. It changes nothing on GitHub.
 
-<p>
-  <img src="docs/images/dashboard-desktop.png" alt="The dashboard's Overview on a wide screen: what needs you, capacity, Activity and the Pipeline" width="68%">
-  <img src="docs/images/dashboard-phone.png" alt="The top of the Overview on a phone" width="28%">
-</p>
-
-<details>
-<summary>The Config page</summary>
-
-![The Config page: the auto-merge mode, limits, models per Role (globally and per repository) as a form, a changed limit with its config.ts value, and the repositories](docs/images/dashboard-config.png)
-
-</details>
-
-<details>
-<summary>The Timings page</summary>
-
-![The Timings page: one issue's Planning, Building and Review as bars of waiting, agent and checks time](docs/images/dashboard-timings.png)
-
-</details>
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/dashboard-config.png" alt="The Config page: access, the auto-merge mode and the limits as a form, a changed limit with its config.ts value"></td>
+    <td width="50%"><img src="docs/images/dashboard-timings.png" alt="The Timings page: one issue's Planning, Building and Review as bars of waiting, agent and checks time"></td>
+  </tr>
+  <tr>
+    <td align="center">Config</td>
+    <td align="center">Timings</td>
+  </tr>
+</table>
 
 <sub>Made-up data from <code>test/fixtures/dashboard-mock.ts</code>; <code>bun run screenshots</code> renders them again.</sub>
+
+More: [how it works](docs/how-it-works.md#dashboard) · [setup](docs/setup.md#4-dashboard) · [spec 003](docs/specs/003-dashboard/spec.md)
 
 ## Commands (comments by you)
 
@@ -53,7 +88,12 @@ A self-hosted Bun daemon that polls GitHub and runs Claude Code agents. They tri
 
 ## Labels
 
-Each issue's state is an `agent:*` label on the issue (shown in its GitHub colour, grouped by phase). Once the agent PR is open, the PR carries the same label as its issues, so you can see its phase in the PR list too: `agent:pr-open`, `agent:reviewing`, `agent:reviewed`, `agent:in-progress` during a Feedback round, or `agent:failed`, always exactly one of them. The PR's label is only for show: the Coordinator decides from the issue's label. You steer with comments, the `agent:approved` label, reviews and merging; the **Coordinator** applies every label, after an agent's Result or on its own checks. Agents don't set labels: their prompts leave that to the Coordinator. The Coordinator creates the labels in each repository.
+Each issue's state is an `agent:*` label; once the agent PR is open, the PR carries the same label as its issues: `agent:pr-open`, `agent:reviewing`, `agent:reviewed`, `agent:in-progress` or `agent:failed`.
+
+You steer with comments, the `agent:approved` label, reviews and merging; the Coordinator applies every other label.
+
+<details>
+<summary>The lifecycle as a diagram</summary>
 
 ```mermaid
 stateDiagram-v2
@@ -136,6 +176,11 @@ stateDiagram-v2
     class failed l_failed
 ```
 
+</details>
+
+<details>
+<summary>What each label means and what you can do</summary>
+
 | Label                    | Means                                                                                                                                                  | Set by                                                                                                           | What you can do now                                                                                                                                                                               |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | _(none)_                 | New issue, not planned yet                                                                                                                             | —                                                                                                                | Wait for the next poll                                                                                                                                                                            |
@@ -151,35 +196,46 @@ stateDiagram-v2
 | `agent:reviewed`         | The Review found nothing to fix; once its checks pass, the PR leaves draft, assigned to you, or is merged if `autoMerge` allows its Risk tier          | Coordinator, after a Review without findings                                                                     | Merge, or `/agent <text>` / "Request changes" for another round                                                                                                                                   |
 | `agent:failed`           | The Coordinator gave up; its comment says why. No automatic rounds run any more                                                                        | Coordinator                                                                                                      | `/agent <text>` or "Request changes" on the PR for a Feedback round, which clears the label; `/wake` to chat with the session; if it failed in planning, remove the label to have it planned anew |
 
-Feedback on a proposal (a comment, which gets a Reply, or an edit to the issue, which is planned from scratch) can be given as often as you like; each revised Assessment can change the verdict to any of the three proposal labels. When an issue carries several agent labels, the most advanced one wins (`PRECEDENCE` in [`src/state.ts`](src/state.ts)), with `agent:failed` above all others. Merging or closing the PR clears the issue's agent labels; an issue whose PR was closed unmerged is open again without a label and gets a new Assessment.
+- The labels show in their GitHub colour, grouped by phase. The Coordinator creates them in each repository.
+- An agent PR always carries exactly one label, and only for show: the Coordinator decides from the issue's label.
+- Agents don't set labels: their prompts leave that to the Coordinator, which applies them after an agent's Result or on its own checks.
+- When an issue carries several agent labels, the most advanced one wins (`PRECEDENCE` in [`src/state.ts`](src/state.ts)), with `agent:failed` above all others.
+- Merging or closing the PR clears the issue's agent labels; an issue whose PR was closed unmerged is open again without a label and gets a new Assessment.
 
-## Role prompts
+</details>
 
-Each Role's default prompt lives in [`prompts/`](prompts/). The Planner decides _what_ and _why_ (Tier, requirements sketched as Given/When/Then, files, tests, risks, decisions with a recommendation), the Implementer decides _how_ within that scope and stops if it turns out wrong, and the Reviewer checks the PR against the approved Assessment without redesigning it ([spec 002](docs/specs/002-role-prompts/spec.md)). A repository can replace a prompt with its own `.github/coordinator/<role>.md`; such a repository doesn't get updates to the default prompts, so compare it with `prompts/` after upgrading.
+## Configuration
 
-## Prerequisites
+Copy [`config.example.ts`](config.example.ts) to `config.ts`; every option is explained there.
 
-A Linux VM (e.g. Ubuntu) dedicated to the Coordinator, used as root. Agents may do anything on it, so keep nothing else of value there. Install:
+- **Owner, Roles, repositories:** your login and id, a model (and effort) per Role, and each managed repository with its `setup` command.
+- **Limits:** Slots per Role, live sessions, Worktrees and `maxFeedbackRounds`. Also editable on the dashboard's Config page.
+- **Role prompts:** defaults in [`prompts/`](prompts/); a repository can replace one with `.github/coordinator/<role>.md` ([details](docs/how-it-works.md#role-prompts)).
 
-- tmux, git and the GitHub CLI: `apt install -y tmux git gh`
-- [Bun](https://bun.sh): `curl -fsSL https://bun.sh/install | bash`
-- [Claude Code](https://code.claude.com): `curl -fsSL https://claude.ai/install.sh | bash`, then run `claude` once and `/login` with your subscription (Remote Control needs this login, not `claude setup-token`)
+### Auto-merge
 
-## Setup
+- `autoMerge`: `off` (default), `evaluated` (recommended: PRs the Reviewer rated `low` risk) or `all`; globally or per repository.
+- No gate is skipped: PRs with findings, failing checks or conflicts are never merged, and a PR that changes `.github/workflows/` is always rated `high`.
+- More in [docs/how-it-works.md](docs/how-it-works.md#auto-merge).
 
-See [docs/setup.md](docs/setup.md). In short:
+### Accounts
 
-```sh
-git clone https://github.com/Flayms/Github-Issue-Coordinator.git ~/github-issue-coordinator
-cd ~/github-issue-coordinator && bun install
-gh auth login                    # with a fine-grained PAT
-cp config.example.ts config.ts   # fill in the Owner, Roles and repositories
-bun run doctor                   # checks the setup
-bun start                        # or run it as the systemd service
-```
+- List several Claude subscriptions as `accounts`; sessions run on the first one that isn't paused by a usage limit.
+- How to log in to each: [setup step 3](docs/setup.md#3-configure), [spec 004](docs/specs/004-accounts/spec.md).
+
+### Security model
+
+- Run it on a VM of its own: agents run with permission prompts skipped and no sandbox.
+- The only boundary is GitHub: one fine-grained PAT, limited to the repositories you choose ([spec 005](docs/specs/005-vm-runtime/spec.md)).
 
 ## Development
 
-`bun test` · `bun run lint` · `bun scripts/smoke-runner.ts` (real tmux + claude) · `bun run screenshots` (the dashboard screenshots above, needs Chrome or Chromium; `bun test` fails when they are older than the dashboard). See `AGENTS.md` and `docs/`.
+| Command                       | Does                                                                                                               |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `bun test`                    | The test suite                                                                                                     |
+| `bun run lint`                | Biome and `tsc --noEmit` (`bun run lint:fix` autofixes)                                                            |
+| `bun scripts/smoke-runner.ts` | Real tmux + claude; needs a subscription, so it doesn't run in CI                                                  |
+| `bun run screenshots`         | The dashboard screenshots above; needs Chrome or Chromium. `bun test` fails when they are older than the dashboard |
 
-CI (`.github/workflows/ci.yml`) runs `bun install --frozen-lockfile`, `bun run lint` and `bun test` on every push to `main` and every PR, drafts included, so agent PRs here are checked before their Review. The smoke runner needs a subscription and doesn't run in CI.
+- CI (`.github/workflows/ci.yml`) runs `bun install --frozen-lockfile`, `bun run lint` and `bun test` on every push to `main` and every PR, drafts included, so agent PRs here are checked before their Review.
+- Conventions: [`AGENTS.md`](AGENTS.md). Design: [docs/architecture.md](docs/architecture.md), [glossary](docs/glossary.md), [specs](docs/specs/README.md).

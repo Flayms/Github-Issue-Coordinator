@@ -5,7 +5,8 @@
  * tests need no browser.
  *
  * Exactly the fingerprinted pages are served, with the dashboard's assets, and shot through the
- * Chrome DevTools Protocol, so a shot can show the whole page.
+ * Chrome DevTools Protocol. Every shot is one viewport-sized frame (not the whole page), so the
+ * desktop shots line up in the README.
  */
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -37,50 +38,21 @@ export interface Screenshot {
   /** Dashboard path. */
   page: "/" | "/config" | "/timings";
   width: number;
-  /** The viewport height; with `fullPage`, the shot grows to the height of the page. */
+  /** The viewport height, which is also the shot's: only the top of a longer page shows. */
   height: number;
   scale: number;
   mobile: boolean;
-  fullPage: boolean;
 }
 
+/** Every desktop shot is the same frame, so the README can show them at one width. */
+const DESKTOP = { width: 1280, height: 800, scale: 2, mobile: false } as const;
+const PHONE = { width: 390, height: 844, scale: 2, mobile: true } as const;
+
 export const SCREENSHOTS: readonly Screenshot[] = [
-  {
-    file: "docs/images/dashboard-desktop.png",
-    page: "/",
-    width: 1280,
-    height: 900,
-    scale: 1,
-    mobile: false,
-    fullPage: true,
-  },
-  {
-    file: "docs/images/dashboard-phone.png",
-    page: "/",
-    width: 390,
-    height: 844,
-    scale: 2,
-    mobile: true,
-    fullPage: false,
-  },
-  {
-    file: "docs/images/dashboard-config.png",
-    page: "/config",
-    width: 1280,
-    height: 900,
-    scale: 1,
-    mobile: false,
-    fullPage: true,
-  },
-  {
-    file: "docs/images/dashboard-timings.png",
-    page: "/timings",
-    width: 1280,
-    height: 720,
-    scale: 1,
-    mobile: false,
-    fullPage: true,
-  },
+  { file: "docs/images/dashboard-desktop.png", page: "/", ...DESKTOP },
+  { file: "docs/images/dashboard-phone.png", page: "/", ...PHONE },
+  { file: "docs/images/dashboard-config.png", page: "/config", ...DESKTOP },
+  { file: "docs/images/dashboard-timings.png", page: "/timings", ...DESKTOP },
 ];
 
 /** The Overview, the Config page and the Timings page as the server renders them from the mock data. */
@@ -191,24 +163,17 @@ async function waitFor<T>(what: string, f: () => T | undefined, timeoutMs = 15_0
 }
 
 async function shoot(cdp: Cdp, base: string, s: Screenshot): Promise<Uint8Array> {
-  const metrics = (height: number) =>
-    cdp.send("Emulation.setDeviceMetricsOverride", {
-      width: s.width,
-      height,
-      deviceScaleFactor: s.scale,
-      mobile: s.mobile,
-    });
-  await metrics(s.height);
+  await cdp.send("Emulation.setDeviceMetricsOverride", {
+    width: s.width,
+    height: s.height,
+    deviceScaleFactor: s.scale,
+    mobile: s.mobile,
+  });
   const loaded = cdp.once("Page.loadEventFired");
   await cdp.send("Page.navigate", { url: base + s.page });
   await loaded;
   await cdp.send("Runtime.evaluate", { expression: "document.fonts.ready", awaitPromise: true });
-  if (s.fullPage) {
-    // Grow the viewport to the page, so the fixed background covers all of it.
-    const { cssContentSize } = await cdp.send<{ cssContentSize: { height: number } }>("Page.getLayoutMetrics");
-    await metrics(Math.ceil(cssContentSize.height));
-  }
-  // Let the background draw a few frames at the final size.
+  // Let the background draw a few frames.
   await Bun.sleep(1500);
   const { data } = await cdp.send<{ data: string }>("Page.captureScreenshot", { format: "png" });
   return Buffer.from(data, "base64");
