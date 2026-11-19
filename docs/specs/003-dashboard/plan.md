@@ -99,3 +99,11 @@ Approach: `scripts/dashboard-screenshots.ts` renders both pages from `test/fixtu
 - [x] Form fields and overrides from a form; `POST /config` with session, same-origin and form token checks (REQ-003-07, REQ-003-36)
 - [x] Form on the Config page, no refresh while editing; README screenshot shows the form
 - [x] `bun run doctor` validates the overrides file; docs: README, setup, architecture, glossary
+
+### README screenshot frames (#149)
+
+**Approach.** `scripts/dashboard-screenshots.ts` shoots every page as one viewport-sized frame (no full-page capture): one `DESKTOP` frame (1280×800 at 2×) for the Overview, Config and Timings pages and one `PHONE` frame (390×844 at 2×). The README shows the Overview and the phone at the same height at the top, and Config and Timings side by side in its Dashboard section.
+
+- [x] Spec: REQ-003-21 amended
+- [x] Test for the frames, then the script; screenshots regenerated (REQ-003-21)
+- [x] README rewritten as a landing page, detail moved to `docs/how-it-works.md`, `docs/setup.md` as a checklist

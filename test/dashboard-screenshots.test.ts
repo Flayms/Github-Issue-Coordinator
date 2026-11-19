@@ -30,6 +30,22 @@ describe("dashboard screenshots", () => {
     }
   });
 
+  test("REQ-003-21 every shot is a viewport-sized frame: desktop 1280×800 at 2×, phone 390×844 at 2×", () => {
+    const frames = SCREENSHOTS.map((s) => ({
+      file: s.file,
+      frame: `${s.width}x${s.height}@${s.scale}${s.mobile ? " mobile" : ""}`,
+    }));
+    for (const { file, frame } of frames)
+      expect({ file, frame }).toEqual({ file, frame: file.endsWith("-phone.png") ? "390x844@2 mobile" : "1280x800@2" });
+    expect(SCREENSHOTS.filter((s) => "fullPage" in s).map((s) => s.file)).toEqual([]);
+    expect(SCREENSHOTS.map((s) => s.file)).toEqual([
+      "docs/images/dashboard-desktop.png",
+      "docs/images/dashboard-phone.png",
+      "docs/images/dashboard-config.png",
+      "docs/images/dashboard-timings.png",
+    ]);
+  });
+
   test("REQ-003-21 the pages are rendered from made-up data only, not from this repository's issues", () => {
     const repos = [...MOCK_CONFIG.repos.map((r) => r.name), ...MOCK_SNAPSHOT.repos.map((r) => r.repo)];
     for (const r of repos) expect(r.startsWith("acme/")).toBe(true);
