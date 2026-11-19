@@ -320,7 +320,12 @@ describe("session runner", () => {
   test("REQ-001-20 / REQ-001-33 resumes a closed or idle session with --resume, its name, a fresh Result file and the new prompt", () => {
     const id = startImplementer();
     store.setClaudeSessionId(id, "sess-abc");
-    store.patchSession(id, { state: "idle", resultFailures: 2, usageLimited: true });
+    store.patchSession(id, {
+      state: "idle",
+      resultFailures: 2,
+      usageLimited: true,
+      usageLimitResetsAt: "2026-11-22T10:00:00.000Z",
+    });
     const resultPath = join(dir, "sessions", String(id), "result.json");
     writeFileSync(resultPath, "{}");
     runner.resume(id, "Fix the review findings", { model: "opus" });
@@ -334,6 +339,7 @@ describe("session runner", () => {
       coordinatorPromptPending: true,
       resultFailures: 0,
       usageLimited: false,
+      usageLimitResetsAt: null,
     });
     store.patchSession(id, { state: "closed" });
     tmux.windows.clear();

@@ -198,7 +198,12 @@ export class SessionRunner {
     try {
       this.o.tmux.killWindow(`s${id}`);
       this.writeSettings(id, meta.cwd);
-      this.o.store.patchSession(id, { state: "running", resultFailures: 0, usageLimited: false });
+      this.o.store.patchSession(id, {
+        state: "running",
+        resultFailures: 0,
+        usageLimited: false,
+        usageLimitResetsAt: null,
+      });
       this.launch(id, meta.cwd, prompt, model, s.claudeSessionId, opts.keepResult);
     } catch (e) {
       throw this.startFailed(id, e);

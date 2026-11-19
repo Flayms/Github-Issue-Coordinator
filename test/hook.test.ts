@@ -151,6 +151,72 @@ describe("hook", () => {
     expect(store.session(id)).toMatchObject({ state: "idle", usageLimited: true, needsSync: false, resultFailures: 0 });
   });
 
+  /** The last transcript entries of a real weekly limit (Claude Code 2.1.328), trimmed; `resetsAt` in epoch seconds. */
+  const limitTranscript = (resetsAt: unknown) => {
+    const transcript = join(dir, "t.jsonl");
+    const entries = [
+      { type: "user", message: { content: "go" } },
+      {
+        type: "assistant",
+        message: {
+          model: "<synthetic>",
+          content: [{ type: "text", text: "You've hit your weekly limit · resets Nov 22, 10am (UTC)" }],
+        },
+        apiError: "usage_limit_reached",
+        apiErrorParams: { rate_limit_info: { status: "rejected", resetsAt, rateLimitType: "seven_day" } },
+        error: "rate_limit",
+        isApiErrorMessage: true,
+      },
+      { type: "last-prompt" },
+      { type: "system" },
+      { type: "cost-state", totalCostUSD: 0 },
+    ];
+    writeFileSync(transcript, entries.map((e) => JSON.stringify(e)).join("\n"));
+    return transcript;
+  };
+  const stopFailure = (transcript_path?: string) =>
+    hook("StopFailure", {
+      error: "rate_limit",
+      last_assistant_message: "You've hit your weekly limit · resets Nov 22, 10am (UTC)",
+      ...(transcript_path && { transcript_path }),
+    });
+
+  test("REQ-001-17 StopFailure records the reset time the transcript reports for the usage limit", () => {
+    // 1795341600 = 2026-11-22 10:00 UTC, the time the message names.
+    stopFailure(limitTranscript(1795341600));
+    expect(store.session(id)).toMatchObject({ usageLimited: true, usageLimitResetsAt: "2026-11-22T10:00:00.000Z" });
+  });
+
+  test("REQ-001-17 the Stop fallback records the reset time too", () => {
+    expect(hook("Stop", { transcript_path: limitTranscript(1795341600) })).toEqual({});
+    expect(store.session(id)).toMatchObject({ usageLimited: true, usageLimitResetsAt: "2026-11-22T10:00:00.000Z" });
+  });
+
+  test("REQ-001-17 no reset time is recorded when the transcript has none that is usable", () => {
+    // Missing, a string, not finite, in the past (2026-11-06, before the store's now).
+    for (const resetsAt of [undefined, "1795341600", null, 1794000000]) {
+      stopFailure(limitTranscript(resetsAt));
+      expect(store.session(id)).toMatchObject({ usageLimited: true, usageLimitResetsAt: null });
+    }
+    // A transcript that is missing, unreadable, or not written yet, and a payload without one.
+    stopFailure(join(dir, "missing.jsonl"));
+    expect(store.session(id)?.usageLimitResetsAt).toBeNull();
+    writeFileSync(join(dir, "bad.jsonl"), "not json\n{");
+    stopFailure(join(dir, "bad.jsonl"));
+    expect(store.session(id)?.usageLimitResetsAt).toBeNull();
+    writeFileSync(join(dir, "older.jsonl"), JSON.stringify({ type: "user", message: { content: "go" } }));
+    stopFailure(join(dir, "older.jsonl"));
+    expect(store.session(id)?.usageLimitResetsAt).toBeNull();
+    stopFailure();
+    expect(store.session(id)?.usageLimitResetsAt).toBeNull();
+  });
+
+  test("REQ-001-17 a later usage limit without a reset time drops the earlier one", () => {
+    stopFailure(limitTranscript(1795341600));
+    stopFailure();
+    expect(store.session(id)?.usageLimitResetsAt).toBeNull();
+  });
+
   test("REQ-001-17 a turn ended by another API error is not a usage limit", () => {
     store.patchSession(id, { state: "running" });
     hook("StopFailure", { error: "overloaded" });

@@ -89,6 +89,7 @@ const session = (
   resultFailures: 0,
   needsSync: false,
   usageLimited: false,
+  usageLimitResetsAt: null,
   modelId: s.modelId,
   title: s.title,
   startedAt: at(s.startedMinutesAgo),
