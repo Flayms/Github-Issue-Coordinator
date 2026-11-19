@@ -222,7 +222,7 @@ class FakeRunner {
     this.started.push(o);
     const id = this.store.createSession({ repo: o.repo, role: o.role, kind: o.kind, issues: o.issues });
     if (this.launchError) this.failLaunch(id);
-    this.store.setClaudeSessionId(id, `claude-${id}`);
+    this.store.setAgentSessionId(id, `claude-${id}`);
     mkdirSync(this.sessionDir(id), { recursive: true });
     this.live.add(id);
     return id;
@@ -577,7 +577,7 @@ describe("reconcile loop", () => {
     gh.mergeable = null; // GitHub still computing mergeability keeps the Reviewer out (REQ-001-10/28)
     store.updateIssue("octo/app", 5, { worktreePath: "/wt/5" });
     const id = store.createSession({ repo: "octo/app", role: "implementer", kind: "issue", issues: [5] });
-    store.setClaudeSessionId(id, "claude-impl");
+    store.setAgentSessionId(id, "claude-impl");
     mkdirSync(runner.sessionDir(id), { recursive: true });
     writeFileSync(
       join(runner.sessionDir(id), "result.json"),
@@ -907,7 +907,7 @@ describe("reconcile loop", () => {
     gh.items = [item(5, ["agent:pr-open"]), item(70, [], { isPullRequest: true, author: { login: "bot", id: 1 } })];
     store.updateIssue("octo/app", 5, { worktreePath: "/wt/5", prNumber: 70, reviewedHeadSha: "h1", ...extra });
     const id = store.createSession({ repo: "octo/app", role: "implementer", kind: "issue", issues: [5] });
-    store.setClaudeSessionId(id, "claude-impl");
+    store.setAgentSessionId(id, "claude-impl");
     store.patchSession(id, { state: "idle" });
     runner.live.add(id);
     return id;
@@ -1327,7 +1327,7 @@ describe("reconcile loop", () => {
       await proposed();
       if (own === "issue") {
         const id = store.createSession({ repo: "octo/app", role: "planner", kind: "issue", issues: [5] });
-        store.setClaudeSessionId(id, "claude-own");
+        store.setAgentSessionId(id, "claude-own");
         store.patchSession(id, { state: "idle" });
         runner.live.add(id);
       }
@@ -1415,7 +1415,7 @@ describe("reconcile loop", () => {
   test("REQ-001-16 resumes a session interrupted by a restart once, then labels it agent:failed", async () => {
     gh.items = [item(5, ["agent:planning"])];
     const id = store.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [5] });
-    store.setClaudeSessionId(id, "c1");
+    store.setAgentSessionId(id, "c1");
     mkdirSync(runner.sessionDir(id), { recursive: true });
     await coordinator.tick();
     expect(runner.resumed).toEqual([[id, expect.stringContaining("restarted")]]);
@@ -1442,7 +1442,7 @@ describe("reconcile loop", () => {
   test("REQ-001-17 with one Account, pauses after the usage limit, then continues the interrupted session", async () => {
     gh.items = [item(5), item(6, ["agent:planning"])];
     const id = store.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [6] });
-    store.setClaudeSessionId(id, "c1");
+    store.setAgentSessionId(id, "c1");
     runner.live.add(id);
     store.patchSession(id, { state: "idle", usageLimited: true });
 
@@ -1466,7 +1466,7 @@ describe("reconcile loop", () => {
   test("REQ-001-17 pauses the Account until the reset time the usage limit reported, not for 30 minutes", async () => {
     gh.items = [item(5), item(6, ["agent:planning"])];
     const id = store.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [6] });
-    store.setClaudeSessionId(id, "c1");
+    store.setAgentSessionId(id, "c1");
     runner.live.add(id);
     // A weekly limit: resets 2026-11-22 10:00 UTC, days after now.
     const resetsAt = "2026-11-22T10:00:00.000Z";
@@ -1502,7 +1502,7 @@ describe("reconcile loop", () => {
   test("REQ-001-17 without a reset time from the transcript, pauses until the Account's exhausted Usage quota window resets", async () => {
     gh.items = [item(6, ["agent:planning"])];
     const id = store.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [6] });
-    store.setClaudeSessionId(id, "c1");
+    store.setAgentSessionId(id, "c1");
     runner.live.add(id);
     // now is 2026-11-11 10:00 UTC: the 5-hour window has room, the weekly one is used up.
     store.recordUsageQuota("default", {
@@ -1518,7 +1518,7 @@ describe("reconcile loop", () => {
   test("REQ-001-17 a Usage quota that is not used up or already reset leaves the 30-minute pause", async () => {
     gh.items = [item(6, ["agent:planning"])];
     const id = store.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [6] });
-    store.setClaudeSessionId(id, "c1");
+    store.setAgentSessionId(id, "c1");
     runner.live.add(id);
     store.recordUsageQuota("default", {
       fiveHour: { usedPercent: 100, resetsAt: "2026-11-11T09:00:00.000Z" },
@@ -1533,7 +1533,7 @@ describe("reconcile loop", () => {
   test("REQ-001-17 a longer pause that is in force is never shortened", async () => {
     gh.items = [item(6, ["agent:planning"])];
     const id = store.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [6] });
-    store.setClaudeSessionId(id, "c1");
+    store.setAgentSessionId(id, "c1");
     runner.live.add(id);
     store.setPausedUntil("default", "2026-11-22T10:00:00.000Z");
     store.patchSession(id, { state: "idle", usageLimited: true, usageLimitResetsAt: "2026-11-11T12:00:00.000Z" });
@@ -1562,7 +1562,7 @@ describe("reconcile loop", () => {
     });
     gh.items = [item(6, ["agent:planning"])];
     const id = store.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [6] });
-    store.setClaudeSessionId(id, "c1");
+    store.setAgentSessionId(id, "c1");
     store.setAccount(id, "a");
     runner.live.add(id);
     store.patchSession(id, { state: "idle", usageLimited: true });
@@ -1640,7 +1640,7 @@ describe("reconcile loop", () => {
     store.updateIssue("octo/app", 5, { worktreePath: "/wt/5", prNumber: 70, reviewedHeadSha: "h1", feedbackRounds: 1 });
     store.updateIssue("octo/app", 9, { approvedAt: "t", assessment: JSON.stringify({ blockedBy: [6, 99] }) });
     const impl = store.createSession({ repo: "octo/app", role: "implementer", kind: "issue", issues: [5] });
-    store.setClaudeSessionId(impl, "claude-impl");
+    store.setAgentSessionId(impl, "claude-impl");
     store.patchSession(impl, { state: "idle" });
     runner.live.add(impl);
     await coordinator.tick();

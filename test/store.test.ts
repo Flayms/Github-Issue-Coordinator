@@ -26,7 +26,7 @@ describe("store", () => {
       const path = join(dir, "state.db");
       const a = new Store(path, at("2026-11-10T10:00:00Z"));
       const id = a.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [5, 6] });
-      a.setClaudeSessionId(id, "sess-xyz");
+      a.setAgentSessionId(id, "sess-xyz");
       a.setAccount(id, "main");
       a.setTranscriptPath(id, "/acc/projects/x/sess-xyz.jsonl");
       a.close();
@@ -39,7 +39,8 @@ describe("store", () => {
           role: "planner",
           kind: "batch",
           issues: [5, 6],
-          claudeSessionId: "sess-xyz",
+          agentSessionId: "sess-xyz",
+          harness: "claude",
           state: "running",
           resumeAttempts: 0,
           lastActivityAt: "2026-11-10T10:00:00.000Z",
@@ -643,5 +644,42 @@ describe("store", () => {
         { repo: "acme/web", issue: 9, title: "Other", lastAt: time(5) },
       ]);
     });
+  });
+});
+
+describe("Harness of a session (spec 006)", () => {
+  test("REQ-006-03 a session records the Harness it started on; claude when none is given", () => {
+    const s = new Store(":memory:");
+    const a = s.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [5] });
+    const b = s.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [6], harness: "codex" });
+    expect(s.session(a)?.harness).toBe("claude");
+    expect(s.session(b)?.harness).toBe("codex");
+    s.close();
+  });
+
+  test("REQ-006-03 a database from before spec 006 keeps its session ids, and its sessions ran on Claude", () => {
+    const dir = mkdtempSync(join(tmpdir(), "store-"));
+    try {
+      const path = join(dir, "state.db");
+      const old = new Database(path, { create: true });
+      old.exec(
+        `CREATE TABLE sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, repo TEXT NOT NULL, role TEXT NOT NULL,
+         kind TEXT NOT NULL, issues TEXT NOT NULL, claude_session_id TEXT, state TEXT NOT NULL,
+         resume_attempts INTEGER NOT NULL DEFAULT 0, last_activity_at TEXT NOT NULL, owner_messaged_at TEXT,
+         coordinator_prompt_pending INTEGER NOT NULL DEFAULT 0, result_failures INTEGER NOT NULL DEFAULT 0,
+         needs_sync INTEGER NOT NULL DEFAULT 0, usage_limited INTEGER NOT NULL DEFAULT 0)`,
+      );
+      old.exec(
+        `INSERT INTO sessions (repo, role, kind, issues, claude_session_id, state, last_activity_at)
+         VALUES ('octo/app', 'planner', 'issue', '[5]', 'c-1', 'idle', '2026-01-01T00:00:00Z')`,
+      );
+      old.close();
+      const s = new Store(path);
+      expect(s.session(1)?.agentSessionId).toBe("c-1");
+      expect(s.session(1)?.harness).toBe("claude");
+      s.close();
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
   });
 });

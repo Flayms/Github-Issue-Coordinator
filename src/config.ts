@@ -6,7 +6,9 @@ import { existsSync } from "node:fs";
 import { isIP } from "node:net";
 import { resolve } from "node:path";
 import { z } from "zod";
-import { DEFAULT_ACCOUNT } from "./accounts.ts";
+import { DEFAULT_ACCOUNT, harnessOfAccount } from "./accounts.ts";
+import { HARNESS_NAMES, HARNESSES } from "./harness/index.ts";
+import { harnessOfModel } from "./models.ts";
 
 export const ROLES = ["planner", "implementer", "reviewer"] as const;
 export type Role = (typeof ROLES)[number];
@@ -76,10 +78,12 @@ const limitsSchema = z
     message: "must not exceed maxLiveSessions (running sessions are live sessions)",
   });
 
-/** A Claude subscription, logged in once in its own config folder (spec 004). */
+/** A subscription, logged in once in its own config folder of its Harness (spec 004, REQ-006-02). */
 const accountSchema = z.strictObject({
   name: z.string().regex(/^[\w.-]+$/, "letters, digits, '.', '_' or '-' only"),
-  /** Claude's config folder for this login (`CLAUDE_CONFIG_DIR`); absent: Claude's default `~/.claude`. */
+  /** The Harness the login is for; absent: `claude` (Claude Code). */
+  harness: z.enum(HARNESS_NAMES).optional(),
+  /** The Harness's config folder (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`); absent: its default, e.g. `~/.claude`. */
   configDir: z
     .string()
     .min(1)
@@ -175,7 +179,7 @@ const configSchema = z
       if (names.has(a.name))
         ctx.addIssue({ code: "custom", path: ["accounts", i, "name"], message: `duplicate Account ${a.name}` });
       names.add(a.name);
-      const dir = a.configDir ?? "(default)";
+      const dir = a.configDir ?? `(default ${harnessOfAccount(a)})`;
       const other = dirs.get(dir);
       if (other)
         ctx.addIssue({
@@ -184,6 +188,22 @@ const configSchema = z
           message: `same folder as Account ${other}`,
         });
       else dirs.set(dir, a.name);
+    });
+    // REQ-006-01: every Role's model runs on a Harness that has an Account.
+    const withAccount = new Set(c.accounts.map(harnessOfAccount));
+    const checkModel = (model: string | undefined, path: (string | number)[]) => {
+      if (!model) return;
+      const h = HARNESSES[harnessOfModel(model)];
+      if (!withAccount.has(h.name))
+        ctx.addIssue({
+          code: "custom",
+          path,
+          message: `${model} runs on ${h.label}, which has no Account (add one with harness: "${h.name}")`,
+        });
+    };
+    for (const role of ROLES) checkModel(c.roles[role].model, ["roles", role, "model"]);
+    c.repos.forEach((r, i) => {
+      for (const role of ROLES) checkModel(r.roles?.[role]?.model, ["repos", i, "roles", role, "model"]);
     });
   });
 

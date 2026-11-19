@@ -13,7 +13,8 @@ import {
   isLoopback,
   ROLES,
 } from "../config.ts";
-import { inCatalogue, MODEL_CATALOGUE, modelLabel, modelOptionLabel } from "../models.ts";
+import { HARNESSES, type HarnessName } from "../harness/index.ts";
+import { HARNESS_MODELS, inCatalogue, modelLabel, modelOptionLabel } from "../models.ts";
 import { ROLE_NAMES } from "../note.ts";
 import type { SettingField, SettingsForm } from "./settings-form.ts";
 import { Count, Empty, Footer, Icon, Label, Layout, plural, renderPage } from "./ui.tsx";
@@ -275,17 +276,22 @@ function NumberField({ f }: { f: SettingField }) {
   );
 }
 
-/** REQ-003-40: the Model catalogue, plus the field's own value and config.ts's when they aren't in it. */
+/**
+ * REQ-003-40: the Model catalogue, plus the field's own value and config.ts's when they aren't in it. REQ-006-01: only
+ * the models of Harnesses that have an Account, grouped by Harness when there are several.
+ */
 function ModelField({
   f,
   label,
   inherit,
   reported,
+  harnesses = ["claude"],
 }: {
   f: SettingField;
   label: string;
   inherit?: string;
   reported: string[];
+  harnesses?: HarnessName[];
 }) {
   const own = [...new Set([f.value, f.base])].filter((v) => v && !inCatalogue(v));
   const option = (value: string) => (
@@ -306,8 +312,24 @@ function ModelField({
       >
         {inherit !== undefined && <option value="">{`global (${modelLabel(inherit)})`}</option>}
         {own.map(option)}
-        <optgroup label="Latest">{MODEL_CATALOGUE.filter((m) => m.alias).map((m) => option(m.value))}</optgroup>
-        <optgroup label="Pinned">{MODEL_CATALOGUE.filter((m) => !m.alias).map((m) => option(m.value))}</optgroup>
+        {harnesses.flatMap((h) => {
+          const models = HARNESS_MODELS[h];
+          const prefix = harnesses.length > 1 ? `${HARNESSES[h].label} · ` : "";
+          const groups = [
+            ["Latest", models.filter((m) => m.alias)],
+            ["Pinned", models.filter((m) => !m.alias)],
+          ] as const;
+          // A Harness without aliases has one group, named after it.
+          const shown = groups.filter(([, ms]) => ms.length);
+          return shown.map(([name, ms]) => (
+            <optgroup
+              key={`${h}-${name}`}
+              label={shown.length > 1 || !prefix ? `${prefix}${name}` : HARNESSES[h].label}
+            >
+              {ms.map((m) => option(m.value))}
+            </optgroup>
+          ));
+        })}
       </select>
       <Changed f={f} empty={inherit ? "the global model" : "–"} show={modelLabel} />
     </>
@@ -417,6 +439,7 @@ function RoleRows({ form, prefix, where }: { form: SettingsForm; prefix: string;
             label={`${name}: model`}
             inherit={where ? global : undefined}
             reported={form.reportedModels}
+            harnesses={form.harnesses}
           />
         </td>
         <td className={cell}>

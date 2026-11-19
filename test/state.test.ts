@@ -24,7 +24,8 @@ const session = (s: Partial<SessionRecord> & Pick<SessionRecord, "role" | "issue
   startedAt: null,
   account: null,
   transcriptPath: null,
-  claudeSessionId: "sess-1",
+  agentSessionId: "sess-1",
+  harness: "claude" as const,
   state: "running",
   resumeAttempts: 0,
   lastActivityAt: "2026-11-10T00:00:00Z",
@@ -972,7 +973,7 @@ describe("deriveActions", () => {
   });
 
   test("REQ-001-16 a session that exited before Claude Code started cannot be resumed", () => {
-    const s = session({ role: "planner", issues: [5], claudeSessionId: null });
+    const s = session({ role: "planner", issues: [5], agentSessionId: null });
     const actions = deriveActions(snap({ items: [issue(5, ["agent:planning"])], sessions: [s] }));
     expect(actions).toEqual([
       {

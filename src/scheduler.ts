@@ -4,6 +4,7 @@
  * live-session limit and idle timeout (REQ-001-20).
  */
 import type { Limits, Role } from "./config.ts";
+import type { HarnessName } from "./harness/harness.ts";
 
 export type WorkKind = "resume-interrupted" | "feedback" | "wake" | "review" | "implement" | "plan" | "revise";
 
@@ -27,6 +28,8 @@ export interface Work {
   queuedAt: string;
   /** Store id of the session this work resumes; absent for a fresh session. */
   sessionId?: number;
+  /** The Harness the work runs on (REQ-006-01); absent: Claude Code. */
+  harness?: HarnessName;
 }
 
 export interface LiveSession {
@@ -74,6 +77,8 @@ export function schedule(input: {
   now: Date;
   /** Set while every Account is paused by a usage limit: when the first is free again (REQ-001-17). */
   pausedUntil?: string;
+  /** REQ-006-02: per Harness, while every Account of it is paused: when the first is free again. */
+  pausedUntilFor?: Partial<Record<HarnessName, string>>;
 }): Plan {
   const { limits, now } = input;
   const timeoutMs = limits.idleTimeoutMin * 60_000;
@@ -96,6 +101,11 @@ export function schedule(input: {
   const { pausedUntil } = input;
   if (pausedUntil && Date.parse(pausedUntil) > now.getTime())
     return { close, start: [], queue: queue.map((work) => ({ work, wait: { kind: "paused", until: pausedUntil } })) };
+  // REQ-006-02: the same per Harness; work of another Harness goes on.
+  const pausedFor = (w: Work): string | undefined => {
+    const until = input.pausedUntilFor?.[w.harness ?? "claude"];
+    return until && Date.parse(until) > now.getTime() ? until : undefined;
+  };
 
   const slots: Record<Role, number> = {
     planner: limits.maxPlanners,
@@ -134,6 +144,11 @@ export function schedule(input: {
   const listed: Queued[] = [];
   for (const w of queue) {
     const wait = (reason: WaitReason) => listed.push({ work: w, wait: reason });
+    const paused = pausedFor(w);
+    if (paused) {
+      wait({ kind: "paused", until: paused });
+      continue;
+    }
     if (running.size >= limits.maxRunning) {
       wait({ kind: "max-running" });
       continue;
