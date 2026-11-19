@@ -65,7 +65,7 @@ The details, from Split-off issues to merge conflicts, are in [docs/how-it-works
 <table>
   <tr>
     <td width="50%"><img src="docs/images/dashboard-config.png" alt="The Config page: access, the auto-merge mode and the limits as a form, a changed limit with its config.ts value"></td>
-    <td width="50%"><img src="docs/images/dashboard-timings.png" alt="The Timings page: one issue's Planning, Building and Review as bars of waiting, agent and checks time"></td>
+    <td width="50%"><img src="docs/images/dashboard-timings.png" alt="The Timings page: one issue's Planning, Building and Review on one time axis, each step a glass capsule of waiting, agent and checks time"></td>
   </tr>
   <tr>
     <td align="center">Config</td>

@@ -1,44 +1,217 @@
 /**
- * The Timings page (REQ-003-34): how long each step of one issue took, as a row of segments per phase. Rendered
- * on the server like the other pages (REQ-003-19); the picker is a GET form, so it works without JavaScript.
- * The CSP forbids inline styles, so a segment's width is the `width` attribute of an empty `<svg>`.
+ * The Timings page (REQ-003-34): how long each step of one issue took, as one row per phase on one shared time
+ * axis, each step a glass capsule like a Capacity tube (REQ-003-45). Rendered on the server like the other pages
+ * (REQ-003-19); the picker is a GET form, so it works without JavaScript.
+ *
+ * The CSP forbids inline styles, so a step's place on the axis is the `width` of table cells: a spacer cell up
+ * to its start, then its own cell (a table per track, `table-layout: fixed`). On a phone each phase gets its own
+ * scale and the labels become a list.
  */
+import type { ReactNode } from "react";
 import type { TimingKind } from "../store.ts";
-import type { SegmentView, TimingsView } from "./timings.ts";
+import { Tube } from "./html.tsx";
+import { labelLines, type MarkView, type StepView, type TimingRowView, type TimingsView } from "./timings.ts";
 import { Empty, Footer, Layout, Link, renderPage } from "./ui.tsx";
 import type { DashboardView } from "./view.ts";
 
-/** Grey = waiting in the queue, indigo = an agent working, dark indigo = checks, hatched = the Owner's time. */
-const FILL: Record<TimingKind, string> = {
-  queued: "bg-white/12",
-  agent: "bg-acc-hi",
-  checks: "bg-acc-lo",
-  owner: "border border-line-2 bg-[repeating-linear-gradient(135deg,rgb(255_255_255/0.14)_0_3px,transparent_3px_7px)]",
+/**
+ * The narrowest track of each label layout, in px, for placing the labels (REQ-003-34): from `sm` to `xl` the
+ * phase name stands above the track (`sm`: 640 px less the gutters and the panel's padding); from `xl` it has
+ * its own column.
+ */
+const NARROW_TRACK_PX = 560;
+const WIDE_TRACK_PX = 940;
+
+/** Empty glass for a wait in the queue, a liquid for the rest (REQ-003-45). */
+const TINT: Record<TimingKind, "checks" | "owner" | undefined> = {
+  queued: undefined,
+  agent: undefined,
+  checks: "checks",
+  owner: "owner",
 };
 
 const LEGEND: [TimingKind, string][] = [
-  ["queued", "waiting in the queue"],
+  ["queued", "waiting in the queue (empty glass)"],
   ["agent", "agent working"],
   ["checks", "checks"],
-  ["owner", "your time (optional)"],
+  ["owner", "your time"],
 ];
 
-const Dot = ({ kind }: { kind: TimingKind }) => (
-  <span className={`inline-block size-2 shrink-0 rounded-full ${FILL[kind]}`} aria-hidden="true" />
+const Pill = ({ kind }: { kind: TimingKind }) => <span className="pill" data-kind={kind} aria-hidden="true" />;
+
+const Capsule = ({ s }: { s: StepView }) => (
+  <Tube cols={1} filled={s.kind === "queued" ? 0 : 1} marks={false} tint={TINT[s.kind]} />
 );
 
-const Bar = ({ segments }: { segments: SegmentView[] }) => (
-  <div className="flex gap-[3px]" aria-hidden="true">
-    {segments.map((s) => (
-      <svg
-        key={s.label}
-        width={`${s.share}%`}
-        height="28"
-        className={`block h-7 min-w-1 shrink rounded-md ${FILL[s.kind]}`}
-      />
-    ))}
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * One line of cells across the track: each item from `from` to `to` % of it, with spacer cells between. A
+ * last cell without a width takes the rest.
+ */
+function Track({
+  items,
+  className = "",
+  cell = "",
+}: {
+  items: { key: string; from: number; to: number; node: ReactNode }[];
+  className?: string;
+  cell?: string;
+}) {
+  let cursor = 0;
+  const cells: ReactNode[] = [];
+  for (const it of items) {
+    const gap = round2(it.from - cursor);
+    if (gap > 0) cells.push(<td key={`gap-${it.key}`} width={`${gap}%`} />);
+    cells.push(
+      <td
+        key={it.key}
+        width={`${round2(Math.max(0, it.to - Math.max(cursor, it.from)))}%`}
+        className={cell || undefined}
+      >
+        {it.node}
+      </td>,
+    );
+    cursor = Math.max(cursor, it.to);
+  }
+  if (cursor < 99.99) cells.push(<td key="rest" />);
+  return (
+    <table role="presentation" className={`w-full table-fixed border-collapse${className ? ` ${className}` : ""}`}>
+      <tbody>
+        <tr>{cells}</tr>
+      </tbody>
+    </table>
+  );
+}
+
+/** The capsules of a row, a track per lane (steps that overlap go on the next one). */
+function Lanes({ row, scale }: { row: TimingRowView; scale: "issue" | "phase" }) {
+  return (
+    <div className="relative grid gap-1.5" aria-hidden="true">
+      {Array.from({ length: row.lanes }, (_, lane) => (
+        <Track
+          // biome-ignore lint/suspicious/noArrayIndexKey: the lanes are numbered and never reorder
+          key={lane}
+          cell="px-px align-middle"
+          items={row.steps.flatMap((s, i) => {
+            if (s.lane !== lane) return [];
+            const [at, width] = scale === "issue" ? [s.at, s.width] : [s.phaseAt, s.phaseWidth];
+            return [{ key: String(i), from: at, to: at + width, node: <Capsule s={s} /> }];
+          })}
+        />
+      ))}
+    </div>
+  );
+}
+
+const Running = ({ s }: { s: StepView }) => (s.running ? <span className="ml-1 text-acc-hi">running</span> : null);
+
+/** The labels under a row's capsules, in lines so they don't run into each other (REQ-003-34). */
+function Labels({ steps, trackPx, className }: { steps: StepView[]; trackPx: number; className: string }) {
+  return (
+    <div className={`mt-2.5 space-y-1.5 ${className}`}>
+      {labelLines(steps, trackPx).map((line) => (
+        <Track
+          key={line.map((l) => l.step).join(" ")}
+          className="text-[12px] leading-snug"
+          items={line.map((l) => {
+            const s = steps[l.step] as StepView;
+            return {
+              key: String(l.step),
+              from: l.from,
+              to: l.to,
+              node: (
+                <span
+                  className={`block whitespace-nowrap border-line-2 text-muted ${l.align === "end" ? "border-r pr-2 text-right" : "border-l pl-2"}`}
+                >
+                  {s.label}
+                  <b className="block font-semibold text-fg">
+                    {s.duration}
+                    <Running s={s} />
+                  </b>
+                </span>
+              ),
+            };
+          })}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Dashed lines at the time marks, behind a row's capsules. */
+const MarkLines = ({ marks }: { marks: MarkView[] }) => (
+  <div className="absolute inset-0" aria-hidden="true">
+    <Track
+      className="h-full"
+      cell="border-white/6 border-l border-dashed"
+      items={marks.map((m, i) => ({ key: m.label, from: m.at, to: marks[i + 1]?.at ?? 100, node: null }))}
+    />
   </div>
 );
+
+const ROW = "grid gap-x-6 gap-y-3 xl:grid-cols-[110px_minmax(0,1fr)]";
+
+/** The timeline on one axis, from `sm` up. */
+function Timeline({ t }: { t: TimingsView }) {
+  return (
+    <div className="hidden sm:block">
+      <div className={`${ROW} pb-2`} aria-hidden="true">
+        <span className="hidden xl:block" />
+        <Track
+          className="font-mono text-[11px] text-faint"
+          items={t.marks.map((m, i) => ({
+            key: m.label,
+            from: m.at,
+            to: t.marks[i + 1]?.at ?? 100,
+            node: <span className="block whitespace-nowrap">{m.label}</span>,
+          }))}
+        />
+      </div>
+      {t.rows.map((r) => (
+        <section key={r.phase} className={`${ROW} border-line border-b py-5`}>
+          <h2 className="font-semibold text-[14px] text-fg">
+            <span>{r.phase}</span> <span className="font-normal text-[12px] text-muted xl:block">{r.duration}</span>
+          </h2>
+          <div className="relative min-w-0">
+            <MarkLines marks={t.marks} />
+            <Lanes row={r} scale="issue" />
+            <Labels steps={r.steps} trackPx={NARROW_TRACK_PX} className="relative xl:hidden" />
+            <Labels steps={r.steps} trackPx={WIDE_TRACK_PX} className="relative hidden xl:block" />
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+/** On a phone: each phase on its own scale, the labels as a list with small capsules. */
+function PhoneTimeline({ t }: { t: TimingsView }) {
+  return (
+    <div className="sm:hidden">
+      <p className="text-[12px] text-faint">Each phase on its own scale</p>
+      {t.rows.map((r) => (
+        <section key={r.phase} className="border-line border-b py-5">
+          <h2 className="mb-3 flex items-baseline justify-between font-semibold text-[14px] text-fg">
+            <span>{r.phase}</span> <span className="font-normal text-[12px] text-muted">{r.duration}</span>
+          </h2>
+          <Lanes row={r} scale="phase" />
+          <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[12px] text-muted">
+            {r.steps.map((s, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: two steps may share a label ("Checks")
+              <li key={i} className="inline-flex items-center gap-1.5">
+                <Pill kind={s.kind} />
+                <span>{s.label}</span>
+                <b className="font-semibold text-fg">{s.duration}</b>
+                <Running s={s} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  );
+}
 
 function Picker({ t }: { t: TimingsView }) {
   return (
@@ -74,53 +247,69 @@ function Picker({ t }: { t: TimingsView }) {
   );
 }
 
+/** A KPI tile above the chart; with a percentage, a small glass tube shows it. */
+function Tile({
+  value,
+  text,
+  accent = false,
+  percent,
+  tint,
+}: {
+  value: string | number;
+  text: string;
+  accent?: boolean;
+  percent?: number;
+  tint?: "queued";
+}) {
+  return (
+    <li className="panel flex flex-col gap-1 px-5 py-4">
+      <b className={`font-bold font-display text-[22px] tracking-[-0.01em] ${accent ? "text-acc-hi" : "text-white"}`}>
+        {value}
+      </b>
+      <span className="text-[13px] text-muted">{text}</span>
+      {percent !== undefined && (
+        <span className="mt-2 grid">
+          <Tube cols={10} filled={Math.max(0, Math.min(10, Math.round(percent / 10)))} marks={false} tint={tint} />
+        </span>
+      )}
+    </li>
+  );
+}
+
 function Chart({ t }: { t: TimingsView }) {
   const totals = t.totals;
   if (!totals) return null;
-  const big = "font-bold font-display text-[22px] tracking-[-0.01em]";
   return (
-    <div className="panel px-5 py-5 sm:px-7">
-      <ul className="flex flex-wrap items-baseline gap-x-8 gap-y-2 border-line border-b pb-5 text-[13px] text-muted">
-        <li>
-          <b className={`${big} text-white`}>{totals.total}</b> {totals.totalLabel}
-        </li>
-        <li>
-          <b className={`${big} text-acc-hi`}>{totals.agents}</b> agents working
-        </li>
-        <li>
-          <b className={`${big} text-white`}>{totals.rounds}</b> Revise / Feedback rounds
-        </li>
+    <>
+      <ul id="timing-totals" className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        <Tile value={totals.total} text={`total, ${totals.totalLabel}`} />
+        <Tile
+          value={totals.agents}
+          text={`agents working · ${totals.agentsPercent} %`}
+          accent
+          percent={totals.agentsPercent}
+        />
+        <Tile
+          value={totals.queued}
+          text={`waiting in the queue · ${totals.queuedPercent} %`}
+          percent={totals.queuedPercent}
+          tint="queued"
+        />
+        <Tile value={totals.rounds} text="Revise / Feedback rounds" />
       </ul>
-      {t.rows.map((r) => (
-        <section
-          key={r.phase}
-          className="grid gap-x-6 gap-y-3 border-line border-b py-5 sm:grid-cols-[110px_minmax(0,1fr)]"
-        >
-          <h2 className="font-semibold text-[14px] text-fg">{r.phase}</h2>
-          <div className="min-w-0">
-            <Bar segments={r.segments} />
-            <ul className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1.5 text-[12px] text-muted">
-              {r.segments.map((s) => (
-                <li key={s.label} className="inline-flex items-center gap-1.5">
-                  <Dot kind={s.kind} />
-                  <span>{s.label}</span>
-                  <b className="font-semibold text-fg">{s.duration}</b>
-                  {s.running && <span className="text-acc-hi">running</span>}
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
-      ))}
-      <ul className="flex flex-wrap gap-x-5 gap-y-1.5 pt-4 text-[12px] text-faint">
-        {LEGEND.map(([kind, text]) => (
-          <li key={kind} className="inline-flex items-center gap-1.5">
-            <Dot kind={kind} />
-            {text}
-          </li>
-        ))}
-      </ul>
-    </div>
+      <div id="timeline" className="panel px-5 py-5 sm:px-7">
+        <Timeline t={t} />
+        <PhoneTimeline t={t} />
+        <ul className="flex flex-wrap gap-x-5 gap-y-1.5 pt-4 text-[12px] text-faint">
+          {LEGEND.filter(([kind]) => kind !== "owner" || t.includeOwner).map(([kind, text]) => (
+            <li key={kind} className="inline-flex items-center gap-1.5">
+              <Pill kind={kind} />
+              {text}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </>
   );
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type TimingsView, timingsView } from "../src/dashboard/timings.ts";
+import { labelLines, type TimingsView, timingsView } from "../src/dashboard/timings.ts";
 import { renderTimings } from "../src/dashboard/timings-html.tsx";
 import { dashboardView } from "../src/dashboard/view.ts";
 import type { Timing } from "../src/store.ts";
@@ -20,8 +20,9 @@ const view = (o: { pick?: string | null; includeOwner?: boolean; source?: typeof
     now: MOCK_NOW,
   });
 const segments = (v: TimingsView) =>
-  v.rows.map((r) => [r.phase, r.segments.map((s) => `${s.label} ${s.duration} ${s.kind}`)]);
-const shares = (v: TimingsView) => v.rows.map((r) => r.segments.map((s) => s.share));
+  v.rows.map((r) => [r.phase, r.steps.map((s) => `${s.label} ${s.duration} ${s.kind}`)]);
+/** Each step as [start, length] in % of the issue's axis. */
+const placed = (v: TimingsView) => v.rows.map((r) => r.steps.map((s) => [s.at, s.width]));
 
 describe("dashboard timings", () => {
   test("REQ-003-34 each phase is a row of labelled segments in time order; the Owner's time is left out by default", () => {
@@ -47,18 +48,90 @@ describe("dashboard timings", () => {
         ],
       ],
     ]);
-    expect(v.totals).toEqual({ total: "2 h 29 min", totalLabel: "without your time", agents: "1 h 40 min", rounds: 2 });
-    // One scale for all rows: the longest row (Building, 70 min) is the full width.
-    expect(shares(v)).toEqual([
-      [20, 12.86, 8.57],
-      [31.43, 68.57],
-      [10, 17.14, 24.29, 8.57, 11.43],
+    expect(v.totals).toEqual({
+      total: "2 h 29 min",
+      totalLabel: "without your time",
+      agents: "1 h 40 min",
+      agentsPercent: 67,
+      queued: "36 min",
+      queuedPercent: 24,
+      rounds: 2,
+    });
+  });
+
+  test("REQ-003-34 every step starts on one shared time axis where it really started; the Owner's time is cut out of it", () => {
+    const v = view();
+    // 149 min: the Owner's 95 + 40 min in Planning are cut, so Revise 1 follows the Planner and Building follows Revise 1.
+    expect(v.axis).toBe("2 h 29 min");
+    expect(placed(v)).toEqual([
+      [
+        [0, 9.4],
+        [9.4, 6.04],
+        [15.44, 4.03],
+      ],
+      [
+        [19.46, 14.77],
+        [34.23, 32.21],
+      ],
+      [
+        [66.44, 4.7],
+        [71.14, 8.05],
+        [79.19, 11.41],
+        [90.6, 4.03],
+        [94.63, 5.37],
+      ],
+    ]);
+    expect(v.rows.map((r) => r.duration)).toEqual(["29 min", "1 h 10 min", "50 min"]);
+    expect(v.marks).toEqual([
+      { label: "0", at: 0 },
+      { label: "30 min", at: 20.13 },
+      { label: "1 h", at: 40.27 },
+      { label: "1 h 30 min", at: 60.4 },
+      { label: "2 h", at: 80.54 },
+    ]);
+  });
+
+  test('REQ-003-34 with "Include your time" the Owner\'s time takes its place on the axis and the steps after it move', () => {
+    const v = view({ includeOwner: true });
+    expect(v.axis).toBe("4 h 44 min");
+    // Your reply (95 min) sits between the Planner and Revise 1, your approval (40 min) before Building.
+    expect(placed(v)[0]).toEqual([
+      [0, 4.93],
+      [4.93, 3.17],
+      [8.1, 33.45],
+      [41.55, 2.11],
+      [43.66, 14.08],
+    ]);
+    expect(placed(v)[1]?.[0]).toEqual([57.75, 7.75]);
+    expect(v.marks.map((m) => m.label)).toEqual(["0", "1 h", "2 h", "3 h", "4 h"]);
+    expect(v.totals).toMatchObject({ agentsPercent: 35, queuedPercent: 13 });
+  });
+
+  test("REQ-003-34 on a phone each phase is on its own scale", () => {
+    const v = view();
+    expect(v.rows.map((r) => r.steps.map((s) => [s.phaseAt, s.phaseWidth]))).toEqual([
+      [
+        [0, 48.28],
+        [48.28, 31.03],
+        [79.31, 20.69],
+      ],
+      [
+        [0, 31.43],
+        [31.43, 68.57],
+      ],
+      [
+        [0, 14],
+        [14, 24],
+        [38, 34],
+        [72, 12],
+        [84, 16],
+      ],
     ]);
   });
 
   test('REQ-003-34 with "Include your time" the Owner\'s reply and approval are segments too, and the total is end to end', () => {
     const v = view({ includeOwner: true });
-    expect(v.rows[0]?.segments.map((s) => `${s.label} ${s.duration}`)).toEqual([
+    expect(v.rows[0]?.steps.map((s) => `${s.label} ${s.duration}`)).toEqual([
       "Waited for the Planner 14 min",
       "Planner 9 min",
       "Your reply 1 h 35 min",
@@ -66,7 +139,6 @@ describe("dashboard timings", () => {
       "Your approval 40 min",
     ]);
     expect(v.totals).toMatchObject({ total: "4 h 44 min", totalLabel: "end to end", agents: "1 h 40 min" });
-    expect(shares(v)[0]).toEqual([8.54, 5.49, 57.93, 3.66, 24.39]); // Planning (164 min) is now the longest
   });
 
   test("REQ-003-34 one step's running intervals are one segment; a running agent grows until now; under a second is left out", () => {
@@ -93,12 +165,16 @@ describe("dashboard timings", () => {
       timings: () => timings,
     };
     const v = view({ source, includeOwner: true });
-    expect(v.rows.map((r) => r.segments.map((s) => [s.label, s.duration, s.running]))).toEqual([
+    expect(v.rows.map((r) => r.steps.map((s) => [s.label, s.duration, s.running]))).toEqual([
       [
         ["Feedback round 1", "50 min", true],
         ["Your reply", "10 min", false],
       ],
     ]);
+    // Without the Owner's time the reply is cut out of the axis: the running step fills it up to now.
+    const cut = view({ source });
+    expect(cut.axis).toBe("50 min");
+    expect(placed(cut)).toEqual([[[0, 100]]]);
   });
 
   test("REQ-003-34 checks running alongside the Review count once in the totals", () => {
@@ -122,12 +198,39 @@ describe("dashboard timings", () => {
       timings: () => timings,
     };
     const v = view({ source });
-    expect(v.rows[0]?.segments.map((s) => `${s.label} ${s.duration}`)).toEqual([
+    expect(v.rows[0]?.steps.map((s) => `${s.label} ${s.duration}`)).toEqual([
       "Waited for the Reviewer 2 min",
       "Reviewer 18 min",
       "Checks 8 min",
     ]);
-    expect(v.totals).toMatchObject({ total: "20 min", agents: "18 min" });
+    expect(v.totals).toMatchObject({ total: "20 min", agents: "18 min", agentsPercent: 90, queuedPercent: 10 });
+    // The checks overlap the Reviewer, so they go on a second track of the row, at their real start.
+    expect(v.rows[0]?.lanes).toBe(2);
+    expect(v.rows[0]?.steps.map((s) => [s.lane, s.at, s.width])).toEqual([
+      [0, 0, 10],
+      [0, 10, 90],
+      [1, 10, 40],
+    ]);
+  });
+
+  test("REQ-003-34 a label stands under its step's start and drops a line when it would run into the one before", () => {
+    const v = view();
+    const names = (row: number, px: number) =>
+      labelLines(v.rows[row]?.steps ?? [], px).map((line) =>
+        line.map((l) => `${v.rows[row]?.steps[l.step]?.label}${l.align === "end" ? " (end)" : ""}`),
+      );
+    expect(names(0, 1000)).toEqual([["Waited for the Planner", "Revise 1"], ["Planner"]]);
+    // Narrower, Revise 1 runs into both labels before it.
+    expect(names(0, 560)).toEqual([["Waited for the Planner"], ["Planner"], ["Revise 1"]]);
+    // A label that would run past the end of the axis ends where its step ends.
+    expect(names(2, 1000)).toEqual([["Checks", "Reviewer", "Feedback round 1", "Checks"], ["Reviewer (end)"]]);
+    for (const px of [560, 1000])
+      for (const row of [0, 1, 2])
+        for (const line of labelLines(v.rows[row]?.steps ?? [], px)) {
+          for (const l of line) expect(l.to).toBeLessThanOrEqual(100);
+          for (const [a, b] of line.slice(1).map((l, i) => [line[i], l] as const))
+            expect(b.from).toBeGreaterThanOrEqual(a?.to ?? 0);
+        }
   });
 
   test("REQ-003-34 the picker lists the issues with Timings, newest first; an issue or a store with nothing recorded says so", () => {
@@ -152,7 +255,12 @@ describe("dashboard timings", () => {
 
     const other = view({ pick: "acme/storefront#221" });
     expect(other.issues.find((i) => i.selected)?.value).toBe("acme/storefront#221");
-    expect(other).toMatchObject({ rows: [], totals: null, empty: "Nothing recorded for acme/storefront#221 yet." });
+    expect(other).toMatchObject({
+      rows: [],
+      marks: [],
+      totals: null,
+      empty: "Nothing recorded for acme/storefront#221 yet.",
+    });
     expect(view({ pick: "acme/storefront#999" }).empty).toBe("Nothing recorded for acme/storefront#999 yet.");
     expect(view({ pick: "no issue" }).picked?.issue).toBe(41); // not an issue: the newest
 
@@ -182,19 +290,52 @@ describe("dashboard timings", () => {
       );
     });
 
-    test("REQ-003-34 / REQ-003-09 rows with proportional segments sized by attributes, labels and totals; no inline style", () => {
+    test("REQ-003-34 / REQ-003-09 KPI tiles, rows on one time axis sized by attributes, labels and marks; no inline style", () => {
       const html = page();
       for (const text of ["Planning", "Building", "Review", "Waited for the Planner", "Feedback round 1", "Revise 1"])
         expect(html).toContain(`>${text}<`);
       expect(html).toContain(">2 h 29 min<");
-      expect(html).toContain("without your time");
+      expect(html).toContain("total, without your time");
       expect(html).toContain(">1 h 40 min<");
+      expect(html).toContain("agents working · 67 %");
+      expect(html).toContain(">36 min<");
+      expect(html).toContain("waiting in the queue · 24 %");
       expect(html).toContain("Revise / Feedback rounds");
-      expect(html).toContain('width="68.57%"');
+      // The time marks over the rows.
+      for (const mark of ["0", "30 min", "1 h", "1 h 30 min", "2 h"]) expect(html).toContain(`>${mark}<`);
+      // Building's wait starts at 19.46 % and lasts 14.77 %: a spacer cell, then the capsule's cell.
+      expect(html).toMatch(/<td width="19\.46%"><\/td><td width="14\.77%"[^>]*><span class="tube /);
+      expect(html).toContain("Each phase on its own scale");
       expect(html).not.toContain("Your reply");
       expect(html).not.toMatch(/\sstyle=/);
       expect(html).toContain('href="https://github.com/acme/payments-api/issues/41"');
       expect(page({ includeOwner: true })).toContain(">Your approval<");
+      expect(page({ includeOwner: true })).toContain("total, end to end");
+    });
+
+    test("REQ-003-45 each step is a glass capsule: liquid for an agent, checks and the Owner, empty glass for a wait", () => {
+      const html = page({ includeOwner: true });
+      const chart = html.slice(html.indexOf('id="timeline"'));
+      const tubes = [...chart.matchAll(/<span class="tube ([^"]*)"( data-tint="(\w+)")?>(.*?)<\/span><\/td>/g)].map(
+        (m) => ({
+          tint: m[3] ?? "",
+          liquid: (m[4] ?? "").includes('<span class="liquid'),
+          brew: (m[4] ?? "").includes('<canvas class="brew"'),
+        }),
+      );
+      // 12 steps, drawn on the shared axis and again on the phone's own scales.
+      expect(tubes).toHaveLength(24);
+      const first = tubes.slice(0, 5);
+      expect(first).toEqual([
+        { tint: "", liquid: false, brew: false }, // Waited for the Planner: empty glass
+        { tint: "", liquid: true, brew: true }, // Planner: indigo
+        { tint: "owner", liquid: true, brew: true }, // Your reply: amber
+        { tint: "", liquid: true, brew: true },
+        { tint: "owner", liquid: true, brew: true },
+      ]);
+      expect(tubes.filter((t) => t.tint === "checks")).toHaveLength(4);
+      // The moving liquid is picked up on this page too.
+      expect(html).toContain('id="timeline"');
     });
 
     test("REQ-003-34 with nothing recorded the page says so", () => {

@@ -345,10 +345,21 @@ const MAX_SLOT_MARKS = 12;
  * tube is a grid of `cols` columns and the liquid spans the `filled` ones, so its width needs no
  * inline style (the CSP forbids them). `meters.js` draws the moving liquid into the canvas next to
  * it (REQ-003-26 stirs it); without that script the CSS liquid stays. With `marks`, a Slot mark is
- * etched per column, a little whiter over the liquid so it stays visible on it.
+ * etched per column, a little whiter over the liquid so it stays visible on it. The Timings page reuses it
+ * with a `tint` per kind of step (REQ-003-45).
  */
-const Tube = ({ cols, filled, marks }: { cols: number; filled: number; marks: boolean }) => (
-  <span className={`tube col-span-full grid ${COLS[cols]}`}>
+export const Tube = ({
+  cols,
+  filled,
+  marks,
+  tint,
+}: {
+  cols: number;
+  filled: number;
+  marks: boolean;
+  tint?: "checks" | "owner" | "queued";
+}) => (
+  <span className={`tube col-span-full grid ${COLS[cols]}`} data-tint={tint}>
     {filled > 0 && <span className={`liquid ${SPAN[filled]}`} />}
     {filled > 0 && (
       // biome-ignore lint/a11y/noAriaHiddenOnFocusable: a canvas without tabindex is not focusable; the moving liquid is decoration
