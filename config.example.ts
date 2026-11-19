@@ -34,6 +34,9 @@ export default defineConfig({
     implementer: { model: "sonnet" },
     reviewer: { model: "opus" },
   },
+  // Extra instructions per Role, added after its prompt (REQ-002-17); a repository's come after these. Also editable
+  // on the Config page. At most 4,000 characters each.
+  // instructions: { planner: "Keep Assessments short." },
   repos: [{ name: "your-login/your-repo", setup: "bun install", roles: { reviewer: { model: "sonnet" } } }],
   // Claude subscriptions in priority order (optional; default: the login in ~/.claude). Sessions run on the first one
   // that isn't paused by a usage limit. Log in to each once: CLAUDE_CONFIG_DIR=<configDir> claude, then /login.

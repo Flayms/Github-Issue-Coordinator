@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { autoMergeMode, ConfigError, type ConfigInput, roleSettings } from "../src/config.ts";
+import { autoMergeMode, ConfigError, type ConfigInput, extraInstructions, roleSettings } from "../src/config.ts";
 import { LiveConfig, OVERRIDES_FILE, type Overrides } from "../src/overrides.ts";
 
 let dirs: string[] = [];
@@ -92,6 +92,37 @@ describe("Settings overrides", () => {
     expect(autoMergeMode(c, "octo/app")).toBe("evaluated");
     expect(autoMergeMode(c, "octo/web")).toBe("all");
     expect(autoMergeMode(c, "octo/lib")).toBe("off");
+  });
+
+  test("REQ-003-42 Extra instructions are set per Role globally and per repository; an empty one replaces config.ts's", () => {
+    const { dir } = setup({
+      instructions: { planner: "Answer in German.", reviewer: "" },
+      repos: { "octo/app": { instructions: { planner: "Mention the ticket." } } },
+    } satisfies Overrides);
+    const input: ConfigInput = {
+      ...raw(dir),
+      instructions: { reviewer: "Be brief.", implementer: "Use pnpm." },
+      repos: [{ name: "octo/app" }, { name: "octo/web", instructions: { planner: "Web only." } }],
+    };
+    const c = new LiveConfig(input, "config.ts").current;
+    expect(extraInstructions(c, "octo/app", "planner")).toEqual(["Answer in German.", "Mention the ticket."]);
+    expect(extraInstructions(c, "octo/web", "planner")).toEqual(["Answer in German.", "Web only."]);
+    expect(extraInstructions(c, "octo/app", "reviewer")).toEqual([]);
+    expect(extraInstructions(c, "octo/app", "implementer")).toEqual(["Use pnpm."]);
+  });
+
+  test("REQ-003-42 Extra instructions over the size limit are refused, and nothing is saved", () => {
+    const { input, path } = setup();
+    const live = new LiveConfig(input, "config.ts");
+    expect(issuesOf(() => live.save({ instructions: { planner: "x".repeat(4_001) } }))).toEqual([
+      "instructions.planner: must be at most 4,000 characters",
+    ]);
+    expect(
+      issuesOf(() => live.save({ repos: { "octo/app": { instructions: { planner: "x".repeat(4_001) } } } })),
+    ).toEqual(["repos.0.instructions.planner: must be at most 4,000 characters"]);
+    expect(existsSync(path)).toBe(false);
+    live.save({ instructions: { planner: "x".repeat(4_000) } });
+    expect(live.current.instructions?.planner).toHaveLength(4_000);
   });
 
   test("REQ-003-36 overrides of a repository no longer in config.ts are ignored", () => {

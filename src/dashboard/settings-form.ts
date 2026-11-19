@@ -1,12 +1,21 @@
 /**
- * The Config page's form (REQ-003-36): one field per editable setting, and the Settings overrides a
+ * The Config page's form (REQ-003-36, Extra instructions REQ-003-42): one field per editable setting, and the Settings overrides a
  * submitted form makes. Only these fields exist, so nothing else can be set from the dashboard.
  */
-import { type AutoMergeMode, type Config, ConfigError, type Effort, LIMIT_KEYS, ROLES, type Role } from "../config.ts";
+import {
+  type AutoMergeMode,
+  type Config,
+  ConfigError,
+  type Effort,
+  EXTRA_INSTRUCTIONS_LIMIT,
+  LIMIT_KEYS,
+  ROLES,
+  type Role,
+} from "../config.ts";
 import { inCatalogue } from "../models.ts";
 import type { Overrides, SettingsEditor } from "../overrides.ts";
 
-export type FieldKind = "number" | "model" | "effort" | "autoMerge";
+export type FieldKind = "number" | "model" | "effort" | "autoMerge" | "instructions";
 
 /** A form field; values are the form's strings, `""` for an effort or a repository's model or auto-merge mode means "not set". */
 export interface SettingField {
@@ -87,6 +96,30 @@ function textField(
   };
 }
 
+/** REQ-003-42: a Role's Extra instructions; empty means none, also over a text in `config.ts`. */
+function instructionsField(
+  name: string,
+  get: (c: Config) => string | undefined,
+  put: (o: Overrides, v: string) => void,
+  base: Config,
+  current: Config,
+): SettingField {
+  const b = get(base) ?? "";
+  const v = get(current) ?? "";
+  return {
+    name,
+    kind: "instructions",
+    value: v,
+    base: b,
+    changed: v !== b,
+    set: (o, value) => {
+      if (value.length > EXTRA_INSTRUCTIONS_LIMIT)
+        return `${name}: must be at most ${EXTRA_INSTRUCTIONS_LIMIT.toLocaleString("en")} characters`;
+      put(o, value);
+    },
+  };
+}
+
 const globalRole = (o: Overrides, role: Role) => {
   o.roles ??= {};
   o.roles[role] ??= {};
@@ -108,7 +141,10 @@ const repoRole = (o: Overrides, repo: string, role: Role) => {
 
 const repoOf = (c: Config, name: string) => c.repos.find((r) => r.name === name);
 
-/** The editable settings, in the page's order: top-level, limits, Roles, then each repository's Roles. */
+/**
+ * The editable settings, in the page's order: top-level, limits, Roles, Extra instructions, then each repository's
+ * auto-merge mode, Roles and Extra instructions.
+ */
 export function settingFields(base: Config, current: Config): SettingField[] {
   const fields: SettingField[] = [
     numberField(
@@ -181,6 +217,18 @@ export function settingFields(base: Config, current: Config): SettingField[] {
       ),
     );
   }
+  for (const role of ROLES)
+    fields.push(
+      instructionsField(
+        `instructions.${role}`,
+        (c) => c.instructions?.[role],
+        (o, v) => {
+          o.instructions = { ...o.instructions, [role]: v };
+        },
+        base,
+        current,
+      ),
+    );
   for (const { name } of base.repos) {
     fields.push(
       textField(
@@ -222,6 +270,19 @@ export function settingFields(base: Config, current: Config): SettingField[] {
         ),
       );
     }
+    for (const role of ROLES)
+      fields.push(
+        instructionsField(
+          `repos.${name}.instructions.${role}`,
+          (c) => repoOf(c, name)?.instructions?.[role],
+          (o, v) => {
+            const r = repoEntry(o, name);
+            r.instructions = { ...r.instructions, [role]: v };
+          },
+          base,
+          current,
+        ),
+      );
   }
   return fields;
 }
@@ -253,9 +314,10 @@ export function saveSettings(
 ): { errors: string[]; fields: SettingField[] } {
   const fields = settingFields(editor.base, editor.current);
   const reset = form.get("reset");
+  // A textarea sends line breaks as CRLF (REQ-003-42); they are kept as LF, like config.ts's text.
   const submitted = (name: string) => {
     const v = form.get(name);
-    return typeof v === "string" ? v : undefined;
+    return typeof v === "string" ? v.replace(/\r\n?/g, "\n") : undefined;
   };
   const value =
     typeof reset === "string"

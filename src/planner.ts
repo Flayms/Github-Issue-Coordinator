@@ -10,7 +10,7 @@ import { defaultLog, type Log, recordEvent } from "./events.ts";
 import type { Comment, GitHubClient, Item, ItemHistory } from "./github/client.ts";
 import { GitHubError } from "./github/http.ts";
 import { sessionNote } from "./note.ts";
-import { loadPrompt, renderPrompt } from "./prompts.ts";
+import { rolePrompt } from "./prompts.ts";
 import { type PlannerResult, validateResult } from "./results.ts";
 import type { SessionRunner } from "./runner.ts";
 import { checkScreenshots, MOCKUP_DIR, mockupFolder, renderImages } from "./screenshots.ts";
@@ -209,7 +209,7 @@ export class Planner {
       kind: "batch",
       issues: assess.map((i) => i.number),
       cwd: repoDir,
-      prompt: renderPrompt(loadPrompt("planner", repoDir), { repo, context }),
+      prompt: rolePrompt(this.d.config, "planner", repoDir, { repo, context }),
       model: roleSettings(this.d.config, repo, "planner"),
     });
   }
@@ -246,7 +246,7 @@ export class Planner {
         issues: [issue.number],
         title: issue.title,
         cwd: repoDir,
-        prompt: renderPrompt(loadPrompt("planner", repoDir), { repo, context }),
+        prompt: rolePrompt(this.d.config, "planner", repoDir, { repo, context }),
         model,
       });
 

@@ -35,6 +35,16 @@ const roleSchema = z.strictObject({
 
 const roleOverrideSchema = roleSchema.partial();
 
+/** REQ-003-42: the most characters of one Role's Extra instructions, since they go into every session's prompt. */
+export const EXTRA_INSTRUCTIONS_LIMIT = 4_000;
+const instructionText = z
+  .string()
+  .max(EXTRA_INSTRUCTIONS_LIMIT, `must be at most ${EXTRA_INSTRUCTIONS_LIMIT.toLocaleString("en")} characters`);
+/** REQ-002-17: Extra instructions per Role, appended to its prompt. */
+const instructionsSchema = z
+  .strictObject({ planner: instructionText, implementer: instructionText, reviewer: instructionText })
+  .partial();
+
 const repoSchema = z.strictObject({
   name: z.string().regex(/^[\w.-]+\/[\w.-]+$/, "must be owner/repo"),
   /** Shell command run once in each new Worktree, e.g. `bun install`. */
@@ -45,6 +55,8 @@ const repoSchema = z.strictObject({
     .optional(),
   /** Overrides the global `autoMerge` for this repository (REQ-001-65). */
   autoMerge: autoMergeSchema.optional(),
+  /** Appended after the global Extra instructions (REQ-002-17). */
+  instructions: instructionsSchema.optional(),
 });
 
 const limitsSchema = z
@@ -131,6 +143,8 @@ const configSchema = z
     autoMerge: autoMergeSchema.default("evaluated"),
     limits: limitsSchema.prefault({}),
     roles: z.strictObject({ planner: roleSchema, implementer: roleSchema, reviewer: roleSchema }),
+    /** Extra instructions for every repository (REQ-002-17). */
+    instructions: instructionsSchema.optional(),
     repos: z.array(repoSchema).min(1),
     /** In priority order: sessions run on the first one that isn't paused by a usage limit (REQ-004-01). */
     accounts: z.array(accountSchema).min(1).default([DEFAULT_ACCOUNT]),
@@ -243,4 +257,11 @@ export const autoMergeMode = (config: Config, repo: string): AutoMergeMode =>
 /** Model and effort for a Role in a repository; the repository's override wins (REQ-001-22). */
 export function roleSettings(config: Config, repo: string, role: Role): RoleSettings {
   return { ...config.roles[role], ...repoOf(config, repo).roles?.[role] };
+}
+
+/** REQ-002-17: a Role's Extra instructions, the global ones first, then the repository's; blank ones are left out. */
+export function extraInstructions(config: Config, repo: string, role: Role): string[] {
+  return [config.instructions?.[role], repoOf(config, repo).instructions?.[role]].flatMap((t) =>
+    t?.trim() ? [t.trim()] : [],
+  );
 }

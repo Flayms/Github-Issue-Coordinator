@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ROLES, type Role } from "../src/config.ts";
-import { loadPrompt, renderPrompt } from "../src/prompts.ts";
+import { type ConfigInput, parseConfig, ROLES, type Role } from "../src/config.ts";
+import { EXTRA_INSTRUCTIONS_HEADING, loadPrompt, renderPrompt, rolePrompt } from "../src/prompts.ts";
 
 let repo: string;
 beforeEach(() => {
@@ -31,6 +31,61 @@ describe("prompts", () => {
   test("default prompts only use placeholders the Coordinator fills in", () => {
     const vars = { repo: "r", context: "c" };
     for (const role of ROLES) expect(() => renderPrompt(loadPrompt(role, repo), vars)).not.toThrow();
+  });
+});
+
+const configWith = (extra: Partial<ConfigInput> = {}) =>
+  parseConfig({
+    owner: { login: "octo", id: 42 },
+    roles: { planner: { model: "opus" }, implementer: { model: "sonnet" }, reviewer: { model: "opus" } },
+    repos: [{ name: "octo/app" }, { name: "octo/web" }],
+    ...extra,
+  });
+const vars = { repo: "octo/app", context: "CTX" };
+
+describe("Extra instructions (REQ-002-17)", () => {
+  test("REQ-002-17 without Extra instructions the prompt is the rendered Role prompt, byte for byte", () => {
+    for (const role of ROLES)
+      expect(rolePrompt(configWith(), role, repo, vars)).toBe(renderPrompt(loadPrompt(role, repo), vars));
+  });
+
+  test("REQ-002-17 global, then the repository's Extra instructions follow the Role prompt under a delimited heading", () => {
+    const config = configWith({
+      instructions: { planner: "Always answer in German." },
+      repos: [{ name: "octo/app", instructions: { planner: "Mention the {{ticket}} field." } }, { name: "octo/web" }],
+    });
+    const base = renderPrompt(loadPrompt("planner", repo), vars);
+    const text = rolePrompt(config, "planner", repo, vars);
+    expect(text.startsWith(`${base}\n\n`)).toBe(true);
+    const extra = text.slice(base.length);
+    expect(extra).toContain(EXTRA_INSTRUCTIONS_HEADING);
+    // Inserted literally: `{{ticket}}` is no placeholder, so it neither throws nor is replaced.
+    expect(extra.indexOf("Always answer in German.")).toBeGreaterThan(extra.indexOf(EXTRA_INSTRUCTIONS_HEADING));
+    expect(extra.indexOf("Mention the {{ticket}} field.")).toBeGreaterThan(extra.indexOf("Always answer in German."));
+    expect(text.trimEnd().endsWith("Mention the {{ticket}} field.")).toBe(true);
+  });
+
+  test("REQ-002-17 a repository's Extra instructions reach only that repository and only that Role", () => {
+    const config = configWith({
+      repos: [{ name: "octo/app", instructions: { planner: "Always answer in German." } }, { name: "octo/web" }],
+    });
+    expect(rolePrompt(config, "planner", repo, vars)).toContain("Always answer in German.");
+    expect(rolePrompt(config, "planner", repo, { ...vars, repo: "octo/web" })).not.toContain("German");
+    expect(rolePrompt(config, "reviewer", repo, vars)).not.toContain("German");
+  });
+
+  test("REQ-002-17 blank Extra instructions add nothing", () => {
+    const config = configWith({ instructions: { planner: "  \n " } });
+    expect(rolePrompt(config, "planner", repo, vars)).toBe(renderPrompt(loadPrompt("planner", repo), vars));
+  });
+
+  test("REQ-002-17 Extra instructions are appended to a repository's replacement prompt too", () => {
+    mkdirSync(join(repo, ".github/coordinator"), { recursive: true });
+    writeFileSync(join(repo, ".github/coordinator/reviewer.md"), "Custom reviewer for {{repo}}");
+    const config = configWith({ instructions: { reviewer: "Be brief." } });
+    const text = rolePrompt(config, "reviewer", repo, vars);
+    expect(text.startsWith("Custom reviewer for octo/app\n\n")).toBe(true);
+    expect(text).toContain("Be brief.");
   });
 });
 

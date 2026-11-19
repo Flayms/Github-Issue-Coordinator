@@ -142,7 +142,7 @@ On by default ([setup](setup.md#4-dashboard), [spec 003](specs/003-dashboard/spe
 
 ### Config and Timings
 
-- The **Config page** shows the settings without secrets. Once you are signed in, it lets you change limits, poll interval, the auto-merge mode and each Role's model and effort (also per repository); a model is picked from a list of aliases ("Opus (latest)") and pinned versions ("Opus 5.5"). They apply from the next tick on, without a restart, and are kept over `config.ts` in the state dir.
+- The **Config page** shows the settings without secrets. Once you are signed in, it lets you change limits, poll interval, the auto-merge mode, each Role's model and effort and its Extra instructions (also per repository); a model is picked from a list of aliases ("Opus (latest)") and pinned versions ("Opus 5.5"). They apply from the next tick on, without a restart, and are kept over `config.ts` in the state dir.
 - The **Timings page** shows one issue's Planning, Building and Review as bars of waiting, agent and checks time.
 
 ### Behaviour and access
@@ -161,4 +161,14 @@ Each Role's default prompt lives in [`prompts/`](../prompts/) ([spec 002](specs/
 - the **Implementer** decides _how_ within that scope, and stops if it turns out wrong;
 - the **Reviewer** checks the PR against the approved Assessment without redesigning it.
 
-A repository can replace a prompt with its own `.github/coordinator/<role>.md`. Such a repository doesn't get updates to the default prompts, so compare it with `prompts/` after upgrading.
+### Customising prompts
+
+Three ways, from the safest to the riskiest:
+
+| Way                                  | Where                                                                                | What it does                                                                                                                                                                                                              |
+| ------------------------------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Extra instructions** (recommended) | Config page, or `instructions` in `config.ts`; per Role, globally and per repository | Added after the Role prompt under "Additional instructions from the Owner" (global first, then the repository's), for sessions started from then on. At most 4,000 characters each. The default prompt keeps its updates. |
+| `CLAUDE.md` / `AGENTS.md`            | The managed repository                                                               | Every agent reads them, as Claude Code does in any session. Versioned with the repository.                                                                                                                                |
+| `.github/coordinator/<role>.md`      | The managed repository                                                               | **Replaces** the Role's default prompt. It no longer gets updates to `prompts/` and can drop rules such as "don't post on GitHub", so compare it with `prompts/` after upgrading. Extra instructions still follow it.     |
+
+None of them changes the Result instruction, which the Coordinator appends last and validates, or the Coordinator's own gates (approval, labels, merges), which are enforced in code, not in the prompt.

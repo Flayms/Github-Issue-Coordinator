@@ -229,6 +229,33 @@ describe("Planner pass", () => {
     expect(store.issue("octo/app", 5).bodyHash).toBe(bodyHash("Body of 5"));
   });
 
+  test("REQ-002-17 a started Planner session's prompt has the repository's Extra instructions, read from the live config", async () => {
+    const withExtra = parseConfig({
+      owner: { login: "octo", id: 42 },
+      roles: { planner: { model: "opus" }, implementer: { model: "sonnet" }, reviewer: { model: "opus" } },
+      repos: [{ name: "octo/app", instructions: { planner: "Always answer in German." } }, { name: "octo/web" }],
+    });
+    let current = config;
+    planner = new Planner({
+      get config() {
+        return current;
+      },
+      store,
+      gh,
+      runner,
+      worktrees,
+    });
+    await planner.startPass("octo/app", "/clones/app", [item(5)], none);
+    expect(runner.started.at(-1)?.prompt).not.toContain("German");
+    current = withExtra;
+    await planner.startPass("octo/app", "/clones/app", [item(6)], none);
+    const prompt = runner.started.at(-1)?.prompt as string;
+    expect(prompt).toContain("## Additional instructions from the Owner\n\n");
+    expect(prompt.trimEnd().endsWith("Always answer in German.")).toBe(true);
+    await planner.startPass("octo/web", "/clones/web", [item(7)], none);
+    expect(runner.started.at(-1)?.prompt).not.toContain("German");
+  });
+
   test("REQ-001-02 posts one Assessment per issue, sets the verdict label, and closes the batch session", async () => {
     const id = await planner.startPass("octo/app", "/c", [item(5), item(6)], { issues: [], pulls: [] });
     gh.calls = [];

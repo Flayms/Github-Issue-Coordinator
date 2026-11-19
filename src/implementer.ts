@@ -11,7 +11,7 @@ import { defaultLog, type Log, recordEvent, refs } from "./events.ts";
 import type { GitHubClient, Item } from "./github/client.ts";
 import { labelPr, setPrPhase } from "./labels.ts";
 import { agentNote, sessionNote } from "./note.ts";
-import { loadPrompt, renderPrompt } from "./prompts.ts";
+import { rolePrompt } from "./prompts.ts";
 import { findingsToAnswer, type ImplementerResult, validateResult } from "./results.ts";
 import type { Finding } from "./reviewer.ts";
 import type { SessionRunner } from "./runner.ts";
@@ -89,7 +89,7 @@ export class Implementer {
       issues: numbers,
       title: first.title,
       cwd: wt.path,
-      prompt: renderPrompt(loadPrompt("implementer", wt.path), { repo, context }),
+      prompt: rolePrompt(this.d.config, "implementer", wt.path, { repo, context }),
       model: roleSettings(this.d.config, repo, "implementer"),
     });
   }

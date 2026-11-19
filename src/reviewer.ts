@@ -13,7 +13,7 @@ import type { GitHubClient, Item } from "./github/client.ts";
 import { GitHubError } from "./github/http.ts";
 import { setPrPhase } from "./labels.ts";
 import { agentNote, sessionNote } from "./note.ts";
-import { loadPrompt, renderPrompt } from "./prompts.ts";
+import { rolePrompt } from "./prompts.ts";
 import { type ReviewerResult, type RiskTier, validateResult } from "./results.ts";
 import type { SessionRunner } from "./runner.ts";
 import type { Store } from "./store.ts";
@@ -88,7 +88,7 @@ export class Reviewer {
       issues: numbers,
       title: issues[0]?.title,
       cwd: path,
-      prompt: renderPrompt(loadPrompt("reviewer", path), { repo, context: parts.join("\n\n") }),
+      prompt: rolePrompt(this.d.config, "reviewer", path, { repo, context: parts.join("\n\n") }),
       model: roleSettings(this.d.config, repo, "reviewer"),
     });
   }

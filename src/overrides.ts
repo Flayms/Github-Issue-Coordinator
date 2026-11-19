@@ -1,6 +1,6 @@
 /**
  * Settings overrides (REQ-003-36): what the Owner changes on the Config page, kept in
- * `<stateDir>/config.overrides.json` and laid over `config.ts`. Only an allow-list of keys can be set;
+ * `<stateDir>/config.overrides.json` and laid over `config.ts`, with the Extra instructions (REQ-003-42). Only an allow-list of keys can be set;
  * repositories, Accounts, access settings and `setup` commands stay in `config.ts`.
  */
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -28,6 +28,8 @@ const effort = z.enum(EFFORTS).nullable();
 const autoMerge = z.enum(AUTO_MERGE_MODES);
 const perRole = <T extends z.ZodType>(r: T) =>
   z.strictObject({ planner: r.optional(), implementer: r.optional(), reviewer: r.optional() });
+/** REQ-003-42: an empty text replaces `config.ts`'s; the size limit is checked with the merged config. */
+const instructions = perRole(z.string());
 
 const overridesSchema = z.strictObject({
   pollIntervalSec: z.number().optional(),
@@ -36,6 +38,7 @@ const overridesSchema = z.strictObject({
   roles: perRole(z.strictObject({ model: model.optional(), effort: effort.optional() })).optional(),
   /** REQ-001-65; the old name `risk-evaluated` is only read from `config.ts`. */
   autoMerge: autoMerge.optional(),
+  instructions: instructions.optional(),
   /**
    * By repository name; a `null` model or `autoMerge` removes `config.ts`'s override, so the global one applies.
    */
@@ -45,6 +48,7 @@ const overridesSchema = z.strictObject({
       z.strictObject({
         roles: perRole(z.strictObject({ model: model.nullable().optional(), effort: effort.optional() })).optional(),
         autoMerge: autoMerge.nullable().optional(),
+        instructions: instructions.optional(),
       }),
     )
     .optional(),
@@ -122,10 +126,15 @@ export function applyOverrides(raw: ConfigInput, o: Overrides): ConfigInput {
     ...(o.autoMerge !== undefined && { autoMerge: o.autoMerge }),
     ...(o.limits && { limits: merge(raw.limits, o.limits) }),
     ...(o.roles && raw.roles && { roles: { ...raw.roles, ...mergeRoles(raw.roles, o.roles) } }),
+    ...(o.instructions && { instructions: merge(raw.instructions, o.instructions) }),
     repos: raw.repos?.map((r) => {
       const p = repoPatch(r.name);
       if (!p) return r;
-      const { autoMerge, ...rest } = { ...r, ...(p.roles && { roles: mergeRoles(r.roles, p.roles) }) };
+      const { autoMerge, ...rest } = {
+        ...r,
+        ...(p.roles && { roles: mergeRoles(r.roles, p.roles) }),
+        ...(p.instructions && { instructions: merge(r.instructions, p.instructions) }),
+      };
       const mode = p.autoMerge === undefined ? autoMerge : (p.autoMerge ?? undefined);
       return mode === undefined ? rest : { ...rest, autoMerge: mode };
     }),

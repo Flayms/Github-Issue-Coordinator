@@ -445,6 +445,19 @@ describe("dashboard view", () => {
     ]);
   });
 
+  test("REQ-003-42 lists the Extra instructions that are set, globally first, then per repository", () => {
+    const c = parseConfig({
+      ...config,
+      instructions: { reviewer: "Be brief.", planner: " " },
+      repos: [{ name: "octo/app", instructions: { planner: "German." } }, { name: "octo/lib" }],
+    });
+    expect(dashboardView(snapshot(), c, NOW).settings.instructions).toEqual([
+      { role: "Reviewer", repo: null, text: "Be brief." },
+      { role: "Planner", repo: "octo/app", text: "German." },
+    ]);
+    expect(dashboardView(snapshot(), config, NOW).settings.instructions).toEqual([]);
+  });
+
   test("REQ-003-05 / REQ-003-41 shows the effective settings per Role and repository, by name, without secrets", () => {
     const v = dashboardView(snapshot(), config, NOW);
     expect(v.settings.pollIntervalSec).toBe(45);
