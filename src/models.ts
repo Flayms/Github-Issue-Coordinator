@@ -4,7 +4,28 @@
  * Each model belongs to one Harness, which runs it (REQ-006-01).
  */
 import type { HarnessName } from "./harness/harness.ts";
-import { modelDisplayName } from "./note.ts";
+
+const FAMILIES = ["opus", "sonnet", "haiku", "fable"];
+const capitalise = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+
+/**
+ * "Opus 5.5" for `claude-opus-5-5`; also handles date suffixes (`claude-haiku-4-5-20251001`),
+ * the old order (`claude-3-5-sonnet-20241022`) and a context suffix (`[1m]`).
+ * Undefined for an alias such as `opus` or an unknown id.
+ */
+export function modelDisplayName(modelId: string | undefined): string | undefined {
+  if (!modelId) return undefined;
+  const parts = modelId
+    .toLowerCase()
+    .replace(/\[.*\]$/, "")
+    .split("-");
+  if (parts[0] !== "claude") return undefined;
+  const family = parts.find((p) => FAMILIES.includes(p));
+  // Version parts are short numbers; a date suffix (8 digits) is not part of the version.
+  const version = parts.filter((p) => /^\d{1,2}$/.test(p));
+  if (!family || version.length === 0) return undefined;
+  return `${capitalise(family)} ${version.join(".")}`;
+}
 
 export interface CatalogueModel {
   /** What `claude --model` gets, e.g. `opus` or `claude-opus-5-5`. */
@@ -21,8 +42,6 @@ export interface CatalogueModel {
  */
 const ALIASES = ["fable", "opus", "sonnet", "haiku"];
 const PINNED = ["claude-fable-5-2", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"];
-
-const capitalise = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** The alias's family, e.g. `opus` for `Opus`; undefined for anything else. */
 const aliasFamily = (value: string): string | undefined => {
