@@ -253,7 +253,10 @@ describe("dashboard html", () => {
 
   test("REQ-003-32 Your move lists the groups with an icon, a name and a count, each row linked with title, repository and number", () => {
     const summary = summaryOf(overview());
-    expect(summary).toMatch(/<div class="panel[^"]*"><h2 [^>]*>(?:(?!<\/h2>)[\s\S])*Your move<\/h2>/);
+    // #154: no visible title, the headline introduces the panel; screen readers still name it.
+    expect(summary).toMatch(
+      /<div class="panel[^"]*"><h2 class="sr-only">Your move<\/h2><ul><li [^>]*data-move="merge"/,
+    );
     const groups = [...summary.matchAll(/<li [^>]*data-move="(\w+)"/g)].map((m) => m[1]);
     expect(groups).toEqual(["merge", "approve"]);
     expect(summary).toMatch(/data-move="merge"[\s\S]*?<h3[^>]*>[\s\S]*?Merge PRs[\s\S]*?>1<[\s\S]*?<\/h3>/);
@@ -368,14 +371,15 @@ describe("dashboard html", () => {
     expect(summary).not.toMatch(/\b(?:text|bg|border|from)-warn\b/);
     // Bare icons: no circle or box around them; the groups are split by a plain hairline.
     expect(head("merge")).not.toMatch(/rounded|bg-/);
+    // A hairline splits the groups; the first one starts the panel, with no line against its top edge (#154).
     const groupClasses = [...summary.matchAll(/<li class="([^"]*)" data-move=/g)].map((m) => m[1]);
-    for (const c of groupClasses) expect(c).toBe("border-line border-t");
+    expect(groupClasses).toEqual(["pt-1", ...Array(4).fill("border-line border-t")]);
   });
 
   test("REQ-003-32 with nothing to do Your move says so and when items will appear", () => {
     const summary = summaryOf(renderDashboard(dashboardView({ ...snap, repos: [] }, config, NOW)));
-    expect(summary).toContain("Your move");
-    expect(summary).toContain("Nothing needs you.");
+    // #154: the empty text is the first thing seen in the panel, under the hidden name.
+    expect(summary).toMatch(/<div class="panel[^"]*"><h2 class="sr-only">Your move<\/h2><p [^>]*>Nothing needs you\. /);
     expect(summary).toMatch(/Nothing needs you\. [^<]*Review passes[^<]*Planner/);
     expect(summary).not.toContain("data-move=");
   });
@@ -468,7 +472,7 @@ describe("dashboard html", () => {
     const summary = html.slice(html.indexOf('id="summary"'), html.indexOf('id="activity"'));
     // Two columns from md on, the left one wider; in page order (a phone stacks them): headline, Your move, counts, Capacity.
     expect(summary).toMatch(/^id="summary" class="[^"]*md:grid-cols-\[minmax\(0,3fr\)_minmax\(0,2fr\)\]/);
-    const at = order(summary, ["<h1", "Your move", 'id="stats"', 'id="capacity"']);
+    const at = order(summary, ["<h1", 'class="panel', 'id="stats"', 'id="capacity"']);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
     expect(at.every((i) => i >= 0)).toBe(true);
     expect(inside(html, "section#summary > div:first-child", ["h1", ".panel", "#stats"])).toEqual(

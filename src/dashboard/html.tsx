@@ -152,15 +152,28 @@ function moveParts(groups: MoveGroup[], from: number, to: number): MovePart[] {
 
 /**
  * REQ-003-32: groups with a bare icon, name and total count, split by a plain hairline. A group
- * continued after "Show N more" has neither heading nor hairline (REQ-003-35).
+ * continued after "Show N more" has neither heading nor hairline (REQ-003-35). The `top` list starts
+ * the panel: its first group has no hairline, just the panel's top padding (#154).
  */
-const MoveGroups = ({ parts, fadeLast = false }: { parts: MovePart[]; fadeLast?: boolean }) => (
+const MoveGroups = ({
+  parts,
+  fadeLast = false,
+  top = false,
+}: {
+  parts: MovePart[];
+  fadeLast?: boolean;
+  top?: boolean;
+}) => (
   <ul>
     {parts.map(({ group: g, items, continued }, p) => {
       const { icon, tone } = MOVE_ICONS[g.kind];
       const last = p === parts.length - 1;
       return (
-        <li key={g.kind} className={continued ? undefined : "border-line border-t"} data-move={g.kind}>
+        <li
+          key={g.kind}
+          className={top && p === 0 ? "pt-1" : continued ? undefined : "border-line border-t"}
+          data-move={g.kind}
+        >
           {!continued && (
             <h3 className="flex items-center gap-3 px-[18px] pt-3.5 pb-1 font-semibold text-[13px] text-white/80 sm:px-6">
               <Icon name={icon} className={`size-4 ${TONE_TEXT[tone]}`} />
@@ -187,21 +200,22 @@ function YourMove({ v }: { v: DashboardView }) {
   const total = v.summary.needYou;
   return (
     <div className="panel">
-      <Label className="px-6 pt-[18px] pb-3">Your move</Label>
+      {/* #154: the headline above introduces the panel; the name stays for screen readers. */}
+      <h2 className="sr-only">Your move</h2>
       {total === 0 ? (
         <Empty className="px-6 pt-3 pb-5">
           Nothing needs you. A PR shows up here when its Review passes and the checks are green, an issue when the
           Planner has a plan or questions for you, or when it failed.
         </Empty>
       ) : total <= MOVES_UNCAPPED ? (
-        <MoveGroups parts={moveParts(v.yourMove, 0, total)} />
+        <MoveGroups parts={moveParts(v.yourMove, 0, total)} top />
       ) : (
         <Expander
           id="moves"
           className="moves"
           more={total - MOVES_SHOWN}
           linkClassName="px-[18px] sm:px-6"
-          first={<MoveGroups parts={moveParts(v.yourMove, 0, MOVES_SHOWN)} fadeLast />}
+          first={<MoveGroups parts={moveParts(v.yourMove, 0, MOVES_SHOWN)} fadeLast top />}
           rest={<MoveGroups parts={moveParts(v.yourMove, MOVES_SHOWN, total)} />}
         />
       )}
