@@ -1,6 +1,6 @@
 /**
  * The Timings page (REQ-003-34): how long each step of one issue took, as one row per phase on one shared time
- * axis, each step a glass capsule like a Capacity tube (REQ-003-45). Rendered on the server like the other pages
+ * axis, each step a glass capsule like a Capacity tube (REQ-003-46). Rendered on the server like the other pages
  * (REQ-003-19); the picker is a GET form, so it works without JavaScript.
  *
  * The CSP forbids inline styles, so a step's place on the axis is the `width` of table cells: a spacer cell up
@@ -22,7 +22,7 @@ import type { DashboardView } from "./view.ts";
 const NARROW_TRACK_PX = 560;
 const WIDE_TRACK_PX = 940;
 
-/** Empty glass for a wait in the queue, a liquid for the rest (REQ-003-45). */
+/** Empty glass for a wait in the queue, a liquid for the rest (REQ-003-46). */
 const TINT: Record<TimingKind, "checks" | "owner" | undefined> = {
   queued: undefined,
   agent: undefined,

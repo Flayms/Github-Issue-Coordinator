@@ -9,13 +9,13 @@
  * of light. The pointer stirs it; it calms down in about 2 s. Drawn at about 30 frames a second with
  * a capped pixel ratio, and only while the tab is shown and a section with tubes is in view.
  *
- * The Timings page's capsules (REQ-003-45) hold the same liquid, tinted per kind of step by the tube's
+ * The Timings page's capsules (REQ-003-46) hold the same liquid, tinted per kind of step by the tube's
  * `data-tint`: darker for checks, amber for the Owner's time, grey for the queue tile.
  */
 (() => {
   /**
    * The sections whose tubes hold liquid: Capacity (REQ-003-12), the Usage quota (REQ-003-37) and the
-   * Timings page's tiles and timeline (REQ-003-45).
+   * Timings page's tiles and timeline (REQ-003-46).
    */
   const SECTIONS = "#capacity, #usage-quota, #timing-totals, #timeline";
   const TUBES = "#capacity .tube, #usage-quota .tube, #timing-totals .tube, #timeline .tube";

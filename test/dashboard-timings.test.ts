@@ -313,7 +313,7 @@ describe("dashboard timings", () => {
       expect(page({ includeOwner: true })).toContain("total, end to end");
     });
 
-    test("REQ-003-45 each step is a glass capsule: liquid for an agent, checks and the Owner, empty glass for a wait", () => {
+    test("REQ-003-46 each step is a glass capsule: liquid for an agent, checks and the Owner, empty glass for a wait", () => {
       const html = page({ includeOwner: true });
       const chart = html.slice(html.indexOf('id="timeline"'));
       const tubes = [...chart.matchAll(/<span class="tube ([^"]*)"( data-tint="(\w+)")?>(.*?)<\/span><\/td>/g)].map(

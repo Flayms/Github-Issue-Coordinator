@@ -542,7 +542,7 @@
     animation-delay: -4.5s;
   }
   /*
-   * REQ-003-45: the Timings page's capsules hold a liquid per kind: an agent's indigo (the default), the
+   * REQ-003-46: the Timings page's capsules hold a liquid per kind: an agent's indigo (the default), the
    * checks' darker one, the Owner's amber (amber means "your move", REQ-003-17) and, in the queue tile, a
    * grey one. `meters.js` tints the moving liquid the same way. A wait in the queue is empty glass.
    */

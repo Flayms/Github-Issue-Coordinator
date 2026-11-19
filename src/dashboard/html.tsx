@@ -85,10 +85,9 @@ function PrDetails({ p }: { p: PullView }) {
  */
 const MoveRow = ({ m, fade = false }: { m: MoveItem; fade?: boolean }) => (
   <li data-fade={fade ? "" : undefined}>
-    <a
+    <Link
       className="group accent relative flex items-center gap-4 py-2.5 pr-[18px] pl-[18px] text-fg transition-[background] duration-600 ease-calm [--accent:var(--color-ok)] hover:bg-linear-to-r hover:from-ok/7 hover:to-transparent hover:to-70% hover:text-fg sm:pr-6 sm:pl-[52px]"
       href={m.url}
-      rel="noreferrer"
     >
       <span className="flex min-w-0 flex-1 flex-col transition-transform duration-450 ease-calm group-hover:translate-x-1.5">
         <span
@@ -115,7 +114,7 @@ const MoveRow = ({ m, fade = false }: { m: MoveItem; fade?: boolean }) => (
       >
         <Icon name="arrow" />
       </span>
-    </a>
+    </Link>
   </li>
 );
 
@@ -346,7 +345,7 @@ const MAX_SLOT_MARKS = 12;
  * inline style (the CSP forbids them). `meters.js` draws the moving liquid into the canvas next to
  * it (REQ-003-26 stirs it); without that script the CSS liquid stays. With `marks`, a Slot mark is
  * etched per column, a little whiter over the liquid so it stays visible on it. The Timings page reuses it
- * with a `tint` per kind of step (REQ-003-45).
+ * with a `tint` per kind of step (REQ-003-46).
  */
 export const Tube = ({
   cols,

@@ -754,7 +754,7 @@ describe("dashboard html", () => {
       expect(js.match(/getContext\("webgl"/g)?.length).toBe(1);
     });
 
-    test("REQ-003-45 the Timings page's capsules move too, tinted per kind by a uniform; Capacity keeps its indigo", () => {
+    test("REQ-003-46 the Timings page's capsules move too, tinted per kind by a uniform; Capacity keeps its indigo", () => {
       const js = asset("meters.js");
       expect(js).toContain("#timeline");
       // The tubes on the Timings page are picked up like Capacity's and observed for being in view.
@@ -831,6 +831,31 @@ describe("dashboard html", () => {
       expect(now).toContain("data-copy=");
       expect(withTranscript({ step: tail.step })).not.toContain("Open chat");
     });
+  });
+
+  test("REQ-003-45 links to other sites open in a new tab without a referrer; the dashboard's own links stay in the tab", () => {
+    const tail: TranscriptTail = { chatUrl: "https://claude.ai/code/session_01Run" };
+    const withChat = { ...snap, sessions: snap.sessions.map((x) => ({ ...x, transcriptPath: "/t/1.jsonl" })) };
+    const pages = {
+      overview: renderDashboard(dashboardView(withChat, config, NOW, { transcript: () => tail })),
+      config: configPage(),
+      timings: timingsPage(),
+    };
+    for (const [page, html] of Object.entries(pages)) {
+      const links = [...html.matchAll(/<a\b[^>]*>/g)].map((m) => m[0]);
+      const external = links.filter((a) => /href="https?:/.test(a));
+      const internal = links.filter((a) => /href="\//.test(a));
+      // Every page has some of each, so the check isn't empty (the Config page has only the tabs and logo).
+      if (page !== "config") expect(external.length, page).toBeGreaterThan(0);
+      expect(internal.length, page).toBeGreaterThan(0);
+      for (const a of external) {
+        expect(a, page).toContain('target="_blank"');
+        expect(a, page).toContain('rel="noopener noreferrer"');
+      }
+      for (const a of internal) expect(a, page).not.toContain("target=");
+    }
+    // The Your move rows, the Pipeline's issues and PRs, Events and the Open chat link are among them.
+    expect(pages.overview).toMatch(/<a [^>]*href="https:\/\/claude.ai\/code\/session_01Run"/);
   });
 
   test("REQ-003-16 Recent comes before Now in Activity: each Event with icon, tone, time and links", () => {
