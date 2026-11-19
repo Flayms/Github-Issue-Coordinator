@@ -63,6 +63,8 @@ export interface DashboardDeps {
   /** For the sign-in's two GitHub requests; the global fetch by default. */
   fetch?: Fetch;
   snapshot: () => TickSnapshot | undefined;
+  /** The models the sessions reported (REQ-001-29), for the Config page's model choices (REQ-003-40). */
+  reportedModels?: () => string[];
   /** The recorded Timings for the Timings page, read only (REQ-003-34); the store in the Coordinator. */
   timings?: TimingSource;
   log: (message: string) => void;
@@ -184,6 +186,7 @@ function settingsForm(
     fields: failed?.fields ?? settingFields(d.settings.base, d.settings.current),
     errors: failed?.errors ?? [],
     saved,
+    reportedModels: d.reportedModels?.() ?? [],
   };
 }
 

@@ -141,7 +141,7 @@ On by default ([setup](setup.md#4-dashboard), [spec 003](specs/003-dashboard/spe
 
 ### Config and Timings
 
-- The **Config page** shows the settings without secrets. Once you are signed in, it lets you change limits, poll interval, the auto-merge mode and each Role's model and effort (also per repository). They apply from the next tick on, without a restart, and are kept over `config.ts` in the state dir.
+- The **Config page** shows the settings without secrets. Once you are signed in, it lets you change limits, poll interval, the auto-merge mode and each Role's model and effort (also per repository); a model is picked from a list of aliases ("Opus (latest)") and pinned versions ("Opus 5.5"). They apply from the next tick on, without a restart, and are kept over `config.ts` in the state dir.
 - The **Timings page** shows one issue's Planning, Building and Review as bars of waiting, agent and checks time.
 
 ### Behaviour and access

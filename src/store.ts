@@ -503,6 +503,16 @@ export class Store {
     this.db.query("UPDATE sessions SET model_id = ? WHERE id = ?").run(modelId, id);
   }
 
+  /** Every model a session reported (REQ-001-29), open or closed, each once: what the aliases mean (REQ-003-40). */
+  reportedModelIds(): string[] {
+    return this.db
+      .query<{ model_id: string }, []>(
+        "SELECT DISTINCT model_id FROM sessions WHERE model_id IS NOT NULL ORDER BY model_id",
+      )
+      .all()
+      .map((r) => r.model_id);
+  }
+
   setAccount(id: number, account: string): void {
     this.db.query("UPDATE sessions SET account = ? WHERE id = ?").run(account, id);
   }

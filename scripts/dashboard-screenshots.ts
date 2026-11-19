@@ -65,6 +65,7 @@ export function mockPages(): string[] {
     fields: settingFields(MOCK_CONFIG_BASE, MOCK_CONFIG),
     errors: [],
     saved: false,
+    reportedModels: MOCK_SNAPSHOT.sessions.flatMap((s) => (s.modelId ? [s.modelId] : [])),
   };
   return [renderDashboard(view), renderConfig(view, form), renderTimings(view, timings)];
 }

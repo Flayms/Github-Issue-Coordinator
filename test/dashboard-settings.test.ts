@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ConfigInput } from "../src/config.ts";
@@ -35,14 +35,22 @@ afterEach(() => {
   dirs = [];
 });
 
-const start = (opts: { githubLogin?: false; token?: string } = {}) => {
+const start = (
+  opts: {
+    githubLogin?: false;
+    token?: string;
+    roles?: ConfigInput["roles"];
+    reportedModels?: string[];
+    overrides?: object;
+  } = {},
+) => {
   const dir = mkdtempSync(join(tmpdir(), "settings-"));
   dirs.push(dir);
   const raw: ConfigInput = {
     owner: { login: "octo", id: OWNER_ID },
     stateDir: dir,
     limits: { maxRunning: 2, maxLiveSessions: 3 },
-    roles: {
+    roles: opts.roles ?? {
       planner: { model: "opus", effort: "high" },
       implementer: { model: "sonnet" },
       reviewer: { model: "opus" },
@@ -50,6 +58,7 @@ const start = (opts: { githubLogin?: false; token?: string } = {}) => {
     repos: [{ name: "octo/app", setup: "bun install" }],
     dashboard: { port: 0, githubLogin: opts.githubLogin ?? LOGIN, ...(opts.token ? { tokenPath: "/t" } : {}) },
   };
+  if (opts.overrides) writeFileSync(join(dir, OVERRIDES_FILE), JSON.stringify(opts.overrides));
   const settings = new LiveConfig(raw, "config.ts");
   const server = startDashboard({
     config: settings.base,
@@ -57,12 +66,20 @@ const start = (opts: { githubLogin?: false; token?: string } = {}) => {
     token: opts.token,
     login: opts.githubLogin === false ? undefined : SECRETS,
     snapshot: () => snap,
+    ...(opts.reportedModels && { reportedModels: () => opts.reportedModels ?? [] }),
     log: () => {},
     now: () => NOW,
   });
   if (server) servers.push(server);
   return { settings, path: join(dir, OVERRIDES_FILE), url: `http://127.0.0.1:${server?.port}` };
 };
+
+/** The inside of the select named `name`. */
+const selectOf = (html: string, name: string) =>
+  new RegExp(`<select [^>]*name="${name.replace(/[./[\]]/g, "\\$&")}"[^>]*>(.*?)</select>`).exec(html)?.[1] ?? "";
+/** `[value, label]` of each option. */
+const optionsOf = (html: string) =>
+  [...html.matchAll(/<option value="([^"]*)"[^>]*>([^<]*)</g)].map((m) => [m[1], m[2]]);
 
 const owner = { cookie: `coordinator_session=${SESSION}`, "sec-fetch-site": "same-origin" };
 
@@ -118,6 +135,81 @@ describe("dashboard settings", () => {
     expect(html).not.toContain('action="/config"');
     expect(html).not.toContain('name="limits.maxRunning"');
     expect(html).toContain("data-reload");
+  });
+
+  test("REQ-003-40 a Role's model is a select of the Model catalogue, globally and in a repository", async () => {
+    const { url } = start({ reportedModels: ["claude-opus-5-5", "claude-opus-4-6"] });
+    const html = await (await fetch(`${url}/config`, { headers: { cookie: owner.cookie } })).text();
+    expect(html).not.toMatch(/<input [^>]*name="[^"]*\.model"/);
+    const catalogue = [
+      ["fable", "Fable (latest)"],
+      ["opus", "Opus (latest) · now Opus 5.5"],
+      ["sonnet", "Sonnet (latest)"],
+      ["haiku", "Haiku (latest)"],
+      ["claude-fable-5-2", "Fable 5.2"],
+      ["claude-opus-5-5", "Opus 5.5"],
+      ["claude-sonnet-5-5", "Sonnet 5.5"],
+      ["claude-haiku-5-5", "Haiku 5.5"],
+    ];
+    const global = selectOf(html, "roles.planner.model");
+    expect(optionsOf(global)).toEqual(catalogue);
+    expect(global).toMatch(/<option value="opus" selected/);
+    expect(optionsOf(selectOf(html, "repos.octo/app.roles.implementer.model"))).toEqual([
+      ["", "global (Sonnet (latest))"],
+      ...catalogue,
+    ]);
+  });
+
+  test("REQ-003-40 a config.ts model outside the catalogue stays an option and saving keeps it", async () => {
+    const { url, settings, path } = start({
+      roles: { planner: { model: "opus[1m]" }, implementer: { model: "sonnet" }, reviewer: { model: "opus" } },
+    });
+    const html = await (await fetch(`${url}/config`, { headers: { cookie: owner.cookie } })).text();
+    const planner = selectOf(html, "roles.planner.model");
+    expect(optionsOf(planner)[0]).toEqual(["opus[1m]", "Opus (latest), 1M context"]);
+    expect(planner).toMatch(/<option value="opus\[1m\]" selected/);
+
+    const res = await post(url, { formToken: FORM_TOKEN, "roles.planner.model": "opus[1m]", pollIntervalSec: "30" });
+    expect(res.status).toBe(303);
+    expect(settings.current.roles.planner.model).toBe("opus[1m]");
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ pollIntervalSec: 30 });
+  });
+
+  test("REQ-003-40 a model that is neither in the catalogue nor config.ts's is refused and nothing is saved", async () => {
+    const { url, settings, path } = start();
+    for (const [field, value] of [
+      ["roles.planner.model", "gpt-4"],
+      ["repos.octo/app.roles.reviewer.model", "opus[1m]"],
+    ] as const) {
+      const res = await post(url, { formToken: FORM_TOKEN, [field]: value, pollIntervalSec: "30" });
+      expect(res.status).toBe(400);
+      expect(await res.text()).toContain(`${field}: must be a model from the list`);
+    }
+    expect(settings.current.roles.planner.model).toBe("opus");
+    expect(settings.current.pollIntervalSec).toBe(60);
+    expect(existsSync(path)).toBe(false);
+
+    const ok = await post(url, { formToken: FORM_TOKEN, "roles.planner.model": "claude-opus-5-5" });
+    expect(ok.status).toBe(303);
+    expect(settings.current.roles.planner.model).toBe("claude-opus-5-5");
+  });
+
+  test("REQ-003-40 a saved model outside the catalogue still loads, stays selected and other fields still save", async () => {
+    const { url, settings } = start({ overrides: { roles: { reviewer: { model: "claude-opus-4-6" } } } });
+    expect(settings.current.roles.reviewer.model).toBe("claude-opus-4-6");
+    const html = await (await fetch(`${url}/config`, { headers: { cookie: owner.cookie } })).text();
+    const reviewer = selectOf(html, "roles.reviewer.model");
+    expect(reviewer).toMatch(/<option value="claude-opus-4-6" selected[^>]*>Opus 4.6</);
+    expect(html).toContain("config.ts: Opus (latest)");
+
+    const res = await post(url, {
+      formToken: FORM_TOKEN,
+      "roles.reviewer.model": "claude-opus-4-6",
+      pollIntervalSec: "30",
+    });
+    expect(res.status).toBe(303);
+    expect(settings.current.pollIntervalSec).toBe(30);
+    expect(settings.current.roles.reviewer.model).toBe("claude-opus-4-6");
   });
 
   test("REQ-003-36 saving writes the values that differ from config.ts and applies them at once", async () => {

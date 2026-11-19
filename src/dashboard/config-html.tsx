@@ -5,6 +5,7 @@
  */
 import type { ReactNode } from "react";
 import { AUTO_MERGE_MODES, type AutoMergeMode, EFFORTS, isLoopback, ROLES } from "../config.ts";
+import { inCatalogue, MODEL_CATALOGUE, modelLabel, modelOptionLabel } from "../models.ts";
 import { ROLE_NAMES } from "../note.ts";
 import type { SettingField, SettingsForm } from "./settings-form.ts";
 import { Count, Empty, Footer, Icon, Label, Layout, plural, renderPage } from "./ui.tsx";
@@ -85,7 +86,9 @@ const RoleRow = ({ r, where }: { r: RoleView; where?: string }) => (
       {r.role}
       {where && <span className="text-muted"> in {where}</span>}
     </th>
-    <td className={`${cell} font-mono text-[0.86em]`}>{r.model}</td>
+    <td className={cell} title={r.model}>
+      {r.modelName}
+    </td>
     <td className={cell}>{r.effort ?? "default"}</td>
   </tr>
 );
@@ -195,11 +198,11 @@ const button =
   "inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-[13px] hover:border-acc hover:text-fg";
 
 /** REQ-003-36: a changed field names config.ts's value and can go back to it. */
-function Changed({ f, empty }: { f: SettingField; empty: string }) {
+function Changed({ f, empty, show = (v) => v }: { f: SettingField; empty: string; show?: (v: string) => string }) {
   if (!f.changed) return null;
   return (
     <span className="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-acc-hi">
-      <span>{`config.ts: ${f.base || empty}`}</span>
+      <span>{`config.ts: ${f.base ? show(f.base) : empty}`}</span>
       <button
         type="submit"
         name="reset"
@@ -238,22 +241,41 @@ function NumberField({ f }: { f: SettingField }) {
   );
 }
 
-function ModelField({ f, label, inherit }: { f: SettingField; label: string; inherit?: string }) {
+/** REQ-003-40: the Model catalogue, plus the field's own value and config.ts's when they aren't in it. */
+function ModelField({
+  f,
+  label,
+  inherit,
+  reported,
+}: {
+  f: SettingField;
+  label: string;
+  inherit?: string;
+  reported: string[];
+}) {
+  const own = [...new Set([f.value, f.base])].filter((v) => v && !inCatalogue(v));
+  const option = (value: string) => (
+    <option key={value} value={value}>
+      {modelOptionLabel(value, reported)}
+    </option>
+  );
   return (
     <>
-      <input
+      <select
         id={fieldId(f.name)}
-        type="text"
         aria-label={label}
         name={f.name}
         defaultValue={f.value}
-        placeholder={inherit}
+        title={f.value || undefined}
         required={inherit === undefined}
-        autoComplete="off"
-        spellCheck={false}
-        className={`${input} font-mono text-[0.86em] placeholder:text-faint placeholder:italic`}
-      />
-      <Changed f={f} empty={inherit ? "the global model" : "–"} />
+        className={`${input} w-auto max-w-full`}
+      >
+        {inherit !== undefined && <option value="">{`global (${modelLabel(inherit)})`}</option>}
+        {own.map(option)}
+        <optgroup label="Latest">{MODEL_CATALOGUE.filter((m) => m.alias).map((m) => option(m.value))}</optgroup>
+        <optgroup label="Pinned">{MODEL_CATALOGUE.filter((m) => !m.alias).map((m) => option(m.value))}</optgroup>
+      </select>
+      <Changed f={f} empty={inherit ? "the global model" : "–"} show={modelLabel} />
     </>
   );
 }
@@ -356,7 +378,12 @@ function RoleRows({ form, prefix, where }: { form: SettingsForm; prefix: string;
           {ROLE_NAMES[role]}
         </th>
         <td className={cell}>
-          <ModelField f={model} label={`${name}: model`} inherit={where ? global : undefined} />
+          <ModelField
+            f={model}
+            label={`${name}: model`}
+            inherit={where ? global : undefined}
+            reported={form.reportedModels}
+          />
         </td>
         <td className={cell}>
           <EffortField f={effort} label={`${name}: effort`} inherit={globalEffort} />

@@ -8,6 +8,18 @@ import { EVENTS_KEPT, Store } from "../src/store.ts";
 const at = (iso: string) => () => new Date(iso);
 
 describe("store", () => {
+  test("REQ-003-40 lists the models the sessions reported, open or closed, each once", () => {
+    const s = new Store(":memory:");
+    const a = s.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [5] });
+    const b = s.createSession({ repo: "octo/web", role: "reviewer", kind: "batch", issues: [6] });
+    s.createSession({ repo: "octo/app", role: "implementer", kind: "issue", issues: [7] });
+    s.setModelId(a, "claude-opus-5-5");
+    s.setModelId(b, "claude-opus-5-5");
+    s.setState(b, "closed");
+    expect(s.reportedModelIds()).toEqual(["claude-opus-5-5"]);
+    s.close();
+  });
+
   test("REQ-001-16 keeps sessions across a restart", () => {
     const dir = mkdtempSync(join(tmpdir(), "store-"));
     try {
