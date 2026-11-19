@@ -57,4 +57,10 @@ describe("agent note per Harness (spec 006)", () => {
       "> [!Note]\n> 🤖 gpt-7-nova (Reviewer) writing on behalf of octo",
     );
   });
+
+  test("REQ-006-07 / REQ-001-29 a Copilot session's note names its model and that it ran through Copilot", () => {
+    expect(agentNote({ owner: "octo", role: "planner", alias: "copilot:claude-opus-5.5" })).toBe(
+      "> [!Note]\n> 🤖 Claude Opus 5.5 (Copilot) (Planner) writing on behalf of octo",
+    );
+  });
 });

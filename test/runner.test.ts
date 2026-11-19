@@ -717,3 +717,88 @@ describe("Harnesses (spec 006)", () => {
     expect(tmux.keys).toEqual([[`s${id}`, ["Enter"]]]);
   });
 });
+
+describe("Copilot CLI (spec 006, #176)", () => {
+  let home: string;
+  let runner: SessionRunner;
+  const copilotHome = () => join(home, ".copilot-work");
+  beforeEach(() => {
+    home = join(dir, "home");
+    runner = new SessionRunner({
+      store,
+      tmux,
+      stateDir: dir,
+      dbPath: join(dir, "state.db"),
+      hookCommand: ["bun", "/app/src/hook.ts"],
+      accounts: [
+        { name: "main" },
+        { name: "work", harness: "copilot", configDir: join(dir, "home", ".copilot-work") },
+        { name: "personal", harness: "copilot" },
+      ],
+      home,
+    });
+  });
+  const start = (model: string, effort?: "high") =>
+    runner.start({
+      repo: "octo/app",
+      role: "implementer",
+      kind: "issue",
+      issues: [5],
+      cwd: "/work/app",
+      prompt: "p",
+      model: { model, effort },
+    });
+  const commandOf = (id: number) => tmux.windows.get(`s${id}`)?.command ?? "";
+  const pluginDir = (id: number) => join(dir, "sessions", String(id), "copilot-plugin");
+
+  test("REQ-006-07 a `copilot:` model starts `copilot` interactively on the first Copilot Account, all tools allowed", () => {
+    const id = start("copilot:claude-sonnet-5.5", "high");
+    const cmd = commandOf(id);
+    expect(cmd).toStartWith(
+      `TMPDIR=${shellQuote([tmpOf(id)])} COPILOT_ALLOW_ALL=true COPILOT_HOME=${shellQuote([copilotHome()])} 'copilot' `,
+    );
+    expect(cmd).toContain(`'--plugin-dir' ${shellQuote([pluginDir(id)])} '--allow-all'`);
+    // The Harness's own model name, without the catalogue's `copilot:` prefix.
+    expect(cmd).toContain("'--model' 'claude-sonnet-5.5' '--reasoning-effort' 'high'");
+    // `-i` starts an interactive session with the prompt, which the runner appends last.
+    expect(cmd).toMatch(/'-i' "\$\(cat '[^']+prompt\.md'\)"$/);
+    expect(store.session(id)).toMatchObject({ harness: "copilot", account: "work" });
+  });
+
+  test("REQ-006-07 the hooks are a plugin in the session folder, never in the Worktree or the Account's folder", () => {
+    const id = start("copilot:gpt-6.1-sol");
+    const manifest = JSON.parse(readFileSync(join(pluginDir(id), ".plugin", "plugin.json"), "utf8"));
+    expect(manifest.name).toBeTruthy();
+    const hooks = JSON.parse(readFileSync(join(pluginDir(id), "hooks", "hooks.json"), "utf8")).hooks;
+    const hook = (ev: string) => expect.stringMatching(new RegExp(`^'bun' '/app/src/hook\\.ts' '${ev}' `));
+    for (const ev of ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"])
+      expect(hooks[ev][0].hooks[0]).toEqual({ type: "command", command: hook(ev) });
+    // REQ-006-09: Copilot's own event for a failed model call, in Copilot's own format.
+    expect(hooks.errorOccurred[0]).toEqual({ type: "command", bash: hook("errorOccurred") });
+    expect(existsSync(join(copilotHome(), "hooks"))).toBe(false);
+  });
+
+  test("REQ-006-08 Feedback resumes the same Copilot session by its id, never the latest one", () => {
+    const id = start("copilot:gpt-6.1-sol");
+    store.setAgentSessionId(id, "29ca2f8f-d225-47ac-829b-bc8e93ce5e41");
+    store.patchSession(id, { state: "idle" });
+    runner.resume(id, "feedback", { model: "copilot:gpt-6.1-sol" });
+    const cmd = commandOf(id);
+    expect(cmd).toContain("'copilot' '--resume' '29ca2f8f-d225-47ac-829b-bc8e93ce5e41' ");
+    expect(cmd).not.toContain("--continue");
+  });
+
+  test("REQ-006-08 / REQ-001-17 a resume on another Account takes the session's folder along", () => {
+    const id = start("copilot:gpt-6.1-sol");
+    const sid = "29ca2f8f-d225-47ac-829b-bc8e93ce5e41";
+    store.setAgentSessionId(id, sid);
+    mkdirSync(join(copilotHome(), "session-state", sid), { recursive: true });
+    writeFileSync(join(copilotHome(), "session-state", sid, "events.jsonl"), "turns\n");
+    store.setPausedUntil("work", new Date(Date.now() + 60_000).toISOString());
+    store.patchSession(id, { state: "idle" });
+    runner.resume(id, "go on", { model: "copilot:gpt-6.1-sol" });
+    expect(store.session(id)?.account).toBe("personal");
+    expect(commandOf(id)).not.toContain("COPILOT_HOME");
+    expect(readFileSync(join(home, ".copilot", "session-state", sid, "events.jsonl"), "utf8")).toBe("turns\n");
+  });
+});

@@ -136,6 +136,15 @@ To run a Role on an OpenAI model, add a Codex CLI login as an Account with `harn
 - [ ] `accounts: [{ name: "main" }, { name: "gpt", harness: "codex", configDir: "/root/.codex" }]`
 - [ ] `bun run doctor` checks `codex` and its login.
 
+### Copilot CLI (optional)
+
+To run a Role on one of the models a GitHub Copilot plan offers (Claude, GPT, Gemini, Grok), add a Copilot CLI login as an Account with `harness: "copilot"` and pick a `copilot:` model for the Role ([Harnesses](harnesses.md#setting-up-copilot-cli)):
+
+- [ ] `npm i -g @github/copilot` (1.0.114 or newer)
+- [ ] `COPILOT_HOME=/root/.copilot copilot login`; without a keyring, let it store the token in `config.json`
+- [ ] `accounts: [{ name: "main" }, { name: "copilot", harness: "copilot", configDir: "/root/.copilot" }]`
+- [ ] `bun run doctor` checks `copilot` and its login.
+
 ## 4. Dashboard
 
 **On by default** at `127.0.0.1:8080` ([spec 003](specs/003-dashboard/spec.md)); `dashboard: false` turns it off. Until the sign-in is set up, its pages answer 503.
