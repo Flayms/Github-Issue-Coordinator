@@ -215,6 +215,8 @@ export interface SettingsView {
     /** From the last tick; null before it. */
     counts: { issues: number; pulls: number; worktrees: number } | null;
   }[];
+  /** REQ-003-44: the Extra instructions that are set, global ones (`repo` null) first. */
+  instructions: { role: string; repo: string | null; text: string }[];
 }
 
 /** One Event in Recent (REQ-003-16). */
@@ -634,6 +636,15 @@ const roleView = (role: Role, s: { model: string; effort?: string }): RoleView =
   effort: s.effort ?? null,
 });
 
+function instructionsView(config: Config): SettingsView["instructions"] {
+  const set = (repo: string | null, texts: Config["instructions"]) =>
+    ROLES.flatMap((role) => {
+      const text = texts?.[role]?.trim();
+      return text ? [{ role: ROLE_NAMES[role], repo, text }] : [];
+    });
+  return [set(null, config.instructions), ...config.repos.map((r) => set(r.name, r.instructions))].flat();
+}
+
 function settingsView(config: Config, snapshot: RepoSnapshot[]): SettingsView {
   const dash = config.dashboard;
   return {
@@ -662,5 +673,6 @@ function settingsView(config: Config, snapshot: RepoSnapshot[]): SettingsView {
         counts: seen ? { issues: seen.issues.length, pulls: seen.pulls.length, worktrees: seen.worktrees } : null,
       };
     }),
+    instructions: instructionsView(config),
   };
 }

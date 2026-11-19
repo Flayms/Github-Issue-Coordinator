@@ -210,7 +210,7 @@ Copy [`config.example.ts`](config.example.ts) to `config.ts`; every option is ex
 
 - **Owner, Roles, repositories:** your login and id, a model (and effort) per Role, and each managed repository with its `setup` command.
 - **Limits:** Slots per Role, live sessions, Worktrees and `maxFeedbackRounds`. Also editable on the dashboard's Config page.
-- **Role prompts:** defaults in [`prompts/`](prompts/); a repository can replace one with `.github/coordinator/<role>.md` ([details](docs/how-it-works.md#role-prompts)).
+- **Role prompts:** defaults in [`prompts/`](prompts/); add Extra instructions per Role (globally or per repository) on the Config page, or replace a prompt with `.github/coordinator/<role>.md` ([details](docs/how-it-works.md#customising-prompts)).
 
 ### Auto-merge
 

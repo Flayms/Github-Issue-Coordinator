@@ -20,9 +20,15 @@ const MOCK_CONFIG_INPUT = {
     implementer: { model: "opus" },
     reviewer: { model: "sonnet", effort: "high" },
   },
+  instructions: { planner: "Keep Assessments short: the Owner reads them on a phone." },
   repos: [
     { name: "acme/storefront", setup: "bun install" },
-    { name: "acme/payments-api", setup: "go mod download", roles: { reviewer: { model: "opus" } } },
+    {
+      name: "acme/payments-api",
+      setup: "go mod download",
+      roles: { reviewer: { model: "opus" } },
+      instructions: { reviewer: "Rate any change under internal/ledger/ as high risk." },
+    },
     { name: "acme/design-system" },
   ],
   dashboard: {

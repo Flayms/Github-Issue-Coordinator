@@ -1,10 +1,18 @@
 /**
  * The Config page (REQ-003-05): the effective settings as React components rendered on the server
  * (REQ-003-19). It renders only the allow-listed `SettingsView` and the editable fields, so no secret
- * reaches it. For the signed-in Owner the editable settings are a form (REQ-003-36).
+ * reaches it. For the signed-in Owner the editable settings are a form (REQ-003-36), with the Extra instructions
+ * (REQ-003-44).
  */
 import type { ReactNode } from "react";
-import { AUTO_MERGE_MODES, type AutoMergeMode, EFFORTS, isLoopback, ROLES } from "../config.ts";
+import {
+  AUTO_MERGE_MODES,
+  type AutoMergeMode,
+  EFFORTS,
+  EXTRA_INSTRUCTIONS_LIMIT,
+  isLoopback,
+  ROLES,
+} from "../config.ts";
 import { inCatalogue, MODEL_CATALOGUE, modelLabel, modelOptionLabel } from "../models.ts";
 import { ROLE_NAMES } from "../note.ts";
 import type { SettingField, SettingsForm } from "./settings-form.ts";
@@ -121,6 +129,32 @@ function Models({ s }: { s: SettingsView }) {
           )}
         </tbody>
       </table>
+    </section>
+  );
+}
+
+const INSTRUCTIONS_HINT = `Added after the Role prompt of sessions started from now on, under "Additional instructions from the Owner"; running sessions keep their prompt. At most ${EXTRA_INSTRUCTIONS_LIMIT.toLocaleString("en")} characters each. They can't change the Result or the Coordinator's own gates (approval, labels, merges).`;
+
+/** REQ-003-44: the Extra instructions that are set, read-only. */
+function Instructions({ s }: { s: SettingsView }) {
+  return (
+    <section id="instructions" className="mt-10">
+      <Label>Extra instructions</Label>
+      {s.instructions.length ? (
+        <dl className="grid gap-3">
+          {s.instructions.map((i) => (
+            <div key={`${i.repo} ${i.role}`} className="border-line border-t pt-3">
+              <dt className="font-semibold text-[14px]">
+                {i.role}
+                {i.repo && <span className="font-medium text-muted"> in {i.repo}</span>}
+              </dt>
+              <dd className="mt-1.5 whitespace-pre-wrap font-mono text-[12px] text-muted wrap-anywhere">{i.text}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <Empty>None: each Role uses its prompt alone.</Empty>
+      )}
     </section>
   );
 }
@@ -434,6 +468,60 @@ function EditModels({ form, s }: { form: SettingsForm; s: SettingsView }) {
   );
 }
 
+/** REQ-003-44: a Role's Extra instructions, globally (`prefix` `instructions`) or in a repository. */
+function InstructionFields({ form, prefix, where }: { form: SettingsForm; prefix: string; where?: string }) {
+  return (
+    <div className="grid gap-x-6 gap-y-4 lg:grid-cols-3">
+      {ROLES.map((role) => {
+        const f = form.fields.find((x) => x.name === `${prefix}.${role}`);
+        if (!f) return null;
+        return (
+          <div key={role} className="min-w-0">
+            <label htmlFor={fieldId(f.name)} className="block font-semibold text-[14px]">
+              {ROLE_NAMES[role]}
+              {where && <span className="font-medium text-muted"> in {where}</span>}
+            </label>
+            <textarea
+              id={fieldId(f.name)}
+              name={f.name}
+              rows={4}
+              defaultValue={f.value}
+              placeholder={where ? "None, the global ones only" : "None"}
+              className={`${input} mt-1.5 resize-y font-mono text-[12px]`}
+            />
+            <Changed f={f} empty="none" show={() => "set"} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function EditInstructions({ form, s }: { form: SettingsForm; s: SettingsView }) {
+  return (
+    <section id="instructions" className="mt-10">
+      <Label>Extra instructions</Label>
+      <p className="mb-4 max-w-[80ch] text-[13px] text-muted">{INSTRUCTIONS_HINT}</p>
+      <InstructionFields form={form} prefix="instructions" />
+      {s.repos.map((r) => {
+        const prefix = `repos.${r.name}.instructions`;
+        const set = form.fields.some((f) => f.name.startsWith(`${prefix}.`) && (f.value || f.changed));
+        return (
+          <details key={r.name} open={set} className="mt-4 border-line border-t pt-3">
+            <summary className="cursor-pointer text-[14px] text-muted">
+              In <span className="font-mono text-[0.86em] text-fg">{r.name}</span>
+              {set ? "" : " (none)"}
+            </summary>
+            <div className="mt-3">
+              <InstructionFields form={form} prefix={prefix} where={r.name} />
+            </div>
+          </details>
+        );
+      })}
+    </section>
+  );
+}
+
 function Notice({ form }: { form: SettingsForm }) {
   if (form.errors.length)
     return (
@@ -483,6 +571,7 @@ function EditForm({ form, s }: { form: SettingsForm; s: SettingsView }) {
         <EditModels form={form} s={s} />
         <Repos s={s} form={form} />
       </div>
+      <EditInstructions form={form} s={s} />
       <div className="mt-8">
         <SaveButton />
       </div>
@@ -518,6 +607,7 @@ export function ConfigPage({ v, form }: { v: DashboardView; form?: SettingsForm 
               <Models s={s} />
               <Repos s={s} />
             </div>
+            <Instructions s={s} />
           </>
         )}
       </main>

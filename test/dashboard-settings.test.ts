@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ConfigInput } from "../src/config.ts";
+import { type ConfigInput, extraInstructions } from "../src/config.ts";
 import type { TickSnapshot } from "../src/coordinator.ts";
 import { formToken, newSession } from "../src/dashboard/auth.ts";
 import { type DashboardServer, startDashboard } from "../src/dashboard/server.ts";
@@ -42,6 +42,7 @@ const start = (
     roles?: ConfigInput["roles"];
     reportedModels?: string[];
     overrides?: object;
+    instructions?: ConfigInput["instructions"];
   } = {},
 ) => {
   const dir = mkdtempSync(join(tmpdir(), "settings-"));
@@ -56,6 +57,7 @@ const start = (
       reviewer: { model: "opus" },
     },
     repos: [{ name: "octo/app", setup: "bun install" }],
+    ...(opts.instructions && { instructions: opts.instructions }),
     dashboard: { port: 0, githubLogin: opts.githubLogin ?? LOGIN, ...(opts.token ? { tokenPath: "/t" } : {}) },
   };
   if (opts.overrides) writeFileSync(join(dir, OVERRIDES_FILE), JSON.stringify(opts.overrides));
@@ -320,6 +322,81 @@ describe("dashboard settings", () => {
     expect(res.status).toBe(303);
     expect(settings.overrides).toEqual({ pollIntervalSec: 30 });
     expect(settings.current.limits.maxRunning).toBe(2);
+  });
+
+  /** The text of the textarea named `name`, or undefined without one. */
+  const textareaOf = (html: string, name: string) =>
+    new RegExp(`<textarea [^>]*name="${name.replace(/[./]/g, "\\$&")}"[^>]*>([^<]*)</textarea>`, "s").exec(html)?.[1];
+
+  test("REQ-003-44 each Role's Extra instructions are a textarea, globally and in each repository", async () => {
+    const { url } = start({ instructions: { reviewer: "Be <brief>." } });
+    const html = await (await fetch(`${url}/config`, { headers: { cookie: owner.cookie } })).text();
+    for (const role of ["planner", "implementer", "reviewer"]) {
+      expect(textareaOf(html, `instructions.${role}`)).toBeDefined();
+      expect(textareaOf(html, `repos.octo/app.instructions.${role}`)).toBe("");
+    }
+    expect(textareaOf(html, "instructions.reviewer")).toBe("Be &lt;brief&gt;.");
+    expect(html).toContain("Added after the Role prompt");
+    expect(html).toContain("At most 4,000 characters each");
+  });
+
+  test("REQ-003-44 saving Extra instructions stores them and applies them to sessions started from then on; Reset removes them", async () => {
+    const { url, settings, path } = start({ instructions: { implementer: "Use pnpm." } });
+    const res = await post(url, {
+      formToken: FORM_TOKEN,
+      "instructions.planner": "Always answer in German.\r\nUse {{x}} literally.",
+      "repos.octo/app.instructions.planner": "Mention the ticket.",
+      "instructions.implementer": "",
+    });
+    expect(res.status).toBe(303);
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
+      instructions: { planner: "Always answer in German.\nUse {{x}} literally.", implementer: "" },
+      repos: { "octo/app": { instructions: { planner: "Mention the ticket." } } },
+    });
+    expect(extraInstructions(settings.current, "octo/app", "planner")).toEqual([
+      "Always answer in German.\nUse {{x}} literally.",
+      "Mention the ticket.",
+    ]);
+    expect(extraInstructions(settings.current, "octo/app", "implementer")).toEqual([]);
+
+    const page = await (await fetch(`${url}/config`, { headers: { cookie: owner.cookie } })).text();
+    expect(textareaOf(page, "instructions.planner")).toBe("Always answer in German.\nUse {{x}} literally.");
+    expect(resets(page)).toEqual([
+      "instructions.planner",
+      "instructions.implementer",
+      "repos.octo/app.instructions.planner",
+    ]);
+
+    await post(url, { formToken: FORM_TOKEN, reset: "instructions.implementer" });
+    expect(extraInstructions(settings.current, "octo/app", "implementer")).toEqual(["Use pnpm."]);
+    expect(settings.overrides.instructions).toEqual({ planner: "Always answer in German.\nUse {{x}} literally." });
+  });
+
+  test("REQ-003-44 Extra instructions over the size limit are refused, kept in the form, and nothing is saved", async () => {
+    const { url, settings, path } = start();
+    const long = "x".repeat(4_001);
+    const res = await post(url, {
+      formToken: FORM_TOKEN,
+      pollIntervalSec: "30",
+      "repos.octo/app.instructions.reviewer": long,
+    });
+    expect(res.status).toBe(400);
+    const html = await res.text();
+    expect(html).toContain("repos.octo/app.instructions.reviewer: must be at most 4,000 characters");
+    expect(textareaOf(html, "repos.octo/app.instructions.reviewer")).toBe(long);
+    expect(settings.current.pollIntervalSec).toBe(60);
+    expect(existsSync(path)).toBe(false);
+  });
+
+  test("REQ-003-44 a token sees the Extra instructions but gets no field to change them", async () => {
+    const { url } = start({
+      token: TOKEN,
+      overrides: { instructions: { planner: "Always answer in German." } },
+    });
+    const html = await (await fetch(`${url}/config`, { headers: { authorization: `Bearer ${TOKEN}` } })).text();
+    expect(html).toContain("Extra instructions");
+    expect(html).toContain("Always answer in German.");
+    expect(html).not.toContain("<textarea");
   });
 
   test("REQ-003-07 a POST without the form token, with a wrong one, or from another site is refused", async () => {
