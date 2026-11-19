@@ -3,7 +3,7 @@
  * fully without JavaScript; `assets/dashboard.js` only adds the countdown, the copy buttons and the
  * background.
  */
-import { Fragment, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { WorkKind } from "../scheduler.ts";
 import type { EventKind } from "../store.ts";
 import {
@@ -32,6 +32,7 @@ import type {
   MoveKind,
   PullView,
   QuotaView,
+  QuotaWindowView,
   SessionView,
   Tone,
 } from "./view.ts";
@@ -339,22 +340,46 @@ const SPAN = [
 const MAX_SLOT_MARKS = 12;
 
 /**
- * REQ-003-12, REQ-003-24: used out of the limit, as a glossy liquid in a glass tube. The tube is a
- * grid of one column per Slot (of tenths above 12 Slots) and the liquid spans the used ones, so its
- * width needs no inline style (the CSP forbids them). `meters.js` draws the moving liquid into the
- * canvas next to it (REQ-003-26 stirs it); without that script the CSS liquid stays. Slot marks over
- * the liquid are a little whiter, so they stay visible on it.
+ * REQ-003-24: the glass tube holding a glossy liquid, shared by Capacity and the Usage quota. The
+ * tube is a grid of `cols` columns and the liquid spans the `filled` ones, so its width needs no
+ * inline style (the CSP forbids them). `meters.js` draws the moving liquid into the canvas next to
+ * it (REQ-003-26 stirs it); without that script the CSS liquid stays. With `marks`, a Slot mark is
+ * etched per column, a little whiter over the liquid so it stays visible on it.
+ */
+const Tube = ({ cols, filled, marks }: { cols: number; filled: number; marks: boolean }) => (
+  <span className={`tube col-span-full grid ${COLS[cols]}`}>
+    {filled > 0 && <span className={`liquid ${SPAN[filled]}`} />}
+    {filled > 0 && (
+      // biome-ignore lint/a11y/noAriaHiddenOnFocusable: a canvas without tabindex is not focusable; the moving liquid is decoration
+      <canvas className="brew" aria-hidden="true" />
+    )}
+    {marks && (
+      <span className={`slots grid ${COLS[cols]}`}>
+        {Array.from({ length: cols }, (_, i) => (
+          // A mark is the left edge of its Slot: over the liquid when both Slots beside it are used.
+          // biome-ignore lint/suspicious/noArrayIndexKey: the Slot marks are identical and never reorder
+          <i key={i} className={i > 0 && i < filled ? "wet" : undefined} />
+        ))}
+      </span>
+    )}
+  </span>
+);
+
+/** A meter's row: the label and value over its tube. */
+const METER_ROW = "grid grid-cols-[1fr_auto] items-baseline gap-x-2 gap-y-1.5 border-line border-t py-3";
+
+/**
+ * REQ-003-12, REQ-003-24: used out of the limit, in a glass tube of one column per Slot (of tenths
+ * above 12 Slots, without Slot marks).
  */
 function Meter({ m }: { m: MeterView }) {
   const used = Math.min(m.used, m.limit);
   const full = m.used >= m.limit;
   const marked = m.limit <= MAX_SLOT_MARKS;
-  const cols = marked ? m.limit : 10;
-  const filled = marked ? used : Math.round((used / m.limit) * 10);
   return (
     // biome-ignore lint/a11y/useSemanticElements: a <meter> can't hold the label and the tube; the list item carries the role
     <li
-      className="grid grid-cols-[1fr_auto] items-baseline gap-x-2 gap-y-1.5 border-line border-t py-3"
+      className={METER_ROW}
       role="meter"
       aria-valuemin={0}
       aria-valuemax={m.limit}
@@ -366,22 +391,7 @@ function Meter({ m }: { m: MeterView }) {
         {m.used}
         <span className="font-medium text-[13px] text-faint"> / {m.limit}</span>
       </span>
-      <span className={`tube col-span-full grid ${COLS[cols]}`}>
-        {filled > 0 && <span className={`liquid ${SPAN[filled]}`} />}
-        {filled > 0 && (
-          // biome-ignore lint/a11y/noAriaHiddenOnFocusable: a canvas without tabindex is not focusable; the moving liquid is decoration
-          <canvas className="brew" aria-hidden="true" />
-        )}
-        {marked && (
-          <span className={`slots grid ${COLS[cols]}`}>
-            {Array.from({ length: m.limit }, (_, i) => (
-              // A mark is the left edge of its Slot: over the liquid when both Slots beside it are used.
-              // biome-ignore lint/suspicious/noArrayIndexKey: the Slot marks are identical and never reorder
-              <i key={i} className={i > 0 && i < filled ? "wet" : undefined} />
-            ))}
-          </span>
-        )}
-      </span>
+      <Tube cols={marked ? m.limit : 10} filled={marked ? used : Math.round((used / m.limit) * 10)} marks={marked} />
     </li>
   );
 }
@@ -398,69 +408,69 @@ const Capacity = ({ v }: { v: DashboardView }) => (
   </div>
 );
 
-/** REQ-003-37: a small violet bar in the capsule; hidden on a phone, where only the percentages stay. */
-const QuotaBar = ({ percent }: { percent: number | null }) => (
-  <span className="quota-bar mx-1 hidden h-1 w-10 overflow-hidden rounded-full bg-white/10 align-middle sm:inline-block">
-    <span className={`block h-full rounded-full bg-acc ${width(percent ?? 0)}`} />
-  </span>
-);
-
-/** REQ-003-37 / REQ-003-38: an Account's capsule, like the header pills; its tooltip says how old the values are. */
-const QuotaCapsule = ({ q }: { q: QuotaView }) => (
-  <li
-    title={q.asOf ?? undefined}
-    className="inline-block max-w-full rounded-full border border-line-2 px-[11px] py-[3px] text-[12px] text-muted"
-  >
-    {q.account && (
-      <>
-        <span className="font-medium text-fg">{q.account}</span> ·{" "}
-      </>
-    )}
-    {q.pausedUntil ? (
-      <>
-        paused until <b className="font-semibold text-fg">{q.pausedUntil}</b>
-      </>
-    ) : (
-      <>
-        {q.windows.map((w, i) => (
-          <Fragment key={w.label}>
-            {i > 0 && " · "}
-            {w.label} <QuotaBar percent={w.percent} />{" "}
-            <b className={`font-semibold tabular-nums ${w.high ? "text-acc-hi" : "text-fg"}`}>
-              {w.percent === null ? "–" : `${w.percent}%`}
-            </b>
-          </Fragment>
-        ))}{" "}
-        used
-      </>
-    )}
-  </li>
-);
+const WINDOW_LABELS: Record<QuotaWindowView["label"], string> = { "5-hour": "5-hour window", weekly: "Weekly" };
 
 /**
- * REQ-003-37: the Usage quota under the Capacity meters, with a heading like Capacity's; the capsules sit beside the
- * heading when they fit (a phone) and wrap under it otherwise. REQ-003-38: the note while nothing was reported.
+ * REQ-003-37: a window's percent used as a meter like Capacity's, filled to the nearest 10 % without
+ * Slot marks; from 90 % the value is accent purple. Its tooltip says how old the value is. A window
+ * that was never reported, or is past its reset, reads "–" with an empty tube (REQ-003-38).
  */
-const UsageQuota = ({ v }: { v: DashboardView }) => (
-  <div id="usage-quota" className="mt-6 border-line border-t pt-5">
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5 md:flex-col md:items-start">
-      <Label className="mb-0">Usage quota</Label>
-      {v.usageQuota.length > 0 && (
-        <ul className="flex max-w-full flex-wrap gap-2">
-          {v.usageQuota.map((q) => (
-            <QuotaCapsule key={q.account ?? ""} q={q} />
-          ))}
-        </ul>
-      )}
-    </div>
-    {v.usageQuota.length > 0 ? (
-      <ul className="mt-2.5 text-[12px] text-faint">
-        {v.usageQuota.map((q) => (
-          <li key={q.account ?? ""}>{q.line}</li>
+function QuotaMeter({ w, asOf }: { w: QuotaWindowView; asOf: string | null }) {
+  const label = WINDOW_LABELS[w.label];
+  const value = w.percent === null ? "–" : String(w.percent);
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: a <meter> can't hold the label and the tube; the list item carries the role
+    <li
+      title={asOf ?? undefined}
+      // The tube sits at the bottom, so the pair lines up when a label wraps (at 360 px).
+      className={`${METER_ROW} grid-rows-[1fr_auto]`}
+      role="meter"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={w.percent ?? undefined}
+      aria-label={`${label}: ${value}${w.percent === null ? "" : "%"} used`}
+    >
+      <span className="text-[12px] text-muted">{label}</span>
+      <span className={`font-bold font-display text-[20px] leading-none ${w.high ? "text-acc-hi" : ""}`}>
+        {value}
+        <span className="font-medium text-[13px] text-faint">{w.percent === null ? "" : "%"} used</span>
+      </span>
+      <Tube cols={10} filled={Math.max(0, Math.min(10, Math.round((w.percent ?? 0) / 10)))} marks={false} />
+    </li>
+  );
+}
+
+/**
+ * REQ-003-37 / REQ-003-38: an Account's pair of meters, side by side on a phone too, with its reset
+ * line under them; with several Accounts its name is a small label above. A paused Account says until
+ * when instead of its meters.
+ */
+const AccountQuota = ({ q }: { q: QuotaView }) => (
+  <div className="mt-1">
+    {q.account && <p className="mt-2 font-medium text-[12px] text-fg">{q.account}</p>}
+    {q.pausedUntil ? (
+      <p className="border-line border-t py-3 text-[12px] text-muted" title={q.asOf ?? undefined}>
+        paused until <b className="font-semibold text-fg">{q.pausedUntil}</b>
+      </p>
+    ) : (
+      <ul className="grid grid-cols-2 gap-x-6">
+        {q.windows.map((w) => (
+          <QuotaMeter key={w.label} w={w} asOf={q.asOf} />
         ))}
       </ul>
+    )}
+    <p className="text-[12px] text-faint">{q.line}</p>
+  </div>
+);
+
+/** REQ-003-37: the Usage quota under the Capacity meters, with a heading like Capacity's. REQ-003-38: the note while nothing was reported. */
+const UsageQuota = ({ v }: { v: DashboardView }) => (
+  <div id="usage-quota" className="mt-6 border-line border-t pt-5">
+    <Label>Usage quota</Label>
+    {v.usageQuota.length > 0 ? (
+      v.usageQuota.map((q) => <AccountQuota key={q.account ?? ""} q={q} />)
     ) : (
-      <Empty className="mt-2.5">Shown once a session has reported its usage</Empty>
+      <Empty>Shown once a session has reported its usage</Empty>
     )}
   </div>
 );

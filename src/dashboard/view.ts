@@ -219,7 +219,7 @@ export interface EventView {
   links: { label: string; url: string }[];
 }
 
-/** One window of a Usage quota capsule (REQ-003-37). */
+/** One window of a Usage quota meter (REQ-003-37). */
 export interface QuotaWindowView {
   label: "5-hour" | "weekly";
   /** Whole percent used; null when never reported or past its reset ("–", REQ-003-38). */
@@ -228,7 +228,7 @@ export interface QuotaWindowView {
   high: boolean;
 }
 
-/** An Account's Usage quota capsule and the line under it (REQ-003-37, REQ-003-38). */
+/** An Account's Usage quota meters and the line under it (REQ-003-37, REQ-003-38). */
 export interface QuotaView {
   /** Null with a single Account. */
   account: string | null;
@@ -251,7 +251,7 @@ export interface DashboardView {
   yourMove: MoveGroup[];
   summary: SummaryView;
   capacity: MeterView[];
-  /** One capsule per Account; empty until a session reported its usage or an Account is paused (REQ-003-38). */
+  /** One pair of meters per Account; empty until a session reported its usage or an Account is paused (REQ-003-38). */
   usageQuota: QuotaView[];
   queue: QueueView[];
   blocked: BlockedView[];
@@ -491,7 +491,7 @@ export function dashboardView(
   };
 }
 
-/** REQ-003-37 / REQ-003-38: a capsule per Account, or none while no Account reported or is paused. */
+/** REQ-003-37 / REQ-003-38: a pair of meters per Account, or none while no Account reported or is paused. */
 function quotaViews(accounts: AccountSnapshot[], now: Date): QuotaView[] {
   const future = (iso: string | null | undefined): iso is string => !!iso && Date.parse(iso) > now.getTime();
   if (!accounts.some((a) => a.quota || future(a.pausedUntil))) return [];

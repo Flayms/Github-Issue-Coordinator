@@ -336,7 +336,7 @@
   }
 
   /*
-   * REQ-003-24: a Capacity meter is a glass tube (frosted, a lit top rim, an inner shadow and a
+   * REQ-003-24: a Capacity or Usage quota meter is a glass tube (frosted, a lit top rim, an inner shadow and a
    * static reflection on top) holding a glossy violet liquid, inset 2px, with rounded ends. With
    * WebGL, `meters.js` draws the moving liquid into `.brew` and marks the tube `.gl`; the CSS liquid
    * then keeps only its glow (its width still sets where the liquid ends). Without it, light moves in
@@ -458,6 +458,15 @@
   #capacity li:nth-child(6n + 6) .liquid::after {
     animation-duration: 20s;
     animation-delay: -5s;
+  }
+  /* The Usage quota's pair (REQ-003-37): the weekly meter out of step with the 5-hour one. */
+  #usage-quota li:nth-child(2) .liquid::before {
+    animation-duration: 14s;
+    animation-delay: -7.5s;
+  }
+  #usage-quota li:nth-child(2) .liquid::after {
+    animation-duration: 17s;
+    animation-delay: -4.5s;
   }
   .slots {
     position: absolute;
