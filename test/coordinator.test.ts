@@ -1463,6 +1463,85 @@ describe("reconcile loop", () => {
     expect(store.pausedUntil("default")).toBe(new Date(now.getTime() + USAGE_LIMIT_PAUSE_MIN * 60_000).toISOString());
   });
 
+  test("REQ-001-17 pauses the Account until the reset time the usage limit reported, not for 30 minutes", async () => {
+    gh.items = [item(5), item(6, ["agent:planning"])];
+    const id = store.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [6] });
+    store.setClaudeSessionId(id, "c1");
+    runner.live.add(id);
+    // A weekly limit: resets 2026-11-22 10:00 UTC, days after now.
+    const resetsAt = "2026-11-22T10:00:00.000Z";
+    store.patchSession(id, { state: "idle", usageLimited: true, usageLimitResetsAt: resetsAt });
+
+    await coordinator.tick();
+    expect(store.pausedUntil("default")).toBe(resetsAt);
+    expect(logs).toContainEqual(expect.stringContaining(`Account default is paused until ${resetsAt}`));
+    expect(coordinator.snapshot()?.accounts).toEqual([
+      expect.objectContaining({ name: "default", pausedUntil: resetsAt }),
+    ]);
+
+    // An hour later, and again a day later: still paused, and the unchanged session logs nothing new.
+    const logged = logs.filter((l) => l.includes("usage limit reached")).length;
+    for (const minutes of [60, 24 * 60]) {
+      now = new Date(now.getTime() + minutes * 60_000);
+      gh.changed = true;
+      await coordinator.tick();
+      expect(runner.started).toEqual([]);
+      expect(runner.resumed).toEqual([]);
+    }
+    expect(logs.filter((l) => l.includes("usage limit reached"))).toHaveLength(logged);
+    // Idle past idleTimeoutMin, the session was closed (REQ-001-20), but it is still its issue's session.
+    expect(runner.closed).toEqual([id]);
+    expect(logs).not.toContainEqual(expect.stringContaining("no planner session to resume"));
+
+    now = new Date(Date.parse(resetsAt) + 60_000);
+    await coordinator.tick();
+    expect(runner.resumed).toEqual([[id, expect.stringContaining("usage limit")]]);
+    expect(runner.started).toEqual([]);
+  });
+
+  test("REQ-001-17 without a reset time from the transcript, pauses until the Account's exhausted Usage quota window resets", async () => {
+    gh.items = [item(6, ["agent:planning"])];
+    const id = store.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [6] });
+    store.setClaudeSessionId(id, "c1");
+    runner.live.add(id);
+    // now is 2026-11-11 10:00 UTC: the 5-hour window has room, the weekly one is used up.
+    store.recordUsageQuota("default", {
+      fiveHour: { usedPercent: 40, resetsAt: "2026-11-11T13:00:00.000Z" },
+      sevenDay: { usedPercent: 100, resetsAt: "2026-11-13T09:00:00.000Z" },
+    });
+    store.patchSession(id, { state: "idle", usageLimited: true });
+
+    await coordinator.tick();
+    expect(store.pausedUntil("default")).toBe("2026-11-13T09:00:00.000Z");
+  });
+
+  test("REQ-001-17 a Usage quota that is not used up or already reset leaves the 30-minute pause", async () => {
+    gh.items = [item(6, ["agent:planning"])];
+    const id = store.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [6] });
+    store.setClaudeSessionId(id, "c1");
+    runner.live.add(id);
+    store.recordUsageQuota("default", {
+      fiveHour: { usedPercent: 100, resetsAt: "2026-11-11T09:00:00.000Z" },
+      sevenDay: { usedPercent: 99, resetsAt: "2026-11-13T09:00:00.000Z" },
+    });
+    store.patchSession(id, { state: "idle", usageLimited: true });
+
+    await coordinator.tick();
+    expect(store.pausedUntil("default")).toBe(new Date(now.getTime() + USAGE_LIMIT_PAUSE_MIN * 60_000).toISOString());
+  });
+
+  test("REQ-001-17 a longer pause that is in force is never shortened", async () => {
+    gh.items = [item(6, ["agent:planning"])];
+    const id = store.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [6] });
+    store.setClaudeSessionId(id, "c1");
+    runner.live.add(id);
+    store.setPausedUntil("default", "2026-11-22T10:00:00.000Z");
+    store.patchSession(id, { state: "idle", usageLimited: true, usageLimitResetsAt: "2026-11-11T12:00:00.000Z" });
+
+    await coordinator.tick();
+    expect(store.pausedUntil("default")).toBe("2026-11-22T10:00:00.000Z");
+  });
+
   test("REQ-001-17 / REQ-004-01 a usage limit pauses only its Account; the session continues right away on another one", async () => {
     const two = parseConfig({
       ...config,

@@ -33,6 +33,7 @@ const session = (s: Partial<SessionRecord> & Pick<SessionRecord, "role" | "issue
   resultFailures: 0,
   needsSync: false,
   usageLimited: false,
+  usageLimitResetsAt: null,
   modelId: null,
   title: null,
   ...s,

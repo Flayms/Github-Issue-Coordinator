@@ -203,7 +203,9 @@ export class Coordinator {
             items: view.items,
             splitOffs: this.d.store.splitOffNumbers(repo),
             sessions: this.d.store.sessions(repo),
-            pendingSync: this.d.store.sessionsToSync(repo).filter((s) => s.state === "closed"),
+            pendingSync: [...this.d.store.sessionsToSync(repo), ...this.d.store.usageLimitedSessions(repo)].filter(
+              (s, i, all) => s.state === "closed" && all.findIndex((x) => x.id === s.id) === i,
+            ),
             liveSessionIds: live,
             feedback: view.feedback,
             labelActors: view.labelActors,
@@ -296,23 +298,37 @@ export class Coordinator {
   /** REQ-001-19 / REQ-001-27: sync every turn that ended, retrying failures; REQ-001-17: a usage limit pauses its Account. */
   private async syncTurns(): Promise<void> {
     for (const { name: repo } of this.d.config.repos) {
-      for (const s of this.d.store.sessions(repo)) {
-        if (s.usageLimited) {
-          // Sessions from before spec 004 ran on Claude's default folder, now the first Account's place.
-          const account = s.account ?? (this.accountNames()[0] as string);
-          const until = new Date(Date.parse(s.lastActivityAt) + USAGE_LIMIT_PAUSE_MIN * 60_000).toISOString();
-          const current = this.d.store.pausedUntil(account);
-          if (!current || current < until) {
-            this.d.store.setPausedUntil(account, until);
-            const all = this.allPausedUntil();
-            this.log(
-              `${repo}: usage limit reached in session ${s.id}; Account ${account} is paused until ${until}${all ? `; every Account is paused, new work waits until ${all}` : ""}`,
-            );
-          }
+      // An idle one may have been closed during a long pause (REQ-001-20); it still continues after the reset.
+      for (const s of this.d.store.usageLimitedSessions(repo)) {
+        // Sessions from before spec 004 ran on Claude's default folder, now the first Account's place.
+        const account = s.account ?? (this.accountNames()[0] as string);
+        const until = this.usageLimitResetsAt(s, account);
+        const current = this.d.store.pausedUntil(account);
+        if (!current || current < until) {
+          this.d.store.setPausedUntil(account, until);
+          const all = this.allPausedUntil();
+          this.log(
+            `${repo}: usage limit reached in session ${s.id}; Account ${account} is paused until ${until}${all ? `; every Account is paused, new work waits until ${all}` : ""}`,
+          );
         }
       }
       for (const s of this.d.store.sessionsToSync(repo)) await this.sync(s);
     }
+  }
+
+  /**
+   * REQ-001-17: when a usage-limited session's Account is free again: the reset time its transcript reported, else the
+   * latest future reset of an Account's Usage quota window that is used up, else 30 minutes after the limit hit.
+   */
+  private usageLimitResetsAt(s: SessionRecord, account: string): string {
+    if (s.usageLimitResetsAt) return s.usageLimitResetsAt;
+    const now = this.now().toISOString();
+    const quota = this.d.store.usageQuota(account);
+    const exhausted = [quota?.fiveHour, quota?.sevenDay]
+      .filter((w) => w && w.usedPercent >= 100 && w.resetsAt > now)
+      .map((w) => w?.resetsAt as string)
+      .sort();
+    return exhausted.at(-1) ?? new Date(Date.parse(s.lastActivityAt) + USAGE_LIMIT_PAUSE_MIN * 60_000).toISOString();
   }
 
   private async sync(s: SessionRecord): Promise<void> {
@@ -763,7 +779,7 @@ export class Coordinator {
 
   /** REQ-001-17: continue sessions cut off by the usage limit, on an Account that isn't paused. */
   private queueUsageLimited(repo: string, queue: Work[], jobs: Map<string, Job>) {
-    for (const s of this.d.store.sessions(repo).filter((x) => x.usageLimited && x.state !== "running")) {
+    for (const s of this.d.store.usageLimitedSessions(repo).filter((x) => x.state !== "running")) {
       this.add(
         queue,
         jobs,

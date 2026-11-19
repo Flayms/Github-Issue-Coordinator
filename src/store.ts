@@ -31,6 +31,8 @@ export interface SessionRecord {
   needsSync: boolean;
   /** The turn ended on the subscription usage limit (REQ-001-17). */
   usageLimited: boolean;
+  /** When the usage limit resets, as the turn's transcript reported it (REQ-001-17); null while unknown. */
+  usageLimitResetsAt: string | null;
   /** The model the session runs, e.g. `claude-opus-5-5`, reported by the hooks (REQ-001-29). */
   modelId: string | null;
   /** Title of the first issue, for the Remote Control name (REQ-001-33); null for a batch Planner and older sessions. */
@@ -211,6 +213,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   result_failures INTEGER NOT NULL DEFAULT 0,
   needs_sync INTEGER NOT NULL DEFAULT 0,
   usage_limited INTEGER NOT NULL DEFAULT 0,
+  usage_limit_resets_at TEXT,
   model_id TEXT,
   title TEXT,
   started_at TEXT,
@@ -308,6 +311,7 @@ interface SessionRow {
   result_failures: number;
   needs_sync: number;
   usage_limited: number;
+  usage_limit_resets_at: string | null;
   model_id: string | null;
   title: string | null;
   started_at: string | null;
@@ -330,6 +334,7 @@ const toSession = (r: SessionRow): SessionRecord => ({
   resultFailures: r.result_failures,
   needsSync: r.needs_sync === 1,
   usageLimited: r.usage_limited === 1,
+  usageLimitResetsAt: r.usage_limit_resets_at ?? null,
   modelId: r.model_id ?? null,
   title: r.title ?? null,
   startedAt: r.started_at ?? null,
@@ -427,7 +432,14 @@ export class Store {
         ready_sha: "TEXT",
         review_risk: "TEXT",
       },
-      sessions: { model_id: "TEXT", title: "TEXT", started_at: "TEXT", account: "TEXT", transcript_path: "TEXT" },
+      sessions: {
+        model_id: "TEXT",
+        title: "TEXT",
+        started_at: "TEXT",
+        account: "TEXT",
+        usage_limit_resets_at: "TEXT",
+        transcript_path: "TEXT",
+      },
     };
     for (const [table, cols] of Object.entries(added)) {
       const have = new Set(
@@ -489,6 +501,14 @@ export class Store {
       .map(toSession);
   }
 
+  /** REQ-001-17: sessions, open or closed, whose last turn was cut off by the usage limit and still has to continue. */
+  usageLimitedSessions(repo: string): SessionRecord[] {
+    return this.db
+      .query<SessionRow, [string]>("SELECT * FROM sessions WHERE repo = ? AND usage_limited = 1 ORDER BY id")
+      .all(repo)
+      .map(toSession);
+  }
+
   /** The most recent session of a Role that covered the issue, open or closed. */
   latestSession(repo: string, issue: number, role: Role): SessionRecord | undefined {
     const row = this.db
@@ -537,7 +557,13 @@ export class Store {
     patch: Partial<
       Pick<
         SessionRecord,
-        "state" | "ownerMessagedAt" | "coordinatorPromptPending" | "resultFailures" | "needsSync" | "usageLimited"
+        | "state"
+        | "ownerMessagedAt"
+        | "coordinatorPromptPending"
+        | "resultFailures"
+        | "needsSync"
+        | "usageLimited"
+        | "usageLimitResetsAt"
       >
     >,
   ): void {
@@ -548,6 +574,7 @@ export class Store {
       resultFailures: "result_failures",
       needsSync: "needs_sync",
       usageLimited: "usage_limited",
+      usageLimitResetsAt: "usage_limit_resets_at",
     };
     const entries = Object.entries(patch).filter(([, v]) => v !== undefined);
     const sets = [...entries.map(([k]) => `${cols[k]} = ?`), "last_activity_at = ?"].join(", ");

@@ -48,6 +48,7 @@ describe("store", () => {
           resultFailures: 0,
           needsSync: false,
           usageLimited: false,
+          usageLimitResetsAt: null,
           modelId: null,
           title: null,
           startedAt: "2026-11-10T10:00:00.000Z",
@@ -213,6 +214,38 @@ describe("store", () => {
         seenAt: "2026-11-10T12:05:00.000Z",
       });
       expect(b.usageQuota("spare")).toBeUndefined();
+      b.close();
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  test("REQ-001-17 keeps a session's usage-limit reset time across a restart, also in a database created before it existed", () => {
+    const dir = mkdtempSync(join(tmpdir(), "store-"));
+    try {
+      const path = join(dir, "state.db");
+      const old = new Database(path, { create: true });
+      old.exec(
+        `CREATE TABLE sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, repo TEXT NOT NULL, role TEXT NOT NULL,
+         kind TEXT NOT NULL, issues TEXT NOT NULL, claude_session_id TEXT, state TEXT NOT NULL,
+         resume_attempts INTEGER NOT NULL DEFAULT 0, last_activity_at TEXT NOT NULL, owner_messaged_at TEXT,
+         coordinator_prompt_pending INTEGER NOT NULL DEFAULT 0, result_failures INTEGER NOT NULL DEFAULT 0,
+         needs_sync INTEGER NOT NULL DEFAULT 0, usage_limited INTEGER NOT NULL DEFAULT 0, model_id TEXT, title TEXT,
+         started_at TEXT, account TEXT)`,
+      );
+      old.exec(
+        `INSERT INTO sessions (repo, role, kind, issues, state, last_activity_at, usage_limited)
+         VALUES ('octo/app', 'reviewer', 'issue', '[4]', 'idle', '2026-11-10T10:00:00Z', 1)`,
+      );
+      old.close();
+      const a = new Store(path);
+      expect(a.session(1)).toMatchObject({ usageLimited: true, usageLimitResetsAt: null });
+      a.patchSession(1, { usageLimitResetsAt: "2026-11-22T10:00:00.000Z" });
+      a.close();
+      const b = new Store(path);
+      expect(b.session(1)?.usageLimitResetsAt).toBe("2026-11-22T10:00:00.000Z");
+      b.patchSession(1, { usageLimited: false, usageLimitResetsAt: null });
+      expect(b.session(1)).toMatchObject({ usageLimited: false, usageLimitResetsAt: null });
       b.close();
     } finally {
       rmSync(dir, { recursive: true });

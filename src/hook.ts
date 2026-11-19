@@ -57,7 +57,7 @@ export function handleHook({ event, payload, store, sessionId, sessionDir }: Hoo
 
     // REQ-001-17: Claude Code fires this instead of Stop when an API error ended the turn; its output is ignored.
     case "StopFailure":
-      if (payload.error === "rate_limit") store.patchSession(sessionId, { state: "idle", usageLimited: true });
+      if (payload.error === "rate_limit") markUsageLimited(store, sessionId, payload.transcript_path);
       return {};
 
     case "Stop": {
@@ -66,7 +66,7 @@ export function handleHook({ event, payload, store, sessionId, sessionDir }: Hoo
         if (model) store.setModelId(sessionId, model);
       }
       if (usageLimitText(payload.transcript_path)) {
-        store.patchSession(sessionId, { state: "idle", usageLimited: true });
+        markUsageLimited(store, sessionId, payload.transcript_path);
         return {};
       }
       const resultPath = join(sessionDir, "result.json");
@@ -91,6 +91,12 @@ export function handleHook({ event, payload, store, sessionId, sessionDir }: Hoo
     default:
       return {};
   }
+}
+
+/** REQ-001-17: marks the session for its Account's pause, with the reset time if the transcript reports one. */
+function markUsageLimited(store: Store, sessionId: number, transcriptPath: unknown): void {
+  const usageLimitResetsAt = usageLimitResetTime(transcriptPath, nowOf(store)) ?? null;
+  store.patchSession(sessionId, { state: "idle", usageLimited: true, usageLimitResetsAt });
 }
 
 /** REQ-001-67: records the Usage quota of the session's Account and prints it; anything unexpected is ignored. */
@@ -154,19 +160,45 @@ export function transcriptModel(transcriptPath: unknown): string | undefined {
  * Claude Code marks synthetic error replies with `isApiErrorMessage` (see docs/known-pitfalls.md).
  */
 export function usageLimitText(transcriptPath: unknown): string | undefined {
+  const entry = lastApiError(transcriptPath);
+  if (!entry) return undefined;
+  const text = JSON.stringify(entry.message?.content ?? "");
+  return /limit/i.test(text) ? text : undefined;
+}
+
+/**
+ * When the usage limit resets (ISO), from the transcript's last API error entry: `apiErrorParams.rate_limit_info.resetsAt`
+ * in epoch seconds, seen with Claude Code 2.1.328 (see docs/known-pitfalls.md). Undefined unless it is a time after `now`.
+ */
+export function usageLimitResetTime(transcriptPath: unknown, now: number): string | undefined {
+  const params = lastApiError(transcriptPath)?.apiErrorParams;
+  const info =
+    typeof params === "object" && params !== null ? (params as Record<string, unknown>).rate_limit_info : null;
+  const resetsAt = typeof info === "object" && info !== null ? (info as Record<string, unknown>).resetsAt : undefined;
+  if (typeof resetsAt !== "number" || !Number.isFinite(resetsAt) || resetsAt * 1000 <= now) return undefined;
+  return new Date(resetsAt * 1000).toISOString();
+}
+
+interface TranscriptEntry {
+  type?: string;
+  isApiErrorMessage?: boolean;
+  message?: { content?: unknown };
+  apiErrorParams?: unknown;
+}
+
+/** The transcript's last assistant entry if it is a synthetic API error reply; other entry types after it are skipped. */
+function lastApiError(transcriptPath: unknown): TranscriptEntry | undefined {
   if (typeof transcriptPath !== "string" || !existsSync(transcriptPath)) return undefined;
   const lines = readFileSync(transcriptPath, "utf8").trim().split("\n");
   for (let i = lines.length - 1; i >= 0 && i >= lines.length - 20; i--) {
-    let entry: { type?: string; isApiErrorMessage?: boolean; message?: { content?: unknown } };
+    let entry: TranscriptEntry;
     try {
       entry = JSON.parse(lines[i] ?? "");
     } catch {
       continue;
     }
-    if (entry.type !== "assistant") continue;
-    if (entry.isApiErrorMessage !== true) return undefined;
-    const text = JSON.stringify(entry.message?.content ?? "");
-    return /limit/i.test(text) ? text : undefined;
+    if (typeof entry !== "object" || entry === null || entry.type !== "assistant") continue;
+    return entry.isApiErrorMessage === true ? entry : undefined;
   }
   return undefined;
 }

@@ -73,6 +73,7 @@ const snap: TickSnapshot = {
       resultFailures: 0,
       needsSync: false,
       usageLimited: false,
+      usageLimitResetsAt: null,
       modelId: "claude-sonnet-5-5",
       title: "Add search",
       startedAt: "2026-11-15T09:00:00.000Z",
