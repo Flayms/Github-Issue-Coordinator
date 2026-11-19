@@ -1276,6 +1276,21 @@ describe("dashboard html", () => {
     expect(css).toMatch(/option:checked[^{]*\{[^}]*background-color:\s*var\(--color-acc-lo\)/);
   });
 
+  test("REQ-003-17 the group headers of a select's dropdown sit on the dark background in the muted colour, and the hovered option is in the accent (#169)", () => {
+    const css = asset("dashboard.css");
+    // The Model select has Latest / Pinned groups (REQ-003-40): their headers get the dark background, muted.
+    const group = css.match(/(?:^|\})\s*optgroup\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(group).toMatch(/background-color:\s*var\(--color-ink-2\)/);
+    expect(group).toMatch(/(?:^|[;\s])color:\s*var\(--color-muted\)/);
+    // The customizable select draws the picker in the page, so hover and focus take the dashboard's colours.
+    expect(css).toMatch(/(?:^|[}\s])select\s*\{[^}]*appearance:\s*base-select/);
+    expect(css).toMatch(/::picker\(select\)\s*\{[^}]*appearance:\s*base-select/);
+    expect(css).toMatch(/::picker\(select\)\s*\{[^}]*background-color:\s*var\(--color-ink-2\)/);
+    expect(css).toMatch(
+      /option:hover,\s*option:focus-visible\s*\{[^}]*background-color:\s*color-mix\([^;]*var\(--color-acc\)/,
+    );
+  });
+
   test("REQ-003-19 the stylesheet is built from its Tailwind source and has a rule for every class the pages use", () => {
     const css = asset("dashboard.css");
     expect(css).toContain("tailwindcss v4");
