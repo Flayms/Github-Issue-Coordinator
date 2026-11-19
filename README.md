@@ -57,7 +57,7 @@ The details, from Split-off issues to merge conflicts, are in [docs/how-it-works
 
 ## Dashboard
 
-- **Overview:** what needs you, Capacity and the Usage quota, Activity (Recent, Now, Next) and the Pipeline.
+- **Overview:** what needs you, Capacity and the Usage quota, Activity (Recent, Now with what each agent is doing and a link to its chat, Next) and the Pipeline.
 - **Config:** the settings without secrets; once signed in, change limits, auto-merge and models without a restart.
 - **Timings:** how long each step of an issue took.
 - On by default at `127.0.0.1:8080`, reached over Tailscale or an SSH tunnel, "Sign in with GitHub" for you only. It changes nothing on GitHub.

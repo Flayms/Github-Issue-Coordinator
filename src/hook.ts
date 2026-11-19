@@ -3,7 +3,8 @@
  * Claude Code hook for Coordinator sessions, configured per session through `--settings`.
  * Usage: bun src/hook.ts <event> <dbPath> <sessionId> <sessionDir>   (payload JSON on stdin)
  *
- * - SessionStart: records Claude's session id (needed to resume) and the model it runs (REQ-001-29).
+ * - SessionStart: records Claude's session id (needed to resume), the model it runs (REQ-001-29) and its transcript's
+ *   path, for the dashboard's Now line (REQ-003-42).
  * - UserPromptSubmit: marks the session running; a prompt after the Coordinator's own is the Owner's (REQ-001-19).
  * - Stop: validates the Result and blocks the stop while it is invalid, up to 3 times (REQ-001-21);
  *   otherwise marks the session idle and queues a sync (REQ-001-19). A turn cut off by the usage
@@ -43,6 +44,9 @@ export function handleHook({ event, payload, store, sessionId, sessionDir }: Hoo
     case "SessionStart":
       if (typeof payload.session_id === "string") store.setClaudeSessionId(sessionId, payload.session_id);
       if (typeof payload.model === "string" && payload.model) store.setModelId(sessionId, payload.model);
+      // REQ-003-42: a resume on another Account writes the transcript elsewhere, so each SessionStart updates it.
+      if (typeof payload.transcript_path === "string" && payload.transcript_path)
+        store.setTranscriptPath(sessionId, payload.transcript_path);
       return {};
 
     case "UserPromptSubmit":

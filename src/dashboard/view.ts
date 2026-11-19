@@ -20,6 +20,7 @@ import { remoteControlName } from "../runner.ts";
 import type { WaitReason, WorkKind } from "../scheduler.ts";
 import { type IssueState, issueState } from "../state.ts";
 import type { EventKind, QuotaWindow } from "../store.ts";
+import type { TranscriptStep, TranscriptTail } from "../transcript.ts";
 
 /** Pipeline columns in the order of the workflow (README "Labels"), each grouping phases (REQ-003-02). */
 export const COLUMNS: { title: string; phases: IssueState[] }[] = [
@@ -94,6 +95,17 @@ export interface SessionView {
   model: string;
   /** `model` by name, e.g. "Opus 5.5" (REQ-003-41). */
   modelName: string;
+  /** The Now line from the transcript's tail (REQ-003-42); null without a transcript or a step in it. */
+  now: NowLine | null;
+  /** The session's Remote Control URL, for Open chat (REQ-003-43); null without one. */
+  chatUrl: string | null;
+}
+
+/** REQ-003-42: what the agent is doing, e.g. `{ label: "Tool", text: "Bash · bun test", ago: "12 s ago" }`. */
+export interface NowLine {
+  label: "Thinking" | "Tool" | "Says" | "Turn ended";
+  text: string;
+  ago: string;
 }
 
 export interface PullView {
@@ -268,6 +280,25 @@ export interface DashboardView {
 export interface ViewOptions {
   /** `?repo=`: narrow the Pipeline to one repository (REQ-003-13). */
   repo?: string | null;
+  /** Reads a session's transcript for the Now line and Open chat (REQ-003-42, REQ-003-43); without it none is read. */
+  transcript?: (path: string) => TranscriptTail | undefined;
+}
+
+const STEP_LABELS = { thinking: "Thinking", tool: "Tool", says: "Says" } as const;
+
+/** `12 s ago`, `5 min ago`, `2 h 0 min ago`. */
+const ago = (ms: number): string =>
+  ms < 60_000 ? `${Math.max(0, Math.floor(ms / 1000))} s ago` : `${formatDuration(ms)} ago`;
+
+/** REQ-003-42: the latest step of a running session; an idle one's turn ended, with its last text. */
+function nowLine(t: TranscriptTail | undefined, idle: boolean, now: Date): NowLine | null {
+  if (!t?.step) return null;
+  const since = (s: TranscriptStep) => ago(now.getTime() - Date.parse(s.at));
+  if (idle) {
+    const last = t.lastText ?? t.step;
+    return { label: "Turn ended", text: t.lastText?.text ?? "", ago: since(last) };
+  }
+  return { label: STEP_LABELS[t.step.kind], text: t.step.text, ago: since(t.step) };
 }
 
 const issueUrl = (repo: string, n: number) => `https://github.com/${repo}/issues/${n}`;
@@ -311,24 +342,29 @@ export function dashboardView(
   };
   // REQ-003-01 (#74): running sessions first, then idle ones, then those whose window is gone.
   const STATE_ORDER = { running: 0, idle: 1, gone: 2 };
-  const sessions: SessionView[] = (snap?.sessions ?? []).map((s) => ({
-    role: ROLE_NAMES[s.role],
-    repo: s.repo,
-    issues: s.issues.map((n, i) => ({
-      number: n,
-      title: title(s.repo, n) ?? (i === 0 ? (s.title ?? "") : ""),
-      url: issueUrl(s.repo, n),
-    })),
-    state: s.live ? (s.state === "running" ? "running" : "idle") : "gone",
-    startedAt: s.startedAt,
-    idleFor: idle(s) ? formatDuration(since(s.lastActivityAt)) : null,
-    idleTimeout: formatDuration(idleTimeoutMs),
-    idleShare: idle(s) ? Math.min(100, Math.round((since(s.lastActivityAt) / idleTimeoutMs) * 10) * 10) : null,
-    closesIn: idle(s) ? closesIn(s.lastActivityAt) : null,
-    name: remoteControlName(s),
-    model: s.modelId ?? configuredModel(config, s.repo, s.role),
-    modelName: modelLabel(s.modelId ?? configuredModel(config, s.repo, s.role)),
-  }));
+  const sessions: SessionView[] = (snap?.sessions ?? []).map((s) => {
+    const tail = s.transcriptPath ? opts.transcript?.(s.transcriptPath) : undefined;
+    return {
+      role: ROLE_NAMES[s.role],
+      repo: s.repo,
+      issues: s.issues.map((n, i) => ({
+        number: n,
+        title: title(s.repo, n) ?? (i === 0 ? (s.title ?? "") : ""),
+        url: issueUrl(s.repo, n),
+      })),
+      state: s.live ? (s.state === "running" ? "running" : "idle") : "gone",
+      startedAt: s.startedAt,
+      idleFor: idle(s) ? formatDuration(since(s.lastActivityAt)) : null,
+      idleTimeout: formatDuration(idleTimeoutMs),
+      idleShare: idle(s) ? Math.min(100, Math.round((since(s.lastActivityAt) / idleTimeoutMs) * 10) * 10) : null,
+      closesIn: idle(s) ? closesIn(s.lastActivityAt) : null,
+      name: remoteControlName(s),
+      model: s.modelId ?? configuredModel(config, s.repo, s.role),
+      modelName: modelLabel(s.modelId ?? configuredModel(config, s.repo, s.role)),
+      now: nowLine(tail, idle(s), now),
+      chatUrl: tail?.chatUrl ?? null,
+    };
+  });
   sessions.sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state]);
 
   const pullsOf = (r: RepoSnapshot): PullView[] =>

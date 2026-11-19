@@ -36,6 +36,15 @@ describe("hook", () => {
     expect(store.session(id)?.claudeSessionId).toBe("abc");
   });
 
+  test("REQ-003-42 SessionStart records the transcript path, also anew on a resume", () => {
+    hook("SessionStart", { transcript_path: "/acc/a/projects/x/abc.jsonl" });
+    expect(store.session(id)?.transcriptPath).toBe("/acc/a/projects/x/abc.jsonl");
+    hook("SessionStart", { transcript_path: "/acc/b/projects/x/abc.jsonl" });
+    expect(store.session(id)?.transcriptPath).toBe("/acc/b/projects/x/abc.jsonl");
+    hook("SessionStart", { transcript_path: 42 });
+    expect(store.session(id)?.transcriptPath).toBe("/acc/b/projects/x/abc.jsonl");
+  });
+
   test("REQ-001-29 SessionStart records the model the session runs", () => {
     hook("SessionStart", { model: "claude-opus-5-5" });
     expect(store.session(id)?.modelId).toBe("claude-opus-5-5");

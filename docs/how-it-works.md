@@ -136,7 +136,7 @@ On by default ([setup](setup.md#4-dashboard), [spec 003](specs/003-dashboard/spe
 - **Next to it:** what is running and the capacity (running and live sessions, Slots, Worktrees).
 - **Activity**, one timeline:
   - Recent: what the Coordinator did (PRs opened, Reviews, failures with their reason);
-  - Now: the agent sessions (running ones first, with their model and Remote Control names; idle ones say when they close);
+  - Now: the agent sessions (running ones first, with their model and Remote Control names; idle ones say when they close). Each card has a Now line, what the agent is doing, from the tail of its transcript, e.g. `TOOL Bash · bun test · 12 s ago` (an idle one shows _Turn ended_ and its last text), and an **Open chat** link to the session's Remote Control page, where you read the whole chat and write to the agent. The dashboard itself stays read-only;
   - Next: what runs next and why each item waits.
 - **Pipeline:** every issue's phase and PR (checks, mergeability, Feedback rounds), saying what each one needs, filterable by repository.
 

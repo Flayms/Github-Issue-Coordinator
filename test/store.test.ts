@@ -28,6 +28,7 @@ describe("store", () => {
       const id = a.createSession({ repo: "octo/app", role: "planner", kind: "batch", issues: [5, 6] });
       a.setClaudeSessionId(id, "sess-xyz");
       a.setAccount(id, "main");
+      a.setTranscriptPath(id, "/acc/projects/x/sess-xyz.jsonl");
       a.close();
 
       const b = new Store(path);
@@ -51,6 +52,7 @@ describe("store", () => {
           title: null,
           startedAt: "2026-11-10T10:00:00.000Z",
           account: "main",
+          transcriptPath: "/acc/projects/x/sess-xyz.jsonl",
         },
       ]);
       b.close();

@@ -39,6 +39,8 @@ export interface SessionRecord {
   startedAt: string | null;
   /** Name of the Account its last launch ran on (REQ-004-01); null before its first launch and for older sessions. */
   account: string | null;
+  /** The transcript Claude Code writes, from SessionStart, for the dashboard's Now line (REQ-003-42); null before. */
+  transcriptPath: string | null;
 }
 
 /** An issue the Coordinator created from a Planner's proposal while assessing `parent` (REQ-001-34). */
@@ -212,7 +214,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   model_id TEXT,
   title TEXT,
   started_at TEXT,
-  account TEXT
+  account TEXT,
+  transcript_path TEXT
 );
 CREATE TABLE IF NOT EXISTS issues (
   repo TEXT NOT NULL,
@@ -309,6 +312,7 @@ interface SessionRow {
   title: string | null;
   started_at: string | null;
   account: string | null;
+  transcript_path: string | null;
 }
 
 const toSession = (r: SessionRow): SessionRecord => ({
@@ -330,6 +334,7 @@ const toSession = (r: SessionRow): SessionRecord => ({
   title: r.title ?? null,
   startedAt: r.started_at ?? null,
   account: r.account ?? null,
+  transcriptPath: r.transcript_path ?? null,
 });
 
 interface TimingRow {
@@ -422,7 +427,7 @@ export class Store {
         ready_sha: "TEXT",
         review_risk: "TEXT",
       },
-      sessions: { model_id: "TEXT", title: "TEXT", started_at: "TEXT", account: "TEXT" },
+      sessions: { model_id: "TEXT", title: "TEXT", started_at: "TEXT", account: "TEXT", transcript_path: "TEXT" },
     };
     for (const [table, cols] of Object.entries(added)) {
       const have = new Set(
@@ -511,6 +516,10 @@ export class Store {
       )
       .all()
       .map((r) => r.model_id);
+  }
+
+  setTranscriptPath(id: number, path: string): void {
+    this.db.query("UPDATE sessions SET transcript_path = ? WHERE id = ?").run(path, id);
   }
 
   setAccount(id: number, account: string): void {

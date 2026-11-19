@@ -23,6 +23,7 @@ const session = (s: Partial<SessionRecord> & Pick<SessionRecord, "role" | "issue
   kind: "issue",
   startedAt: null,
   account: null,
+  transcriptPath: null,
   claudeSessionId: "sess-1",
   state: "running",
   resumeAttempts: 0,
