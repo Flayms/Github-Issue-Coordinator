@@ -207,6 +207,26 @@
     font-size: 0.86em;
   }
 
+  /*
+   * #145 / REQ-003-17: the open dropdown of a select is drawn by the browser; without its own colours
+   * Chrome on Windows shows the light options on a white popup. An opaque dark background, the text
+   * colour and a dark color-scheme on the select and its options; the selected option in the accent,
+   * the "default" / "global (…)" option muted. The closed select keeps its utilities (bg-white/4).
+   */
+  select,
+  option {
+    background-color: var(--color-ink-2);
+    color: var(--color-fg);
+    color-scheme: dark;
+  }
+  option[value=""] {
+    color: var(--color-muted);
+  }
+  option:checked {
+    background-color: var(--color-acc-lo);
+    color: #fff;
+  }
+
   /* REQ-003-39: a jump to an anchor (e.g. /#pipeline) puts its heading below the fixed header. */
   [id] {
     scroll-margin-top: calc(72px + env(safe-area-inset-top));
