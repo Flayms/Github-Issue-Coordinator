@@ -47,3 +47,14 @@ describe("agent note", () => {
     expect(agentNote({ owner: "octo" })).toBe("> [!Note]\n> 🤖 Coordinator writing on behalf of octo");
   });
 });
+
+describe("agent note per Harness (spec 006)", () => {
+  test("REQ-006-01 / REQ-001-29 a Codex session's note names its model as Codex does, not as a Claude model", () => {
+    expect(agentNote({ owner: "octo", role: "reviewer", modelId: "gpt-6.2-sol", alias: "gpt-6.2-sol" })).toBe(
+      "> [!Note]\n> 🤖 GPT-6.2-Sol (Reviewer) writing on behalf of octo",
+    );
+    expect(agentNote({ owner: "octo", role: "reviewer", alias: "gpt-7-nova" })).toBe(
+      "> [!Note]\n> 🤖 gpt-7-nova (Reviewer) writing on behalf of octo",
+    );
+  });
+});

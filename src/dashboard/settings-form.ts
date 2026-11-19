@@ -2,6 +2,7 @@
  * The Config page's form (REQ-003-36, Extra instructions REQ-003-44): one field per editable setting, and the Settings overrides a
  * submitted form makes. Only these fields exist, so nothing else can be set from the dashboard.
  */
+
 import {
   type AutoMergeMode,
   type Config,
@@ -12,6 +13,7 @@ import {
   ROLES,
   type Role,
 } from "../config.ts";
+import type { HarnessName } from "../harness/harness.ts";
 import { inCatalogue } from "../models.ts";
 import type { Overrides, SettingsEditor } from "../overrides.ts";
 
@@ -41,6 +43,8 @@ export interface SettingsForm {
   saved: boolean;
   /** The models the sessions reported, so an alias's option says what it means now (REQ-003-40). */
   reportedModels: string[];
+  /** REQ-006-01: the Harnesses that have an Account, whose models the dropdown offers; absent: Claude Code's. */
+  harnesses?: HarnessName[];
 }
 
 const whole = (v: string): number | undefined => (/^\s*\d+\s*$/.test(v) ? Number(v) : undefined);

@@ -42,7 +42,7 @@ export function handleHook({ event, payload, store, sessionId, sessionDir }: Hoo
 
   switch (event) {
     case "SessionStart":
-      if (typeof payload.session_id === "string") store.setClaudeSessionId(sessionId, payload.session_id);
+      if (typeof payload.session_id === "string") store.setAgentSessionId(sessionId, payload.session_id);
       if (typeof payload.model === "string" && payload.model) store.setModelId(sessionId, payload.model);
       // REQ-003-42: a resume on another Account writes the transcript elsewhere, so each SessionStart updates it.
       if (typeof payload.transcript_path === "string" && payload.transcript_path)

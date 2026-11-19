@@ -1,28 +1,65 @@
 #!/usr/bin/env bun
 /**
- * Manual smoke test of the session runner against real tmux + claude (uses the subscription).
+ * Manual smoke test of the session runner against real tmux and a real Harness CLI (uses its login).
  * Starts a session in a throwaway git repo, waits for a valid Result, resumes it with a second
- * prompt, then closes it. Usage: bun scripts/smoke-runner.ts [--role implementer|reviewer] [--model haiku] [--keep]
+ * prompt, then closes it. Usage: bun scripts/smoke-runner.ts [--harness claude|codex] [--role implementer|reviewer]
+ * [--model haiku] [--fake-model] [--keep]. `--harness codex --fake-model` runs the real `codex` against a local fake
+ * model server (scripts/fake-model-server.ts): no login, no cost (docs/harnesses.md). A Harness whose CLI is
+ * missing, or that isn't logged in, is skipped.
  * Checks that the session runs with skipped permissions (REQ-005-01): no permission prompt, and the Implementer's
  * commands and commit work. Exits 1 on a mismatch. Prints the Usage quota the status line recorded (REQ-001-67); it is
  * missing on plans without rate limits, so that is no mismatch.
  */
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import type { Account } from "../src/accounts.ts";
+import { harnessByName } from "../src/harness/index.ts";
 import { SessionRunner } from "../src/runner.ts";
 import { Store } from "../src/store.ts";
 import { TmuxCli } from "../src/tmux.ts";
+import { startFakeModelServer } from "./fake-model-server.ts";
 
 const { values: opts } = parseArgs({
   options: {
+    harness: { type: "string", default: "claude" },
     role: { type: "string", default: "implementer" },
-    model: { type: "string", default: "haiku" },
+    model: { type: "string" },
+    "fake-model": { type: "boolean", default: false },
     keep: { type: "boolean", default: false },
   },
 });
+const harness = harnessByName(opts.harness ?? "claude");
+const fake = opts["fake-model"] && harness.name === "codex";
+if (opts["fake-model"] && !fake) throw new Error("--fake-model works with --harness codex only");
 const root = mkdtempSync(join(tmpdir(), "coordinator-smoke-"));
+// REQ-006-05: skip a Harness that can't run here, rather than fail.
+const version = Bun.spawnSync([harness.bin, "--version"], { stdout: "pipe", stderr: "pipe" });
+if (version.exitCode !== 0) {
+  console.log(`Skipped: \`${harness.bin}\` is not installed.`);
+  process.exit(0);
+}
+let fakeServer: ReturnType<typeof startFakeModelServer> | undefined;
+const accounts: Account[] = [{ name: "smoke", harness: harness.name }];
+if (fake) {
+  // A CODEX_HOME of its own, whose only model provider is the fake server.
+  fakeServer = startFakeModelServer();
+  const home = join(root, "codex-home");
+  mkdirSync(home, { recursive: true });
+  writeFileSync(
+    join(home, "config.toml"),
+    `model_provider = "fake"\n\n[model_providers.fake]\nname = "fake"\nbase_url = "${fakeServer.url}/v1"\nwire_api = "responses"\n`,
+  );
+  accounts[0] = { ...accounts[0], configDir: home } as Account;
+} else {
+  const login = Bun.spawnSync([harness.bin, ...harness.loginCheck.args], { stdout: "pipe", stderr: "pipe" });
+  const out = { ok: login.exitCode === 0, out: login.stdout.toString().trim() || login.stderr.toString().trim() };
+  if (!harness.loginCheck.read(out).ok) {
+    console.log(`Skipped: \`${harness.bin}\` is not logged in.`);
+    process.exit(0);
+  }
+}
 const repo = join(root, "repo");
 Bun.spawnSync(["git", "init", "-q", repo]);
 Bun.spawnSync([
@@ -62,8 +99,9 @@ const runner = new SessionRunner({
   stateDir: root,
   dbPath,
   hookCommand: [process.execPath, resolve(import.meta.dir, "../src/hook.ts")],
+  accounts,
 });
-const model = { model: opts.model ?? "haiku" };
+const model = { model: opts.model ?? (harness.name === "codex" ? (fake ? "gpt-fake" : "gpt-5.5") : "haiku") };
 
 async function waitIdle(id: number, label: string, ms = 240_000) {
   const start = Date.now();
@@ -98,7 +136,13 @@ try {
   });
   console.log(`Started session ${id} as "smoke/test#1 ${role}" (state dir ${root}).`);
   const first = await waitIdle(id, "first turn");
-  console.log(`  claude session ${first.claudeSessionId}, failures ${first.resultFailures}, result:`, result(id));
+  console.log(
+    `  ${harness.bin} session ${first.agentSessionId}, failures ${first.resultFailures}, result:`,
+    result(id),
+  );
+  if (first.harness !== harness.name) mismatches.push(`the session ran on ${first.harness}`);
+  // REQ-001-21: three invalid Results in a row means the Stop hook gave up.
+  if (first.resultFailures > 0) mismatches.push(`the first turn ended with ${first.resultFailures} invalid Results`);
 
   const log = Bun.spawnSync(["git", "-C", repo, "log", "--oneline"]).stdout.toString().trim();
   console.log(`  git log: ${JSON.stringify(log)}`);
@@ -107,7 +151,8 @@ try {
   console.log(`  notifications: ${notes.length ? notes.join(", ") : "none"}`);
   // REQ-005-01: a session with skipped permissions never asks.
   if (notes.includes("permission_prompt")) mismatches.push("the session asked for a permission");
-  if (role === "implementer") {
+  // A fake model runs no commands, so only a real one can commit.
+  if (role === "implementer" && !fake) {
     if (!log.includes("smoke")) mismatches.push("no smoke commit in the repo");
   }
 
@@ -118,7 +163,7 @@ try {
   runner.resume(id, SECOND[role], model);
   const second = await waitIdle(id, "resumed turn");
   console.log(
-    `  claude session ${second.claudeSessionId} (same: ${second.claudeSessionId === first.claudeSessionId}), result:`,
+    `  ${harness.bin} session ${second.agentSessionId} (same: ${second.agentSessionId === first.agentSessionId}), result:`,
     result(id),
   );
 
@@ -129,6 +174,7 @@ try {
 } finally {
   if (!opts.keep) Bun.spawnSync(["tmux", "kill-session", "-t", "coordinator-smoke"]);
   store.close();
+  fakeServer?.stop();
 }
 if (mismatches.length) {
   console.log(`Smoke check failed:\n  ${mismatches.join("\n  ")}`);

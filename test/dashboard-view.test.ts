@@ -28,7 +28,8 @@ const NOW = new Date("2026-11-15T10:30:00Z");
 const session = (s: Partial<SessionRecord & { live: boolean }> & Pick<SessionRecord, "id" | "role" | "issues">) => ({
   repo: "octo/app",
   kind: "issue" as const,
-  claudeSessionId: "c",
+  agentSessionId: "c",
+  harness: "claude" as const,
   state: "running" as const,
   resumeAttempts: 0,
   lastActivityAt: "2026-11-15T10:00:00.000Z",
@@ -197,6 +198,31 @@ describe("dashboard view", () => {
         NOW,
       );
       expect(plain.sessions[0]).toMatchObject({ now: null, chatUrl: null });
+    });
+
+    test("REQ-006-04 a session on a Harness without Remote Control or a Now line shows neither, not an error", () => {
+      const codex = dashboardView(
+        snapshot({
+          sessions: [
+            session({ id: 1, role: "implementer", issues: [5], transcriptPath: "/t/run.jsonl", harness: "codex" }),
+          ],
+        }),
+        config,
+        NOW,
+        { transcript: read },
+      ).sessions[0];
+      expect(codex).toMatchObject({ now: null, chatUrl: null });
+    });
+
+    test("REQ-006-04 an Account of a Harness without a Usage quota report shows no report under its Harness's name", () => {
+      const v = dashboardView(
+        snapshot({
+          accounts: [{ name: "gpt", harness: "codex", quota: null, pausedUntil: "2026-11-15T12:00:00.000Z" }],
+        }),
+        config,
+        NOW,
+      );
+      expect(v.usageQuota[0]).toMatchObject({ line: "Codex CLI", windows: [{ percent: null }, { percent: null }] });
     });
 
     test("REQ-003-43 the Remote Control URL becomes the Open chat link; without one there is none", () => {

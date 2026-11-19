@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Flayms/Github-Issue-Coordinator/actions/workflows/ci.yml/badge.svg)](https://github.com/Flayms/Github-Issue-Coordinator/actions/workflows/ci.yml)
 
-A self-hosted Bun daemon that turns your GitHub issues into reviewed pull requests: Claude Code agents triage, plan, implement and review them, and nothing is built or merged without your approval.
+A self-hosted Bun daemon that turns your GitHub issues into reviewed pull requests: Claude Code or Codex CLI agents triage, plan, implement and review them, and nothing is built or merged without your approval.
 
 <p>
   <img src="docs/images/dashboard-desktop.png" alt="The dashboard's Overview on a wide screen: what needs you, the counts, Capacity and the Usage quota" width="75%">
@@ -15,8 +15,9 @@ A self-hosted Bun daemon that turns your GitHub issues into reviewed pull reques
 - **One Worktree per issue:** each issue (or Bundle) gets its own branch, checkout and draft PR.
 - **Review and Feedback rounds:** a Reviewer with a fresh context reviews every PR; findings, failing checks and conflicts go back to the Implementer.
 - **Optional auto-merge:** the Coordinator merges reviewed PRs the Reviewer rated low risk, or none, or all.
-- **Several Accounts:** when one Claude subscription hits its usage limit, work goes on with the next.
-- **Live sessions:** every agent session shows up in the Claude app, where you can follow it and chat with it.
+- **Several Accounts:** when one subscription hits its usage limit, work goes on with the next.
+- **Claude Code or Codex CLI:** each Role runs on the Harness of its model, so a Reviewer on GPT can check an Implementer on Opus ([Harnesses](docs/harnesses.md)).
+- **Live sessions:** every Claude Code session shows up in the Claude app, where you can follow it and chat with it.
 - **Dashboard:** what needs you, what runs and why the rest waits, on your phone too.
 
 ## Quick start
@@ -220,7 +221,8 @@ Copy [`config.example.ts`](config.example.ts) to `config.ts`; every option is ex
 
 ### Accounts
 
-- List several Claude subscriptions as `accounts`; sessions run on the first one that isn't paused by a usage limit.
+- List several subscriptions as `accounts`; sessions run on the first one of their Harness that isn't paused by a usage limit.
+- A Codex CLI login is an Account with `harness: "codex"`; what Codex supports and what it lacks is in the [feature matrix](docs/harnesses.md#feature-matrix).
 - How to log in to each: [setup step 3](docs/setup.md#3-configure), [spec 004](docs/specs/004-accounts/spec.md).
 
 ### Security model
@@ -230,12 +232,12 @@ Copy [`config.example.ts`](config.example.ts) to `config.ts`; every option is ex
 
 ## Development
 
-| Command                       | Does                                                                                                               |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `bun test`                    | The test suite                                                                                                     |
-| `bun run lint`                | Biome and `tsc --noEmit` (`bun run lint:fix` autofixes)                                                            |
-| `bun scripts/smoke-runner.ts` | Real tmux + claude; needs a subscription, so it doesn't run in CI                                                  |
-| `bun run screenshots`         | The dashboard screenshots above; needs Chrome or Chromium. `bun test` fails when they are older than the dashboard |
+| Command                       | Does                                                                                                                                  |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun test`                    | The test suite                                                                                                                        |
+| `bun run lint`                | Biome and `tsc --noEmit` (`bun run lint:fix` autofixes)                                                                               |
+| `bun scripts/smoke-runner.ts` | Real tmux + claude; needs a subscription, so it doesn't run in CI. `--harness codex --fake-model`: real `codex`, fake model, no login |
+| `bun run screenshots`         | The dashboard screenshots above; needs Chrome or Chromium. `bun test` fails when they are older than the dashboard                    |
 
 - CI (`.github/workflows/ci.yml`) runs `bun install --frozen-lockfile`, `bun run lint` and `bun test` on every push to `main` and every PR, drafts included, so agent PRs here are checked before their Review.
 - Conventions: [`AGENTS.md`](AGENTS.md). Design: [docs/architecture.md](docs/architecture.md), [glossary](docs/glossary.md), [specs](docs/specs/README.md).

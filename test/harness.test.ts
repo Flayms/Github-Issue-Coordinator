@@ -1,0 +1,166 @@
+/**
+ * Spec 006: the Harness contract. The core cases run against every adapter; the optional ones only for adapters that
+ * declare the feature (REQ-006-04). Codex cases use payloads recorded from Codex CLI 0.170.0 (test/fixtures/codex).
+ */
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { codexEndedTurn, copyRollout } from "../src/harness/codex.ts";
+import { CORE_FEATURES, HARNESS_NAMES, HARNESSES, OPTIONAL_FEATURES, versionAtLeast } from "../src/harness/index.ts";
+import { handleHook } from "../src/hook.ts";
+import { HARNESS_MODELS, harnessOfModel } from "../src/models.ts";
+import { Store } from "../src/store.ts";
+
+const FIXTURES = join(import.meta.dir, "fixtures", "codex");
+const codexHooks = JSON.parse(readFileSync(join(FIXTURES, "hooks.json"), "utf8")) as Record<
+  string,
+  Record<string, unknown>
+>;
+
+let dir: string;
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), "harness-"));
+});
+afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+for (const name of HARNESS_NAMES) {
+  const h = HARNESSES[name];
+  describe(`${h.label} adapter (contract)`, () => {
+    test("REQ-006-06 declares every core feature as supported, and each optional one either way", () => {
+      for (const f of Object.keys(CORE_FEATURES)) expect(h.features[f as keyof typeof CORE_FEATURES].has).toBe(true);
+      for (const f of Object.keys(OPTIONAL_FEATURES))
+        expect(typeof h.features[f as keyof typeof OPTIONAL_FEATURES].has).toBe("boolean");
+    });
+
+    test("REQ-006-01 launches with skipped permissions, its model and the hooks of its turn end", () => {
+      const sessionDir = join(dir, "s1");
+      mkdirSync(sessionDir);
+      const hook = (ev: string) => `'hook' '${ev}'`;
+      h.writeSessionConfig({ sessionDir, cwd: "/work/app", home: dir, hook });
+      const args = h.args({ sessionDir, name: "#5 x · Planner · app", model: { model: "m-1", effort: "high" }, hook });
+      const config = [
+        args.join(" "),
+        ...(existsSync(join(sessionDir, "settings.json"))
+          ? [readFileSync(join(sessionDir, "settings.json"), "utf8")]
+          : []),
+      ].join("\n");
+      expect(args.join(" ")).toMatch(/--dangerously-(skip-permissions|bypass-approvals-and-sandbox)/);
+      expect(args).toContain("m-1");
+      expect(args.join(" ")).toContain("high");
+      for (const ev of ["SessionStart", "UserPromptSubmit", "Stop"]) expect(config).toContain(`'hook' '${ev}'`);
+    });
+
+    test("REQ-006-03 resumes by the Harness's session id", () => {
+      const args = h.args({ sessionDir: dir, name: "n", model: { model: "m" }, resumeId: "sess-9", hook: () => "h" });
+      expect(args.slice(0, 2)).toContain("sess-9");
+      expect(args.indexOf("sess-9")).toBeLessThan(2);
+    });
+
+    test("REQ-006-05 reads its login check", () => {
+      expect(h.loginCheck.args.length).toBeGreaterThan(0);
+      expect(h.loginCheck.read({ ok: false, out: "" }).ok).toBe(false);
+    });
+
+    if (h.moveTranscript)
+      test("REQ-006-04 transcriptMove: a session's transcript moves to another Account's folder", () => {
+        const from = join(dir, "from");
+        const to = join(dir, "to");
+        const file =
+          name === "claude"
+            ? join(from, "projects", "-work-app", "sess-9.jsonl")
+            : join(from, "sessions", "2026", "11", "19", "rollout-2026-11-19T18-04-30-sess-9.jsonl");
+        mkdirSync(join(file, ".."), { recursive: true });
+        writeFileSync(file, "turns\n");
+        expect(h.moveTranscript?.("sess-9", from, to)).toBe(true);
+        expect(readFileSync(file.replace(from, to), "utf8")).toBe("turns\n");
+        expect(h.moveTranscript?.("other", from, join(dir, "none"))).toBe(false);
+      });
+
+    test("REQ-006-01 its models in the Model catalogue run on it", () => {
+      for (const m of HARNESS_MODELS[name]) expect(harnessOfModel(m.value)).toBe(name);
+    });
+  });
+}
+
+describe("Harness of a model", () => {
+  test("REQ-006-01 a model outside the catalogue runs on Codex for OpenAI's names, else on Claude Code", () => {
+    expect(harnessOfModel("gpt-6.2-sol")).toBe("codex");
+    expect(harnessOfModel("gpt-7-nova")).toBe("codex");
+    expect(harnessOfModel("o3")).toBe("codex");
+    expect(harnessOfModel("opus")).toBe("claude");
+    expect(harnessOfModel("opus[1m]")).toBe("claude");
+    expect(harnessOfModel("claude-opus-5-5")).toBe("claude");
+  });
+
+  test("REQ-006-05 compares CLI versions", () => {
+    expect(versionAtLeast("0.170.0", "0.170.0")).toBe(true);
+    expect(versionAtLeast("0.171.2", "0.170.0")).toBe(true);
+    expect(versionAtLeast("0.99.9", "0.170.0")).toBe(false);
+    expect(versionAtLeast("2.1.328", "2.1.0")).toBe(true);
+  });
+});
+
+describe("Codex CLI hooks (recorded payloads)", () => {
+  let store: Store;
+  let sessionDir: string;
+  beforeEach(() => {
+    store = new Store(join(dir, "state.db"));
+    sessionDir = join(dir, "sessions", "1");
+    mkdirSync(sessionDir, { recursive: true });
+  });
+  afterEach(() => store.close());
+  const start = () =>
+    store.createSession({ repo: "octo/app", role: "reviewer", kind: "issue", issues: [5], harness: "codex" });
+  const fire = (event: string, payload: Record<string, unknown>) =>
+    handleHook({ event, payload, store, sessionId: 1, sessionDir });
+
+  test("REQ-006-01 SessionStart records Codex's session id, model and rollout", () => {
+    start();
+    fire("SessionStart", codexHooks.SessionStart as Record<string, unknown>);
+    const s = store.session(1);
+    expect(s?.agentSessionId).toBe("01a1f4fb-4535-7cb2-bc3c-78b9ba0a5a91");
+    expect(s?.modelId).toBe("gpt-fake");
+    expect(s?.transcriptPath).toEndWith("rollout-2026-11-19T18-04-30-01a1f4fb-4535-7cb2-bc3c-78b9ba0a5a91.jsonl");
+  });
+
+  test("REQ-006-01 Stop blocks the turn with the Result instructions while the Result is missing", () => {
+    start();
+    store.patchSession(1, { coordinatorPromptPending: false });
+    const out = fire("Stop", codexHooks.Stop as Record<string, unknown>);
+    expect(JSON.parse(out.stdout ?? "{}")).toMatchObject({ decision: "block" });
+    expect(store.session(1)?.resultFailures).toBe(1);
+  });
+
+  test("REQ-006-01 Stop with a valid Result ends the turn", () => {
+    start();
+    writeFileSync(
+      join(sessionDir, "result.json"),
+      JSON.stringify({ summary: "ok", risk: "low", riskReason: "tiny", findings: [] }),
+    );
+    const out = fire("Stop", codexHooks.Stop as Record<string, unknown>);
+    expect(out.stdout).toBeUndefined();
+    expect(store.session(1)).toMatchObject({ state: "idle", needsSync: true });
+  });
+});
+
+describe("Codex CLI usage limit (recorded rollout)", () => {
+  test("REQ-006-04 / REQ-001-17 a turn that ended on the usage limit is found in the rollout", () => {
+    expect(codexEndedTurn(join(FIXTURES, "rollout-usage-limit.jsonl"))).toEqual({ usageLimited: true });
+  });
+
+  test("REQ-006-04 a turn that ended normally, or is still running, is not", () => {
+    const lines = readFileSync(join(FIXTURES, "rollout-usage-limit.jsonl"), "utf8").trim().split("\n");
+    const normal = join(dir, "normal.jsonl");
+    writeFileSync(normal, `${lines.slice(0, 8).join("\n")}\n`);
+    expect(codexEndedTurn(normal)).toBeUndefined();
+    const running = join(dir, "running.jsonl");
+    writeFileSync(running, `${lines.join("\n")}\n{"type":"event_msg","payload":{"type":"task_started"}}\n`);
+    expect(codexEndedTurn(running)).toBeUndefined();
+    expect(codexEndedTurn(join(dir, "missing.jsonl"))).toBeUndefined();
+  });
+
+  test("REQ-006-04 copyRollout copies nothing without a sessions folder", () => {
+    expect(copyRollout("x", join(dir, "nowhere"), join(dir, "to"))).toBe(false);
+  });
+});

@@ -243,7 +243,7 @@ export class Implementer {
     const model = roleSettings(this.d.config, repo, "implementer");
     const own = this.d.store.latestSession(repo, issues[0] ?? 0, "implementer");
     let id: number;
-    if (own?.claudeSessionId) {
+    if (own?.agentSessionId) {
       this.d.runner.resume(own.id, prompt, model);
       id = own.id;
     } else {

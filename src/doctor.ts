@@ -9,6 +9,7 @@ import { DEFAULT_ACCOUNT } from "./accounts.ts";
 import { deprecatedSettings, githubLoginOf, importConfig, loadConfig } from "./config.ts";
 import { GhToken } from "./github/gh-token.ts";
 import { API, baseHeaders } from "./github/http.ts";
+import { harnessChecks } from "./harness/checks.ts";
 import { LiveConfig, OVERRIDES_FILE } from "./overrides.ts";
 import { tempSpaceChecks } from "./temp-space.ts";
 
@@ -28,7 +29,6 @@ const run = (cmd: string[], env?: Record<string, string | undefined>) => {
 };
 
 for (const [bin, arg] of [
-  ["claude", "--version"],
   ["tmux", "-V"],
   ["git", "--version"],
   ["gh", "--version"],
@@ -86,24 +86,9 @@ if (config?.dashboard && config.dashboard.githubLogin !== false) {
   );
 }
 
-// REQ-004-03: every Account's login (each in its own Claude config folder); without a config, the default one.
-const accounts = config?.accounts ?? [DEFAULT_ACCOUNT];
-for (const a of accounts) {
-  const check = accounts.length > 1 || a.configDir ? `claude logged in (Account ${a.name})` : "claude logged in";
-  const env = a.configDir ? { ...process.env, CLAUDE_CONFIG_DIR: a.configDir } : process.env;
-  const auth = run(["claude", "auth", "status"], env);
-  const login = a.configDir ? `CLAUDE_CONFIG_DIR=${a.configDir} claude` : "claude";
-  try {
-    const s = JSON.parse(auth.out) as { loggedIn?: boolean; subscriptionType?: string };
-    report(
-      s.loggedIn ? "ok" : "fail",
-      check,
-      s.loggedIn ? `${s.subscriptionType ?? "?"} subscription` : `run \`${login}\` and /login`,
-    );
-  } catch {
-    report("fail", check, `could not read \`${login} auth status\``);
-  }
-}
+// REQ-004-03 / REQ-006-05: each Harness in use (its CLI and version) and every Account's login, each in its own config
+// folder; without a config, Claude Code's default one.
+for (const c of harnessChecks(config?.accounts ?? [DEFAULT_ACCOUNT], run)) report(c.status, c.check, c.detail);
 
 // REQ-005-02: the one GitHub credential, the GitHub CLI's fine-grained PAT.
 let token: string | undefined;

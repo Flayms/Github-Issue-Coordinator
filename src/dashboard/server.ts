@@ -3,7 +3,9 @@
  * sessions' transcripts read for the Now line (REQ-003-42), and the Timings page the recorded Timings
  * (REQ-003-34): no store writes, and no GitHub calls besides the sign-in's (REQ-003-07, REQ-003-08). Its one write is the Owner's Settings overrides (REQ-003-36).
  */
+
 import { readFileSync } from "node:fs";
+import { harnessOfAccount } from "../accounts.ts";
 import type { Config } from "../config.ts";
 import type { TickSnapshot } from "../coordinator.ts";
 import type { Fetch } from "../github/http.ts";
@@ -195,6 +197,7 @@ function settingsForm(
     errors: failed?.errors ?? [],
     saved,
     reportedModels: d.reportedModels?.() ?? [],
+    harnesses: [...new Set(d.settings.current.accounts.map(harnessOfAccount))],
   };
 }
 

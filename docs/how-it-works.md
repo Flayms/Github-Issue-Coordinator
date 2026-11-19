@@ -112,17 +112,18 @@ Optional. Every Review names a **Risk tier** (`low`, `medium` or `high`) with a 
 
 ## The VM and GitHub access
 
-- The Coordinator runs on a **VM of its own**. Agents run with Claude Code's permission prompts skipped and no sandbox: on that VM they may do whatever they want.
+- The Coordinator runs on a **VM of its own**. Agents run with their Harness's permission prompts skipped and no sandbox: on that VM they may do whatever they want.
 - The only boundary is GitHub: the Coordinator and the agents share one fine-grained **PAT**, logged in with `gh`, limited to the repositories you choose ([spec 005](specs/005-vm-runtime/spec.md)).
 - Agents read GitHub with `gh` to look up context their prompt leaves out. Posting, labelling, pushing and opening PRs is left to the Coordinator.
 
 ## Accounts
 
-Optional: several Claude subscriptions.
+Optional: several subscriptions, of one or more Harnesses.
 
-- List them as `accounts` in the config; sessions run on the first one.
+- List them as `accounts` in the config; sessions run on the first one of their model's Harness ([Harnesses](harnesses.md)).
+- Claude Code and Codex CLI: a Role's model decides which runs it (`opus` on Claude Code, `gpt-6.2-sol` on Codex CLI); a resumed session stays on the Harness it started on. Codex sessions have no Remote Control link, no Now line and no Usage quota meters yet ([feature matrix](harnesses.md#feature-matrix)).
 - When it hits its usage limit, it is paused until the limit resets (30 minutes when the reset time can't be read), and work, including the cut-off session, goes on with the next one.
-- New work waits only while every Account is paused.
+- New work waits only while every Account of its Harness is paused.
 
 Setup: [docs/setup.md](setup.md#3-configure).
 

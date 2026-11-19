@@ -43,6 +43,7 @@ const start = (
     reportedModels?: string[];
     overrides?: object;
     instructions?: ConfigInput["instructions"];
+    accounts?: ConfigInput["accounts"];
   } = {},
 ) => {
   const dir = mkdtempSync(join(tmpdir(), "settings-"));
@@ -58,6 +59,7 @@ const start = (
     },
     repos: [{ name: "octo/app", setup: "bun install" }],
     ...(opts.instructions && { instructions: opts.instructions }),
+    ...(opts.accounts && { accounts: opts.accounts }),
     dashboard: { port: 0, githubLogin: opts.githubLogin ?? LOGIN, ...(opts.token ? { tokenPath: "/t" } : {}) },
   };
   if (opts.overrides) writeFileSync(join(dir, OVERRIDES_FILE), JSON.stringify(opts.overrides));
@@ -444,5 +446,26 @@ describe("dashboard settings", () => {
     expect(res.status).toBe(403);
     expect(settings.current.limits.maxRunning).toBe(2);
     expect(await (await fetch(`${url}/config`)).text()).not.toContain('action="/config"');
+  });
+});
+
+describe("Model dropdown per Harness (spec 006)", () => {
+  /** The labels of the select's option groups, in order. */
+  const groupsOf = (select: string) => [...select.matchAll(/<optgroup label="([^"]*)"/g)].map((m) => m[1]);
+
+  test("REQ-006-01 with Accounts of several Harnesses, the models are grouped by Harness", async () => {
+    const { url } = start({ accounts: [{ name: "main" }, { name: "gpt", harness: "codex" }] });
+    const html = await (await fetch(`${url}/config`, { headers: { cookie: owner.cookie } })).text();
+    const select = selectOf(html, "roles.reviewer.model");
+    expect(groupsOf(select)).toEqual(["Claude Code · Latest", "Claude Code · Pinned", "Codex CLI"]);
+    expect(optionsOf(select)).toContainEqual(["gpt-6.2-sol", "GPT-6.2-Sol"]);
+  });
+
+  test("REQ-006-01 only Harnesses with an Account are offered; with Claude alone the dropdown stays as it was", async () => {
+    const { url } = start();
+    const html = await (await fetch(`${url}/config`, { headers: { cookie: owner.cookie } })).text();
+    const select = selectOf(html, "roles.reviewer.model");
+    expect(groupsOf(select)).toEqual(["Latest", "Pinned"]);
+    expect(select).not.toContain("gpt-");
   });
 });

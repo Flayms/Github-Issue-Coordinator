@@ -92,7 +92,11 @@ async function main() {
   process.on("SIGTERM", stop);
   process.on("SIGINT", stop);
 
-  const dialogs = setInterval(() => runner.answerDialogs(), DIALOG_CHECK_MS);
+  const dialogs = setInterval(() => {
+    runner.answerDialogs();
+    // REQ-006-04: e.g. Codex ends a turn on the usage limit without a Stop hook.
+    for (const id of runner.detectEndedTurns()) log(`session ${id}: the turn ended on the usage limit`);
+  }, DIALOG_CHECK_MS);
   while (!stopping) {
     await coordinator.tick();
     // The poll interval is read while waiting, so a saved one applies to the wait in progress (REQ-003-36).
