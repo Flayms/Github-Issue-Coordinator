@@ -709,6 +709,39 @@ describe("Harnesses (spec 006)", () => {
     expect(store.session(claudeId)?.state).toBe("running");
   });
 
+  test("REQ-006-07 a Gemini model starts `agy` with its session settings and hooks, in the default folder", () => {
+    const agy = new SessionRunner({
+      store,
+      tmux,
+      stateDir: dir,
+      dbPath: join(dir, "state.db"),
+      hookCommand: ["bun", "/app/src/hook.ts"],
+      accounts: [{ name: "main" }, { name: "gemini", harness: "antigravity" }],
+      home,
+    });
+    const id = agy.start({
+      repo: "octo/app",
+      role: "reviewer",
+      kind: "issue",
+      issues: [5],
+      cwd: "/work/app",
+      prompt: "p",
+      model: { model: "gemini-4-neon", effort: "high" },
+    });
+    const cmd = commandOf(id);
+    const sessionDir = join(dir, "sessions", String(id));
+    expect(cmd).toStartWith(`TMPDIR=${shellQuote([tmpOf(id)])} 'agy' '--settings' `);
+    expect(cmd).toContain(`'--add-dir' ${shellQuote([sessionDir])} '--dangerously-skip-permissions'`);
+    expect(cmd).toContain("'--model' 'gemini-4-neon' '--effort' 'high' '-i' \"$(cat ");
+    expect(readFileSync(join(sessionDir, ".agents", "hooks.json"), "utf8")).toContain("'Stop'");
+    expect(store.session(id)).toMatchObject({ harness: "antigravity", account: "gemini" });
+
+    store.setAgentSessionId(id, "955778c7");
+    store.patchSession(id, { state: "idle" });
+    agy.resume(id, "go on", { model: "gemini-4-neon" });
+    expect(commandOf(id)).toContain("'agy' '--conversation' '955778c7' '--settings' ");
+  });
+
   test("REQ-006-01 the Codex trust dialog is answered with Enter", () => {
     const id = start("gpt-6.2-sol");
     const w = tmux.windows.get(`s${id}`);
@@ -751,7 +784,7 @@ describe("Copilot CLI (spec 006, #176)", () => {
   const commandOf = (id: number) => tmux.windows.get(`s${id}`)?.command ?? "";
   const pluginDir = (id: number) => join(dir, "sessions", String(id), "copilot-plugin");
 
-  test("REQ-006-07 a `copilot:` model starts `copilot` interactively on the first Copilot Account, all tools allowed", () => {
+  test("REQ-006-10 a `copilot:` model starts `copilot` interactively on the first Copilot Account, all tools allowed", () => {
     const id = start("copilot:claude-sonnet-5.5", "high");
     const cmd = commandOf(id);
     expect(cmd).toStartWith(
@@ -765,7 +798,7 @@ describe("Copilot CLI (spec 006, #176)", () => {
     expect(store.session(id)).toMatchObject({ harness: "copilot", account: "work" });
   });
 
-  test("REQ-006-07 the hooks are a plugin in the session folder, never in the Worktree or the Account's folder", () => {
+  test("REQ-006-10 the hooks are a plugin in the session folder, never in the Worktree or the Account's folder", () => {
     const id = start("copilot:gpt-6.1-sol");
     const manifest = JSON.parse(readFileSync(join(pluginDir(id), ".plugin", "plugin.json"), "utf8"));
     expect(manifest.name).toBeTruthy();
@@ -773,12 +806,12 @@ describe("Copilot CLI (spec 006, #176)", () => {
     const hook = (ev: string) => expect.stringMatching(new RegExp(`^'bun' '/app/src/hook\\.ts' '${ev}' `));
     for (const ev of ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"])
       expect(hooks[ev][0].hooks[0]).toEqual({ type: "command", command: hook(ev) });
-    // REQ-006-09: Copilot's own event for a failed model call, in Copilot's own format.
+    // REQ-006-12: Copilot's own event for a failed model call, in Copilot's own format.
     expect(hooks.errorOccurred[0]).toEqual({ type: "command", bash: hook("errorOccurred") });
     expect(existsSync(join(copilotHome(), "hooks"))).toBe(false);
   });
 
-  test("REQ-006-08 Feedback resumes the same Copilot session by its id, never the latest one", () => {
+  test("REQ-006-11 Feedback resumes the same Copilot session by its id, never the latest one", () => {
     const id = start("copilot:gpt-6.1-sol");
     store.setAgentSessionId(id, "29ca2f8f-d225-47ac-829b-bc8e93ce5e41");
     store.patchSession(id, { state: "idle" });
@@ -788,7 +821,7 @@ describe("Copilot CLI (spec 006, #176)", () => {
     expect(cmd).not.toContain("--continue");
   });
 
-  test("REQ-006-08 / REQ-001-17 a resume on another Account takes the session's folder along", () => {
+  test("REQ-006-11 / REQ-001-17 a resume on another Account takes the session's folder along", () => {
     const id = start("copilot:gpt-6.1-sol");
     const sid = "29ca2f8f-d225-47ac-829b-bc8e93ce5e41";
     store.setAgentSessionId(id, sid);

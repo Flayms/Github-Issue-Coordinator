@@ -1,0 +1,67 @@
+{
+  "//": "Hook payloads Antigravity CLI 1.5.12 sent to `.agents/hooks.json` commands (recorded against a fake Gemini API endpoint, paths shortened). StopUsageLimit: the endpoint answered 429 RESOURCE_EXHAUSTED.",
+  "SessionStart": {
+    "artifactDirectoryPath": "/home/agent/.gemini/antigravity-cli/brain/955778c7-0088-4753-8579-2e9f2d22eebd",
+    "conversationId": "955778c7-0088-4753-8579-2e9f2d22eebd",
+    "cwd": "/home/agent/coordinator/sessions/7",
+    "hookEventName": "SessionStart",
+    "lastUserInput": "Review it.",
+    "modelName": "gemini-4-neon-high",
+    "transcriptPath": "/home/agent/.gemini/antigravity-cli/brain/955778c7-0088-4753-8579-2e9f2d22eebd/.system_generated/logs/transcript_full.jsonl",
+    "workspacePaths": ["/home/agent/coordinator/sessions/7", "/work/app"]
+  },
+  "PreInvocation": {
+    "artifactDirectoryPath": "/home/agent/.gemini/antigravity-cli/brain/955778c7-0088-4753-8579-2e9f2d22eebd",
+    "conversationId": "955778c7-0088-4753-8579-2e9f2d22eebd",
+    "cwd": "/home/agent/coordinator/sessions/7",
+    "hookEventName": "PreInvocation",
+    "initialNumSteps": 1,
+    "invocationNum": 0,
+    "lastUserInput": "Review it.",
+    "modelName": "gemini-4-neon-high",
+    "transcriptPath": "/home/agent/.gemini/antigravity-cli/brain/955778c7-0088-4753-8579-2e9f2d22eebd/.system_generated/logs/transcript_full.jsonl",
+    "workspacePaths": ["/home/agent/coordinator/sessions/7", "/work/app"]
+  },
+  "PreInvocationAfterContinue": {
+    "artifactDirectoryPath": "/home/agent/.gemini/antigravity-cli/brain/955778c7-0088-4753-8579-2e9f2d22eebd",
+    "conversationId": "955778c7-0088-4753-8579-2e9f2d22eebd",
+    "cwd": "/home/agent/coordinator/sessions/7",
+    "hookEventName": "PreInvocation",
+    "initialNumSteps": 3,
+    "invocationNum": 1,
+    "lastUserInput": "Review it.",
+    "modelName": "gemini-4-neon-high",
+    "transcriptPath": "/home/agent/.gemini/antigravity-cli/brain/955778c7-0088-4753-8579-2e9f2d22eebd/.system_generated/logs/transcript_full.jsonl",
+    "workspacePaths": ["/home/agent/coordinator/sessions/7", "/work/app"]
+  },
+  "Stop": {
+    "artifactDirectoryPath": "/home/agent/.gemini/antigravity-cli/brain/955778c7-0088-4753-8579-2e9f2d22eebd",
+    "continuationActive": false,
+    "conversationId": "955778c7-0088-4753-8579-2e9f2d22eebd",
+    "cwd": "/home/agent/coordinator/sessions/7",
+    "error": "",
+    "executionNum": 0,
+    "fullyIdle": true,
+    "hookEventName": "Stop",
+    "lastUserInput": "Review it.",
+    "modelName": "gemini-4-neon-high",
+    "terminationReason": "NO_TOOL_CALL",
+    "transcriptPath": "/home/agent/.gemini/antigravity-cli/brain/955778c7-0088-4753-8579-2e9f2d22eebd/.system_generated/logs/transcript_full.jsonl",
+    "workspacePaths": ["/home/agent/coordinator/sessions/7", "/work/app"]
+  },
+  "StopUsageLimit": {
+    "artifactDirectoryPath": "/home/agent/.gemini/antigravity-cli/brain/955778c7-0088-4753-8579-2e9f2d22eebd",
+    "continuationActive": false,
+    "conversationId": "955778c7-0088-4753-8579-2e9f2d22eebd",
+    "cwd": "/home/agent/coordinator/sessions/7",
+    "error": "generating and executing: Error 429, Message: You exceeded your current quota, please check your plan and billing details. Please retry in 3h12m5s., Status: RESOURCE_EXHAUSTED, Details: [map[@type:type.googleapis.com/google.rpc.RetryInfo retryDelay:11525s]]",
+    "executionNum": 0,
+    "fullyIdle": true,
+    "hookEventName": "Stop",
+    "lastUserInput": "Review it.",
+    "modelName": "gemini-4-neon-high",
+    "terminationReason": "ERROR",
+    "transcriptPath": "/home/agent/.gemini/antigravity-cli/brain/955778c7-0088-4753-8579-2e9f2d22eebd/.system_generated/logs/transcript_full.jsonl",
+    "workspacePaths": ["/home/agent/coordinator/sessions/7", "/work/app"]
+  }
+}

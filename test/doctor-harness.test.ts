@@ -51,13 +51,40 @@ describe("setup check per Harness (spec 006)", () => {
       { status: "fail", check: "codex logged in", detail: "run `codex` with the `login` subcommand" },
     ]);
   });
+
+  test("REQ-006-05 Antigravity CLI: its version and whether `agy models` finds a login", () => {
+    const signedIn = harnessChecks(
+      [{ name: "gemini", harness: "antigravity" }],
+      fakeRun({
+        "agy --version": { ok: true, out: "1.5.12" },
+        "agy models": { ok: true, out: "Fetching available models...\ngemini-4-neon-high\tGemini 4 Neon (High)" },
+      }),
+      {},
+    );
+    expect(signedIn).toEqual([
+      { status: "ok", check: "agy installed", detail: "1.5.12" },
+      { status: "ok", check: "agy logged in", detail: "signed in" },
+    ]);
+    const signedOut = harnessChecks(
+      [{ name: "gemini", harness: "antigravity" }],
+      fakeRun({
+        "agy --version": { ok: true, out: "1.4.0" },
+        "agy models": { ok: false, out: "Error: Please sign in to view available models." },
+      }),
+      {},
+    );
+    expect(signedOut).toEqual([
+      { status: "warn", check: "agy installed", detail: "1.4.0; checked with 1.5.12 or newer" },
+      { status: "fail", check: "agy logged in", detail: "run `agy` without arguments and sign in" },
+    ]);
+  });
 });
 
 describe("setup check for Copilot CLI (spec 006, #176)", () => {
   const dir = mkdtempSync(join(tmpdir(), "doctor-copilot-"));
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-  test("REQ-006-10 checks the CLI version and reads each Account's login from its folder, without a login command", () => {
+  test("REQ-006-13 checks the CLI version and reads each Account's login from its folder, without a login command", () => {
     const work = join(dir, ".copilot-work");
     mkdirSync(work);
     writeFileSync(
@@ -86,7 +113,7 @@ describe("setup check for Copilot CLI (spec 006, #176)", () => {
     ]);
   });
 
-  test("REQ-006-10 an old CLI is reported; an Account without its own folder uses ~/.copilot", () => {
+  test("REQ-006-13 an old CLI is reported; an Account without its own folder uses ~/.copilot", () => {
     mkdirSync(join(dir, ".copilot"), { recursive: true });
     writeFileSync(
       join(dir, ".copilot", "config.json"),

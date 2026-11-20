@@ -541,6 +541,68 @@
     animation-duration: 17s;
     animation-delay: -4.5s;
   }
+  /*
+   * REQ-003-46: the Timings page's capsules hold a liquid per kind: an agent's indigo (the default), the
+   * checks' darker one, the Owner's amber (amber means "your move", REQ-003-17) and, in the queue tile, a
+   * grey one. `meters.js` tints the moving liquid the same way. A wait in the queue is empty glass.
+   */
+  .tube[data-tint="checks"] .liquid {
+    background: linear-gradient(180deg, #6a63c7, #4a4399 50%, #262158);
+    box-shadow:
+      0 0 6px rgb(74 67 153 / 0.4),
+      inset 0 1px 0 rgb(255 255 255 / 0.22),
+      inset 0 -1px 2px rgb(10 8 40 / 0.6);
+  }
+  .tube[data-tint="owner"] .liquid {
+    background: linear-gradient(180deg, #f3d39a, var(--color-warn) 50%, #7a5a1e);
+    box-shadow:
+      0 0 8px rgb(217 178 106 / 0.4),
+      inset 0 1px 0 rgb(255 255 255 / 0.35),
+      inset 0 -1px 2px rgb(60 40 8 / 0.55);
+  }
+  .tube[data-tint="queued"] .liquid {
+    background: linear-gradient(180deg, #8f90a6, #5d5e73 50%, #2e2f3d);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.25),
+      inset 0 -1px 2px rgb(0 0 0 / 0.5);
+  }
+  .tube.gl[data-tint="checks"] .liquid {
+    box-shadow: 0 0 6px rgb(74 67 153 / 0.4);
+  }
+  .tube.gl[data-tint="owner"] .liquid {
+    box-shadow: 0 0 8px rgb(217 178 106 / 0.4);
+  }
+  .tube.gl[data-tint="queued"] .liquid {
+    box-shadow: none;
+  }
+  /* A capsule as small as a dot, for the legend and the phone's list of steps. */
+  .pill {
+    display: inline-block;
+    flex-shrink: 0;
+    width: 22px;
+    height: 10px;
+    border-radius: 9999px;
+    background: linear-gradient(180deg, rgb(255 255 255 / 0.03), rgb(255 255 255 / 0.07));
+    box-shadow:
+      inset 0 0 0 1px rgb(255 255 255 / 0.12),
+      inset 0 1px 2px rgb(0 0 0 / 0.55);
+  }
+  .pill[data-kind="agent"] {
+    background: linear-gradient(180deg, var(--color-acc-hi), var(--color-acc) 50%, var(--color-acc-lo));
+    box-shadow:
+      0 0 6px rgb(124 114 255 / 0.45),
+      inset 0 1px 0 rgb(255 255 255 / 0.35);
+  }
+  .pill[data-kind="checks"] {
+    background: linear-gradient(180deg, #6a63c7, #4a4399 50%, #262158);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.22);
+  }
+  .pill[data-kind="owner"] {
+    background: linear-gradient(180deg, #f3d39a, var(--color-warn) 50%, #7a5a1e);
+    box-shadow:
+      0 0 6px rgb(217 178 106 / 0.4),
+      inset 0 1px 0 rgb(255 255 255 / 0.35);
+  }
   .slots {
     position: absolute;
     inset: 2px;

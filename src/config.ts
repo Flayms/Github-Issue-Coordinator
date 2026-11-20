@@ -83,7 +83,10 @@ const accountSchema = z.strictObject({
   name: z.string().regex(/^[\w.-]+$/, "letters, digits, '.', '_' or '-' only"),
   /** The Harness the login is for; absent: `claude` (Claude Code). */
   harness: z.enum(HARNESS_NAMES).optional(),
-  /** The Harness's config folder (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`); absent: its default, e.g. `~/.claude`. */
+  /**
+   * The Harness's config folder (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`); absent: its default, e.g. `~/.claude`. Antigravity
+   * CLI has none (REQ-006-09).
+   */
   configDir: z
     .string()
     .min(1)
@@ -179,6 +182,14 @@ const configSchema = z
       if (names.has(a.name))
         ctx.addIssue({ code: "custom", path: ["accounts", i, "name"], message: `duplicate Account ${a.name}` });
       names.add(a.name);
+      // REQ-006-09: a Harness without a per-login folder has one Account, in its default folder.
+      const h = HARNESSES[harnessOfAccount(a)];
+      if (a.configDir && !h.accountEnv)
+        ctx.addIssue({
+          code: "custom",
+          path: ["accounts", i, "configDir"],
+          message: `${h.label} keeps one login per user, so its Account takes no configDir`,
+        });
       const dir = a.configDir ?? `(default ${harnessOfAccount(a)})`;
       const other = dirs.get(dir);
       if (other)

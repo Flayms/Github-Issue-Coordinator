@@ -32,7 +32,7 @@ export function harnessChecks(accounts: readonly Account[], run: Run, env = proc
     for (const a of own) {
       const named = accounts.length > 1 || a.configDir;
       const check = named ? `${h.bin} logged in (Account ${a.name})` : `${h.bin} logged in`;
-      const login = a.configDir ? `${h.accountEnv}=${a.configDir} ${h.bin}` : h.bin;
+      const login = a.configDir && h.accountEnv ? `${h.accountEnv}=${a.configDir} ${h.bin}` : h.bin;
       const result = loginStatus(h, a, run, env);
       checks.push({
         status: result.ok ? "ok" : "fail",
@@ -48,5 +48,6 @@ export function harnessChecks(accounts: readonly Account[], run: Run, env = proc
 export function loginStatus(h: Harness, a: Account, run: Run, env = process.env): LoginStatus {
   const check = h.loginCheck;
   if ("readFolder" in check) return check.readFolder(accountDir(a, env.HOME ?? homedir()), env);
-  return check.read(run([h.bin, ...check.args], a.configDir ? { ...env, [h.accountEnv]: a.configDir } : env));
+  const folderEnv = a.configDir && h.accountEnv ? { [h.accountEnv]: a.configDir } : undefined;
+  return check.read(run([h.bin, ...check.args], folderEnv ? { ...env, ...folderEnv } : env));
 }

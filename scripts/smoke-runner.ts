@@ -2,10 +2,10 @@
 /**
  * Manual smoke test of the session runner against real tmux and a real Harness CLI (uses its login).
  * Starts a session in a throwaway git repo, waits for a valid Result, resumes it with a second
- * prompt, then closes it. Usage: bun scripts/smoke-runner.ts [--harness claude|codex|copilot]
- * [--role implementer|reviewer] [--model haiku] [--fake-model] [--keep]. `--fake-model` with `--harness codex` or
- * `--harness copilot` runs the real CLI against a local fake model server (scripts/fake-model-server.ts): no login, no
- * cost (docs/harnesses.md). A Harness whose CLI is missing, or that isn't logged in, is skipped.
+ * prompt, then closes it. Usage: bun scripts/smoke-runner.ts [--harness claude|codex|antigravity|copilot]
+ * [--role implementer|reviewer] [--model haiku] [--fake-model] [--keep]. `--fake-model` with `--harness codex`,
+ * `antigravity` or `copilot` runs the real CLI against a local fake model server (scripts/fake-model-server.ts): no
+ * login, no cost (docs/harnesses.md). A Harness whose CLI is missing, or that isn't logged in, is skipped.
  * Checks that the session runs with skipped permissions (REQ-005-01): no permission prompt, and the Implementer's
  * commands and commit work. Exits 1 on a mismatch. Prints the Usage quota the status line recorded (REQ-001-67); it is
  * missing on plans without rate limits, so that is no mismatch.
@@ -33,7 +33,8 @@ const { values: opts } = parseArgs({
 });
 const harness = harnessByName(opts.harness ?? "claude");
 const fake = opts["fake-model"] && harness.name !== "claude";
-if (opts["fake-model"] && !fake) throw new Error("--fake-model works with --harness codex or copilot only");
+if (opts["fake-model"] && !fake)
+  throw new Error("--fake-model works with --harness codex, antigravity or copilot only");
 const root = mkdtempSync(join(tmpdir(), "coordinator-smoke-"));
 // REQ-006-05: skip a Harness that can't run here, rather than fail.
 const version = Bun.spawnSync([harness.bin, "--version"], { stdout: "pipe", stderr: "pipe" });
@@ -43,24 +44,34 @@ if (version.exitCode !== 0) {
 }
 let fakeServer: ReturnType<typeof startFakeModelServer> | undefined;
 const accounts: Account[] = [{ name: "smoke", harness: harness.name }];
-const tmuxSession = "coordinator-smoke";
-if (fake && harness.name === "copilot") {
+const tmux = new TmuxCli("coordinator-smoke");
+if (fake && harness.name === "antigravity") {
+  // Antigravity has no folder per login (REQ-006-09): a home folder of its own whose settings send model requests to
+  // the Gemini API, here the fake server. Its windows get the variables from the tmux session.
+  fakeServer = startFakeModelServer();
+  const home = join(root, "home");
+  mkdirSync(join(home, ".gemini", "antigravity-cli"), { recursive: true });
+  writeFileSync(join(home, ".gemini", "antigravity-cli", "settings.json"), JSON.stringify({ modelProvider: "gemini" }));
+  const vars = { HOME: home, GEMINI_API_KEY: "fake", GOOGLE_GEMINI_BASE_URL: fakeServer.url };
+  Bun.spawnSync(["tmux", "kill-session", "-t", "coordinator-smoke"], { stderr: "ignore" });
+  const env = Object.entries(vars).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
+  Bun.spawnSync(["tmux", "new-session", "-d", "-s", "coordinator-smoke", "-n", "keepalive", ...env]);
+} else if (fake && harness.name === "copilot") {
   // A COPILOT_HOME of its own, and the fake server as the only model provider (`copilot help providers-env`), set on
   // the smoke run's own tmux session so its windows get it and no other session does.
   fakeServer = startFakeModelServer();
   const home = join(root, "copilot-home");
   mkdirSync(home, { recursive: true });
   accounts[0] = { ...accounts[0], configDir: home } as Account;
-  const tmuxRun = (args: string[]) => Bun.spawnSync(["tmux", ...args], { stdout: "ignore", stderr: "ignore" });
-  if (tmuxRun(["has-session", "-t", tmuxSession]).exitCode !== 0)
-    tmuxRun(["new-session", "-d", "-s", tmuxSession, "-n", "keepalive", "-x", "200", "-y", "50"]);
   const vars = {
     COPILOT_PROVIDER_BASE_URL: `${fakeServer.url}/v1`,
     COPILOT_PROVIDER_WIRE_API: "responses",
     // No GitHub sign-in, telemetry or update check.
     COPILOT_OFFLINE: "true",
   };
-  for (const [k, v] of Object.entries(vars)) tmuxRun(["set-environment", "-t", tmuxSession, k, v]);
+  Bun.spawnSync(["tmux", "kill-session", "-t", "coordinator-smoke"], { stderr: "ignore" });
+  const env = Object.entries(vars).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
+  Bun.spawnSync(["tmux", "new-session", "-d", "-s", "coordinator-smoke", "-n", "keepalive", ...env]);
 } else if (fake) {
   // A CODEX_HOME of its own, whose only model provider is the fake server.
   fakeServer = startFakeModelServer();
@@ -113,7 +124,6 @@ const SECOND = {
 };
 const dbPath = join(root, "state.db");
 const store = new Store(dbPath);
-const tmux = new TmuxCli(tmuxSession);
 const runner = new SessionRunner({
   store,
   tmux,
@@ -125,8 +135,9 @@ const runner = new SessionRunner({
 const DEFAULT_MODEL = {
   claude: "haiku",
   codex: fake ? "gpt-fake" : "gpt-5.5",
+  antigravity: "gemini-3.6-flash",
   copilot: fake ? "copilot:gpt-fake" : "copilot:claude-haiku-5.5",
-};
+} as const;
 const model = { model: opts.model ?? DEFAULT_MODEL[harness.name] };
 
 async function waitIdle(id: number, label: string, ms = 240_000) {
@@ -198,7 +209,7 @@ try {
     console.log(`Closed: state ${store.session(id)?.state}, window live: ${runner.liveSessionIds().has(id)}`);
   } else console.log("Kept: tmux attach -t coordinator-smoke");
 } finally {
-  if (!opts.keep) Bun.spawnSync(["tmux", "kill-session", "-t", tmuxSession]);
+  if (!opts.keep) Bun.spawnSync(["tmux", "kill-session", "-t", "coordinator-smoke"]);
   store.close();
   fakeServer?.stop();
 }

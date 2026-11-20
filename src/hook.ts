@@ -6,14 +6,14 @@
  * - SessionStart: records Claude's session id (needed to resume), the model it runs (REQ-001-29) and its transcript's
  *   path, for the dashboard's Now line (REQ-003-42).
  * - UserPromptSubmit: marks the session running; a prompt after the Coordinator's own is the Owner's (REQ-001-19), except
- *   the reason of a blocked Stop, which Copilot CLI submits as the next prompt (REQ-006-07).
+ *   the reason of a blocked Stop, which Copilot CLI submits as the next prompt (REQ-006-10).
  * - Stop: validates the Result and blocks the stop while it is invalid, up to 3 times (REQ-001-21);
  *   otherwise marks the session idle and queues a sync (REQ-001-19). A turn cut off by the usage
  *   limit is never blocked (REQ-001-17).
  * - StopFailure: fires instead of Stop when an API error ended the turn; `error: "rate_limit"` is the usage limit,
  *   which marks the session for its Account's pause (REQ-001-17).
  * - errorOccurred: Copilot CLI's event for a failed model call; a rate limit or a used-up quota is the usage limit,
- *   since no Stop fires then (REQ-006-09).
+ *   since no Stop fires then (REQ-006-12).
  * - StatusLine: run as the session's status line command, not as a hook; records the Account's Usage quota and
  *   prints it for the session's window (REQ-001-67).
  * Every hook payload is appended to <sessionDir>/events.jsonl, so unknown shapes can be captured (T0 (e)); the status
@@ -22,6 +22,7 @@
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Role } from "./config.ts";
+import { harnessByName } from "./harness/index.ts";
 import { findingsToAnswer, resultInstructions, validateResult } from "./results.ts";
 import { type QuotaWindow, Store, type UsageQuota } from "./store.ts";
 
@@ -43,7 +44,23 @@ export function handleHook({ event, payload, store, sessionId, sessionDir }: Hoo
   );
   const session = store.session(sessionId);
   if (!session) return {};
+  // Spec 006: a Harness whose hooks differ from Claude Code's translates them (e.g. Antigravity, REQ-006-07).
+  const harness = harnessByName(session.harness);
+  const input = harness.hookInput ? harness.hookInput(event, payload, nowOf(store)) : { event, payload };
+  if (!input) return {};
+  const out = handleEvent(input.event, input.payload, store, sessionId, sessionDir);
+  return out.stdout && harness.hookOutput ? { stdout: harness.hookOutput(input.event, out.stdout) } : out;
+}
 
+function handleEvent(
+  event: string,
+  payload: Record<string, unknown>,
+  store: Store,
+  sessionId: number,
+  sessionDir: string,
+): { stdout?: string } {
+  const session = store.session(sessionId);
+  if (!session) return {};
   switch (event) {
     case "SessionStart":
       if (typeof payload.session_id === "string") store.setAgentSessionId(sessionId, payload.session_id);
@@ -59,14 +76,16 @@ export function handleHook({ event, payload, store, sessionId, sessionDir }: Hoo
       else store.patchSession(sessionId, { state: "running", ownerMessagedAt: new Date(nowOf(store)).toISOString() });
       return {};
 
-    // REQ-006-09: Copilot CLI ends the turn without Stop; the error is in the payload only as text.
+    // REQ-006-12: Copilot CLI ends the turn without Stop; the error is in the payload only as text.
     case "errorOccurred":
       if (isCopilotUsageLimit(payload)) markUsageLimited(store, sessionId, undefined);
       return {};
 
     // REQ-001-17: Claude Code fires this instead of Stop when an API error ended the turn; its output is ignored.
+    // `resets_at` (ISO) comes from a Harness that reports the reset time in the hook (REQ-006-08).
     case "StopFailure":
-      if (payload.error === "rate_limit") markUsageLimited(store, sessionId, payload.transcript_path);
+      if (payload.error === "rate_limit")
+        markUsageLimited(store, sessionId, payload.transcript_path, payload.resets_at);
       return {};
 
     case "Stop": {
@@ -102,13 +121,13 @@ export function handleHook({ event, payload, store, sessionId, sessionDir }: Hoo
   }
 }
 
-/** REQ-006-07: the reason of a blocked Stop ends with the Result instructions (see "Stop" above). */
+/** REQ-006-10: the reason of a blocked Stop ends with the Result instructions (see "Stop" above). */
 function isBlockReason(prompt: unknown, role: Role, sessionDir: string): boolean {
   return typeof prompt === "string" && prompt.endsWith(resultInstructions(role, join(sessionDir, "result.json")));
 }
 
 /**
- * REQ-006-09: a model call that failed on a rate limit (`rate_limit_error`, "You've hit your rate limit") or a used-up
+ * REQ-006-12: a model call that failed on a rate limit (`rate_limit_error`, "You've hit your rate limit") or a used-up
  * plan (`quota_exceeded`), as Copilot CLI 1.0.114 reports it to `errorOccurred`.
  */
 export function isCopilotUsageLimit(payload: Record<string, unknown>): boolean {
@@ -117,9 +136,10 @@ export function isCopilotUsageLimit(payload: Record<string, unknown>): boolean {
   return typeof message === "string" && /rate.?limit|quota/i.test(message);
 }
 
-/** REQ-001-17: marks the session for its Account's pause, with the reset time if the transcript reports one. */
-function markUsageLimited(store: Store, sessionId: number, transcriptPath: unknown): void {
-  const usageLimitResetsAt = usageLimitResetTime(transcriptPath, nowOf(store)) ?? null;
+/** REQ-001-17: marks the session for its Account's pause, with the reset time if the hook or transcript reports one. */
+function markUsageLimited(store: Store, sessionId: number, transcriptPath: unknown, resetsAt?: unknown): void {
+  const reported = typeof resetsAt === "string" && Date.parse(resetsAt) > nowOf(store) ? resetsAt : undefined;
+  const usageLimitResetsAt = reported ?? usageLimitResetTime(transcriptPath, nowOf(store)) ?? null;
   store.patchSession(sessionId, { state: "idle", usageLimited: true, usageLimitResetsAt });
 }
 

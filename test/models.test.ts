@@ -61,7 +61,7 @@ describe("Model catalogue", () => {
     expect(modelOptionLabel("claude-sonnet-5-5", reported)).toBe("Sonnet 5.5");
   });
 
-  test("REQ-006-07 Copilot's models stay apart from the same vendors' models on their own Harness", () => {
+  test("REQ-006-10 Copilot's models stay apart from the same vendors' models on their own Harness", () => {
     const copilot = HARNESS_MODELS.copilot.map((m) => m.value);
     expect(copilot.length).toBeGreaterThan(0);
     for (const v of copilot) expect(v).toStartWith("copilot:");

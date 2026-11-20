@@ -1,11 +1,11 @@
 /**
- * Harnesses (spec 006): the agent CLIs a session can run in, e.g. Claude Code or Codex CLI. Each adapter
+ * Harnesses (spec 006): the agent CLIs a session can run in, e.g. Claude Code, Codex CLI or Antigravity CLI. Each adapter
  * declares the Harness features it has (REQ-006-06): every Harness has the core ones, and the optional ones
  * are used wherever a Harness declares them (REQ-006-04), never cut down to what all Harnesses share.
  */
 import type { RoleSettings } from "../config.ts";
 
-export const HARNESS_NAMES = ["claude", "codex", "copilot"] as const;
+export const HARNESS_NAMES = ["claude", "codex", "antigravity", "copilot"] as const;
 export type HarnessName = (typeof HARNESS_NAMES)[number];
 
 /** Features every Harness provides, by the name the feature matrix shows (docs/harnesses.md). */
@@ -82,8 +82,11 @@ export interface Harness {
   readonly features: Readonly<
     Record<CoreFeature, FeatureSupport & { has: true }> & Record<OptionalFeature, FeatureSupport>
   >;
-  /** The variable naming an Account's config folder, e.g. `CLAUDE_CONFIG_DIR`. */
-  readonly accountEnv: string;
+  /**
+   * The variable naming an Account's config folder, e.g. `CLAUDE_CONFIG_DIR`. Absent for a Harness without a per-login
+   * folder, which supports one Account in its default folder (REQ-006-09).
+   */
+  readonly accountEnv?: string;
   /** The config folder of an Account without its own, under the home folder (e.g. `.claude`). */
   readonly defaultAccountFolder: string;
   readonly dialogs: readonly Dialog[];
@@ -99,6 +102,17 @@ export interface Harness {
   moveTranscript?(agentSessionId: string, fromDir: string, toDir: string): boolean;
   /** A turn that ended without the turn-end hook (feature `usageLimit` without a hook for it). */
   endedTurn?(transcriptPath: string): EndedTurn | undefined;
+  /**
+   * A hook event and payload of this Harness as src/hook.ts handles them (Claude Code's names and fields); undefined
+   * for an event it has nothing to do on. Absent: the Harness already sends them that way (e.g. Codex).
+   */
+  hookInput?(
+    event: string,
+    payload: Record<string, unknown>,
+    now?: number,
+  ): { event: string; payload: Record<string, unknown> } | undefined;
+  /** The hook script's answer to an event (after `hookInput`) in this Harness's own terms, e.g. its Stop decision. */
+  hookOutput?(event: string, stdout: string): string;
 }
 
 /** "1.2.3" ≥ "1.2"? Missing parts count as 0; non-numbers as 0. */

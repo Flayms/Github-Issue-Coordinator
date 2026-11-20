@@ -1,5 +1,5 @@
 /**
- * The Copilot CLI Harness (REQ-006-07): interactive `copilot` sessions with every tool, path and URL allowed
+ * The Copilot CLI Harness (REQ-006-10): interactive `copilot` sessions with every tool, path and URL allowed
  * (REQ-005-01). Its hooks come from a plugin in the session folder (`--plugin-dir`), so nothing is written into the
  * Worktree or the Account's `COPILOT_HOME`. Checked against Copilot CLI 1.0.114 and a fake model server
  * (docs/harnesses.md).
@@ -14,7 +14,7 @@ import type { Harness, LoginStatus } from "./harness.ts";
  */
 export const COPILOT_HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"] as const;
 
-/** REQ-006-09: Copilot's own event for a failed model call; no Stop fires when a rate limit ends the turn. */
+/** REQ-006-12: Copilot's own event for a failed model call; no Stop fires when a rate limit ends the turn. */
 export const COPILOT_ERROR_EVENT = "errorOccurred";
 
 /** Model values in the Model catalogue carry this prefix, so they stay apart from other Harnesses' models. */
@@ -26,7 +26,7 @@ const TOKEN_ENV = ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"] as const;
 const pluginDir = (sessionDir: string) => join(sessionDir, "copilot-plugin");
 
 /**
- * REQ-006-10: Copilot has no command that reports the login. `copilot login` stores the account in
+ * REQ-006-13: Copilot has no command that reports the login. `copilot login` stores the account in
  * `<COPILOT_HOME>/config.json` (`loggedInUsers`; the token in the keyring or that file), a JSON file with `//` comments.
  */
 export function copilotLogin(accountDir: string, env: Record<string, string | undefined>): LoginStatus {

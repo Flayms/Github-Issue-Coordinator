@@ -293,7 +293,7 @@ export class SessionRunner {
     const tmp = this.tmpDir(id);
     mkdirSync(tmp, { recursive: true });
     const vars: [string, string][] = [["TMPDIR", tmp], ...Object.entries(harness.env({ tmp }))];
-    if (account.configDir) vars.push([harness.accountEnv, account.configDir]);
+    if (account.configDir && harness.accountEnv) vars.push([harness.accountEnv, account.configDir]);
     const env = vars.map(([k, v]) => `${k}=${/^\w+$/.test(v) ? v : shellQuote([v])} `).join("");
     const bin = this.o.bins?.[harness.name] ?? harness.bin;
     const command = `${env}${shellQuote([bin, ...args])} "$(cat ${shellQuote([promptPath])})"`;

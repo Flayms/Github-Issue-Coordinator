@@ -121,7 +121,7 @@ Optional. Every Review names a **Risk tier** (`low`, `medium` or `high`) with a 
 Optional: several subscriptions, of one or more Harnesses.
 
 - List them as `accounts` in the config; sessions run on the first one of their model's Harness ([Harnesses](harnesses.md)).
-- Claude Code, Codex CLI and Copilot CLI: a Role's model decides which runs it (`opus` on Claude Code, `gpt-6.2-sol` on Codex CLI, `copilot:claude-sonnet-5.5` on Copilot CLI); a resumed session stays on the Harness it started on. Codex and Copilot sessions have no Remote Control link, no Now line and no Usage quota meters yet, and their Accounts pause for the default interval on a usage limit ([feature matrix](harnesses.md#feature-matrix)).
+- Claude Code, Codex CLI, Antigravity CLI and Copilot CLI: a Role's model decides which runs it (`opus` on Claude Code, `gpt-6.2-sol` on Codex CLI, `gemini-4-neon` on Antigravity CLI, `copilot:claude-sonnet-5.5` on Copilot CLI); a resumed session stays on the Harness it started on. Codex, Antigravity and Copilot sessions have no Remote Control link, no Now line and no Usage quota meters yet, Antigravity has one Account, and Copilot's Accounts pause for the default interval on a usage limit ([feature matrix](harnesses.md#feature-matrix)).
 - When it hits its usage limit, it is paused until the limit resets (30 minutes when the reset time can't be read), and work, including the cut-off session, goes on with the next one.
 - New work waits only while every Account of its Harness is paused.
 
@@ -144,7 +144,7 @@ On by default ([setup](setup.md#4-dashboard), [spec 003](specs/003-dashboard/spe
 ### Config and Timings
 
 - The **Config page** shows the settings without secrets. Once you are signed in, it lets you change limits, poll interval, the auto-merge mode, each Role's model and effort and its Extra instructions (also per repository); a model is picked from a list of aliases ("Opus (latest)") and pinned versions ("Opus 5.5"). They apply from the next tick on, without a restart, and are kept over `config.ts` in the state dir.
-- The **Timings page** shows one issue's Planning, Building and Review as bars of waiting, agent and checks time.
+- The **Timings page** shows one issue's Planning, Building and Review on one time axis, each step a glass capsule like the Capacity meters: indigo liquid while an agent works, darker for checks, amber for your time (only with "Include your time"; otherwise it is cut out of the axis) and empty glass while waiting in the queue. Tiles above it give the total, the agents' and the queue's share and the rounds. On a phone each phase has its own scale.
 
 ### Behaviour and access
 
