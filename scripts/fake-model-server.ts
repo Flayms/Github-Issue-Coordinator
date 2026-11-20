@@ -35,7 +35,29 @@ const geminiDone = () =>
     { headers: { "content-type": "text/event-stream" } },
   );
 
-/** Starts the server on a free port; `base_url` for Codex is `<url>/v1`, `GOOGLE_GEMINI_BASE_URL` for Antigravity `<url>`. */
+/** The OpenAI Chat Completions API's answer, streamed: the text "Done." (OpenCode's `@ai-sdk/openai-compatible`). */
+const chatDone = (n: number) => {
+  const chunk = (delta: object, finish: string | null, usage?: object) =>
+    `data: ${JSON.stringify({
+      id: `chatcmpl_${n}`,
+      object: "chat.completion.chunk",
+      created: 0,
+      model: "fake-model",
+      choices: [{ index: 0, delta, finish_reason: finish }],
+      ...(usage && { usage }),
+    })}\n\n`;
+  return new Response(
+    chunk({ role: "assistant", content: "Done." }, null) +
+      chunk({}, "stop", { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }) +
+      "data: [DONE]\n\n",
+    { headers: { "content-type": "text/event-stream" } },
+  );
+};
+
+/**
+ * Starts the server on a free port; `base_url` for Codex is `<url>/v1`, `GOOGLE_GEMINI_BASE_URL` for Antigravity
+ * `<url>`, `baseURL` of an OpenAI-compatible provider (OpenCode) `<url>/v1`.
+ */
 export function startFakeModelServer(): { url: string; stop: () => void } {
   let n = 0;
   const server = Bun.serve({
@@ -46,6 +68,10 @@ export function startFakeModelServer(): { url: string; stop: () => void } {
       if (path.includes(":streamGenerateContent") && req.method === "POST") {
         writeResult(await req.text());
         return geminiDone();
+      }
+      if (path.endsWith("/chat/completions") && req.method === "POST") {
+        writeResult(await req.text());
+        return chatDone(++n);
       }
       if (!path.endsWith("/responses") || req.method !== "POST") return new Response("{}", { status: 404 });
       writeResult(await req.text());

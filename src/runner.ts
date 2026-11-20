@@ -133,7 +133,7 @@ export class SessionRunner {
   private prepare(id: number, opts: StartOptions): void {
     mkdirSync(this.sessionDir(id), { recursive: true });
     writeFileSync(join(this.sessionDir(id), "meta.json"), JSON.stringify({ cwd: opts.cwd } satisfies SessionMeta));
-    this.writeSettings(id, opts.cwd);
+    this.writeSettings(id, opts.cwd, opts.model);
   }
 
   /** The hook command line of one event for a session. */
@@ -142,9 +142,9 @@ export class SessionRunner {
   }
 
   /** The Harness's per-session config (REQ-005-01), rewritten on every resume. */
-  private writeSettings(id: number, cwd: string): void {
+  private writeSettings(id: number, cwd: string, model: RoleSettings): void {
     const harness = this.harnessOf(id);
-    harness.writeSessionConfig({ sessionDir: this.sessionDir(id), cwd, home: this.home(), hook: this.hook(id) });
+    harness.writeSessionConfig({ sessionDir: this.sessionDir(id), cwd, home: this.home(), hook: this.hook(id), model });
   }
 
   /** REQ-006-03: the Harness a session started on; a resume stays on it. */
@@ -166,7 +166,7 @@ export class SessionRunner {
     const meta = JSON.parse(readFileSync(join(this.sessionDir(id), "meta.json"), "utf8")) as SessionMeta;
     try {
       this.o.tmux.killWindow(`s${id}`);
-      this.writeSettings(id, meta.cwd);
+      this.writeSettings(id, meta.cwd, model);
       this.o.store.patchSession(id, {
         state: "running",
         resultFailures: 0,
@@ -292,7 +292,7 @@ export class SessionRunner {
     // REQ-001-62: temp files go to the session's own folder (`os.tmpdir()`, `mktemp`, Chrome profiles, the CLI's own).
     const tmp = this.tmpDir(id);
     mkdirSync(tmp, { recursive: true });
-    const vars: [string, string][] = [["TMPDIR", tmp], ...Object.entries(harness.env({ tmp }))];
+    const vars: [string, string][] = [["TMPDIR", tmp], ...Object.entries(harness.env({ tmp, sessionDir: dir }))];
     if (account.configDir && harness.accountEnv) vars.push([harness.accountEnv, account.configDir]);
     const env = vars.map(([k, v]) => `${k}=${/^\w+$/.test(v) ? v : shellQuote([v])} `).join("");
     const bin = this.o.bins?.[harness.name] ?? harness.bin;

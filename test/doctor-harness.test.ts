@@ -78,6 +78,31 @@ describe("setup check per Harness (spec 006)", () => {
       { status: "fail", check: "agy logged in", detail: "run `agy` without arguments and sign in" },
     ]);
   });
+
+  test("REQ-006-05 OpenCode: its version and whether `opencode models` offers a model (free ones need no login)", () => {
+    const zen = [{ name: "zen", harness: "opencode" as const }];
+    expect(
+      harnessChecks(
+        zen,
+        fakeRun({
+          "opencode --version": { ok: true, out: "1.19.6" },
+          "opencode models": { ok: true, out: "opencode/big-pickle\nopencode/beam-free" },
+        }),
+        {},
+      ),
+    ).toEqual([
+      { status: "ok", check: "opencode installed", detail: "1.19.6" },
+      { status: "ok", check: "opencode logged in", detail: "2 models" },
+    ]);
+    expect(harnessChecks(zen, fakeRun({ "opencode --version": { ok: true, out: "1.18.0" } }), {})).toEqual([
+      { status: "warn", check: "opencode installed", detail: "1.18.0; checked with 1.19.6 or newer" },
+      {
+        status: "fail",
+        check: "opencode logged in",
+        detail: "run `opencode` with `providers login`, or set a provider's API key",
+      },
+    ]);
+  });
 });
 
 describe("setup check for Copilot CLI (spec 006, #176)", () => {

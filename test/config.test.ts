@@ -260,6 +260,17 @@ describe("Harnesses (spec 006)", () => {
     ]);
   });
 
+  test("REQ-006-16 OpenCode has one Account, in its default data folder", () => {
+    const oc = { name: "zen", harness: "opencode" as const };
+    expect(issuesOf({ ...valid(), accounts: [{ name: "main" }, oc] })).toEqual([]);
+    expect(issuesOf({ ...valid(), accounts: [{ name: "main" }, { ...oc, configDir: "/home/a/.oc" }] })).toEqual([
+      "accounts.1.configDir: OpenCode keeps one login per user, so its Account takes no configDir",
+    ]);
+    expect(issuesOf({ ...valid(), accounts: [{ name: "main" }, oc, { ...oc, name: "zen2" }] })).toEqual([
+      "accounts.2.configDir: same folder as Account zen",
+    ]);
+  });
+
   test("REQ-006-01 a Role whose model's Harness has no Account is a config error", () => {
     const v = valid();
     expect(issuesOf({ ...v, roles: codexRoles(v) })).toEqual([

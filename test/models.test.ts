@@ -72,4 +72,13 @@ describe("Model catalogue", () => {
     expect(modelLabel("copilot:auto")).toBe("Auto (Copilot)");
     expect(modelLabel("copilot:some-new-model")).toBe("some-new-model (Copilot)");
   });
+
+  test("REQ-006-14 OpenCode's models carry the `opencode:` prefix and name their provider's model", () => {
+    const opencode = HARNESS_MODELS.opencode.map((m) => m.value);
+    expect(opencode).toContain("opencode:opencode/big-pickle");
+    for (const v of opencode) expect(v).toStartWith("opencode:opencode/");
+    expect(modelLabel("opencode:opencode/big-pickle")).toBe("Big Pickle (OpenCode)");
+    // Any provider OpenCode reaches, also one the catalogue doesn't list.
+    expect(modelLabel("opencode:anthropic/claude-sonnet-5-5")).toBe("anthropic/claude-sonnet-5-5 (OpenCode)");
+  });
 });

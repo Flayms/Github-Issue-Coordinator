@@ -469,6 +469,14 @@ describe("Model dropdown per Harness (spec 006)", () => {
     expect(optionsOf(select)).toContainEqual(["gemini-4-neon", "Gemini 4 Neon"]);
   });
 
+  test("REQ-006-14 with an OpenCode Account, its models are offered under their own group", async () => {
+    const { url } = start({ accounts: [{ name: "main" }, { name: "zen", harness: "opencode" }] });
+    const html = await (await fetch(`${url}/config`, { headers: { cookie: owner.cookie } })).text();
+    const select = selectOf(html, "roles.reviewer.model");
+    expect(groupsOf(select)).toEqual(["Claude Code · Latest", "Claude Code · Pinned", "OpenCode"]);
+    expect(optionsOf(select)).toContainEqual(["opencode:opencode/big-pickle", "Big Pickle (OpenCode)"]);
+  });
+
   test("REQ-006-01 only Harnesses with an Account are offered; with Claude alone the dropdown stays as it was", async () => {
     const { url } = start();
     const html = await (await fetch(`${url}/config`, { headers: { cookie: owner.cookie } })).text();

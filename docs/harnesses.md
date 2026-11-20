@@ -1,10 +1,10 @@
 # Harnesses
 
 A **Harness** is the agent CLI a session runs in (spec 006). The Coordinator supports **Claude Code**, **Codex CLI**,
-**Antigravity CLI** and **Copilot CLI**. Each Role runs on the Harness of its model: `opus` or `claude-opus-5-5` on
-Claude Code, `gpt-6.2-sol` on Codex CLI, `gemini-4-neon` on Antigravity CLI, `copilot:claude-sonnet-5.5` or
-`copilot:gpt-6.1-sol` on Copilot CLI (REQ-006-01, REQ-006-07, REQ-006-10). A resumed session stays on the Harness it
-started on (REQ-006-03).
+**Antigravity CLI**, **Copilot CLI** and **OpenCode**. Each Role runs on the Harness of its model: `opus` or
+`claude-opus-5-5` on Claude Code, `gpt-6.2-sol` on Codex CLI, `gemini-4-neon` on Antigravity CLI,
+`copilot:claude-sonnet-5.5` or `copilot:gpt-6.1-sol` on Copilot CLI, `opencode:opencode/big-pickle` on OpenCode
+(REQ-006-01, REQ-006-07, REQ-006-10, REQ-006-14). A resumed session stays on the Harness it started on (REQ-006-03).
 
 ## Feature matrix
 
@@ -14,19 +14,19 @@ down to what every Harness can do. The table is built from what each adapter in 
 `bun test` fails when the two differ (REQ-006-06), so adding a Harness or a feature updates this table in the same PR.
 
 <!-- feature-matrix:start (generated from src/harness; bun test checks it) -->
-| Feature                                  | Claude Code                         | Codex CLI                                       | Antigravity CLI                     | Copilot CLI                     |
-| ---------------------------------------- | ----------------------------------- | ----------------------------------------------- | ----------------------------------- | ------------------------------- |
-| Start in tmux, skip permissions (core)   | ✅ `--dangerously-skip-permissions` | ✅ `--dangerously-bypass-approvals-and-sandbox` | ✅ `--dangerously-skip-permissions` | ✅ `--allow-all`                |
-| Resume by session id (core)              | ✅ `--resume`                       | ✅ `codex resume`                               | ✅ `--conversation`                 | ✅ `--resume <id>`              |
-| Turn-end hook (Result validation) (core) | ✅ `Stop`                           | ✅ `Stop`                                       | ✅ `Stop`                           | ✅ `Stop` (`agentStop`)         |
-| Login check (`bun run doctor`) (core)    | ✅ `claude auth status`             | ✅ `codex login status`                         | ✅ `agy models`                     | ✅ `config.json` of the Account |
-| Remote Control / Open chat               | ✅ `--remote-control`               | ❌                                              | ❌                                  | ❌                              |
-| Now line from the transcript             | ✅ transcript                       | ❌                                              | ❌                                  | ❌                              |
-| Usage quota meters                       | ✅ status line                      | ❌                                              | ❌                                  | ❌                              |
-| Usage limit detected                     | ✅ `StopFailure`                    | ✅ rollout `task_complete` error                | ✅ `Stop` error                     | ✅ `errorOccurred`              |
-| Usage limit with reset time              | ✅ transcript                       | ❌                                              | ✅ `retryDelay` of the error        | ❌                              |
-| Transcript move on Account switch        | ✅ copied                           | ✅ rollout copied                               | ❌                                  | ✅ `session-state/<id>/` copied |
-| Minimum CLI version                      | `claude` 2.1.0                      | `codex` 0.170.0                                 | `agy` 1.5.12                        | `copilot` 1.0.114               |
+| Feature                                  | Claude Code                         | Codex CLI                                       | Antigravity CLI                     | Copilot CLI                     | OpenCode                         |
+| ---------------------------------------- | ----------------------------------- | ----------------------------------------------- | ----------------------------------- | ------------------------------- | -------------------------------- |
+| Start in tmux, skip permissions (core)   | ✅ `--dangerously-skip-permissions` | ✅ `--dangerously-bypass-approvals-and-sandbox` | ✅ `--dangerously-skip-permissions` | ✅ `--allow-all`                | ✅ `--auto`, `permission: allow` |
+| Resume by session id (core)              | ✅ `--resume`                       | ✅ `codex resume`                               | ✅ `--conversation`                 | ✅ `--resume <id>`              | ✅ `--session <id>`              |
+| Turn-end hook (Result validation) (core) | ✅ `Stop`                           | ✅ `Stop`                                       | ✅ `Stop`                           | ✅ `Stop` (`agentStop`)         | ✅ plugin on `session.idle`      |
+| Login check (`bun run doctor`) (core)    | ✅ `claude auth status`             | ✅ `codex login status`                         | ✅ `agy models`                     | ✅ `config.json` of the Account | ✅ `opencode models`             |
+| Remote Control / Open chat               | ✅ `--remote-control`               | ❌                                              | ❌                                  | ❌                              | ❌                               |
+| Now line from the transcript             | ✅ transcript                       | ❌                                              | ❌                                  | ❌                              | ❌                               |
+| Usage quota meters                       | ✅ status line                      | ❌                                              | ❌                                  | ❌                              | ❌                               |
+| Usage limit detected                     | ✅ `StopFailure`                    | ✅ rollout `task_complete` error                | ✅ `Stop` error                     | ✅ `errorOccurred`              | ✅ plugin on a `retry` status    |
+| Usage limit with reset time              | ✅ transcript                       | ❌                                              | ✅ `retryDelay` of the error        | ❌                              | ❌                               |
+| Transcript move on Account switch        | ✅ copied                           | ✅ rollout copied                               | ❌                                  | ✅ `session-state/<id>/` copied | ❌                               |
+| Minimum CLI version                      | `claude` 2.1.0                      | `codex` 0.170.0                                 | `agy` 1.5.12                        | `copilot` 1.0.114               | `opencode` 1.19.6                |
 
 - **Codex CLI, Remote Control / Open chat:** Codex has no link into a phone or web app; attach to tmux instead.
 - **Codex CLI, Now line from the transcript:** the rollout format differs from Claude's transcript; not read yet.
@@ -40,6 +40,11 @@ down to what every Harness can do. The table is built from what each adapter in 
 - **Copilot CLI, Now line from the transcript:** the session's event log differs from Claude's transcript; not read yet.
 - **Copilot CLI, Usage quota meters:** Copilot shows it only in `/usage`; not read yet.
 - **Copilot CLI, Usage limit with reset time:** not in the hook's payload; the Account pauses for the default interval.
+- **OpenCode, Remote Control / Open chat:** OpenCode's `serve` / `web` could open a session in a browser; not wired up yet.
+- **OpenCode, Now line from the transcript:** OpenCode keeps sessions in a SQLite database, not a transcript file; not read yet.
+- **OpenCode, Usage quota meters:** OpenCode reports no quota of the provider.
+- **OpenCode, Usage limit with reset time:** OpenCode only says when it retries; the Account pauses for the default interval.
+- **OpenCode, Transcript move on Account switch:** one Account only: logins and sessions share OpenCode's data folder, which only `XDG_DATA_HOME` moves, and that would move every other tool's data in the session too.
 <!-- feature-matrix:end -->
 
 To regenerate the block: `bun -e 'import { featureMatrix } from "./src/harness/matrix.ts"; console.log(featureMatrix())'`.
@@ -162,14 +167,67 @@ How a Copilot session runs:
   `errorOccurred` hook then (`errorContext: "model_call"`, the provider's message in `error.message`), and the
   Coordinator pauses the Account for the default interval (REQ-006-12), since the payload has no reset time.
 
+## Setting up OpenCode
+
+OpenCode (`opencode`) reaches many providers with their own keys or logins, and its Zen gateway has free models that
+need no login at all, so it is the cheapest Harness to run for real.
+
+1. Install it, version 1.19.6 or newer: `bun i -g opencode-ai` (or `npm i -g opencode-ai`, or
+   `curl -fsSL https://opencode.ai/install | bash`).
+2. Nothing else for a free Zen model. For another provider, log in once as the Coordinator's user
+   (`opencode providers login`), or give the Coordinator that provider's API key in its environment.
+3. Add the Account to `config.ts` with `harness: "opencode"` and no `configDir`:
+
+   ```ts
+   accounts: [
+     { name: "claude" },
+     { name: "zen", harness: "opencode" },
+   ],
+   ```
+
+   OpenCode keeps its logins and its sessions in one data folder per user (`~/.local/share/opencode`), which only
+   `XDG_DATA_HOME` moves. That would move every other tool's data in the session too, and a resume on another Account
+   would need the session database copied, so OpenCode has **one Account** (REQ-006-16).
+
+4. Pick an OpenCode model for a Role: `opencode:<provider>/<model>`, e.g. `opencode:opencode/big-pickle` (free) or
+   `opencode:anthropic/claude-sonnet-5-5`. The prefix keeps them apart from the same models on their own Harness. The
+   Config page lists the free Zen models of OpenCode 1.19.6; free models come and go, and `opencode models` lists the
+   current ones. A Role's effort becomes the model's variant (e.g. `high`); a variant the model lacks is ignored.
+5. `bun run doctor` checks `opencode`, its version, and that `opencode models` offers a model (REQ-006-05).
+
+How an OpenCode session runs:
+
+- `OPENCODE_CONFIG_DIR=<session>/opencode opencode [--session <id>] --mini --auto --model <provider>/<model> --prompt <prompt>`.
+  `--mini` is OpenCode's minimal interactive interface: the full TUI ignores `--prompt` when it opens an existing
+  session, so a resume would never get its prompt.
+- **Config for the session only:** `OPENCODE_CONFIG_DIR` adds a config folder in the session folder to the user's own
+  config: `opencode.json` with `permission: "allow"`, no sharing and no auto-update, and for a Role's effort the
+  default agent's variant (`agent.build`, with the same model: OpenCode has no flag for it). Nothing goes into the
+  Worktree or `~/.config/opencode`.
+- **Hooks:** OpenCode has no shell hooks, only JS plugins. `plugins/coordinator.js` in that folder, written on every
+  launch, runs the hook script on OpenCode's events, one at a time in their order, with Claude Code's event names and
+  fields: the first prompt of a session in this process as `SessionStart` (session id, model), each user prompt as
+  `UserPromptSubmit`, `session.idle` as `Stop`. A blocked `Stop`'s reason goes back as the next prompt
+  (`client.session.promptAsync`); the hook recognises it, so it doesn't count as the Owner's message. A turn the Owner
+  interrupts (Esc) gets no `Stop`, as with Claude Code, and subagent sessions are left alone. Hook errors go to the
+  session's `hook-errors.log`.
+- **Resume:** `opencode --session <id>`, never `--continue` (the latest session is ambiguous across Worktrees). An
+  unknown id ends the CLI.
+- **Usage limit:** OpenCode retries a rate-limited call without end, after the provider's `retry-after`, and reports
+  each retry as a `session.status` of type `retry`. The plugin passes them on; the third retry of a rate limit or quota
+  is the usage limit (REQ-006-15): the session is marked, the Account pauses for the default interval, and the plugin
+  aborts the turn (`client.session.abort`), so it doesn't go on behind the Coordinator's back.
+
 ## Testing without a subscription
 
 - **Recorded payloads:** `test/fixtures/codex/` holds hook payloads and a rollout recorded from Codex CLI 0.170.0;
   `test/fixtures/antigravity/` hook payloads recorded from Antigravity CLI 1.5.12, a quota error among them;
-  `test/fixtures/copilot/` the hook payloads and a `config.json` recorded from Copilot CLI 1.0.114.
-- **Fake Harness CLI:** `test/support/fake-harness.ts` takes Codex's, Antigravity's or Copilot's command line, fires
-  its hooks and writes a Result, so `bun test` runs a Codex, an Antigravity and a Copilot session through real tmux and
-  the real hook script.
+  `test/fixtures/copilot/` the hook payloads and a `config.json` recorded from Copilot CLI 1.0.114;
+  `test/fixtures/opencode/` the payloads the plugin sent from OpenCode 1.19.6, a rate-limit retry among them.
+- **Fake Harness CLI:** `test/support/fake-harness.ts` takes Codex's, Antigravity's, Copilot's or OpenCode's command
+  line, fires its hooks and writes a Result, so `bun test` runs a session of each through real tmux and the real hook
+  script. For OpenCode it loads the real generated plugin and feeds it OpenCode's events, and `test/opencode.test.ts`
+  runs that plugin with a fake OpenCode client (block, abort, interrupt, subagents, a failing hook).
 - **Contract suite:** `test/harness.test.ts` runs the core cases against every adapter and the optional ones only
   where the adapter declares the feature. A new Harness has to pass it.
 - **Real Codex, fake model:** `bun scripts/smoke-runner.ts --harness codex --fake-model` runs the real `codex`
@@ -190,6 +248,13 @@ How a Copilot session runs:
   no login. This is how the Copilot column was checked: the plugin's hooks and their payloads, the `Stop` block and
   its prompt, resume by id, a session folder copied to another `COPILOT_HOME`, and `errorOccurred` on a 429 from the
   model.
+- **Real OpenCode, fake model:** `bun scripts/smoke-runner.ts --harness opencode --fake-model` runs the real
+  `opencode` with the fake server as an OpenAI-compatible provider (`OPENCODE_CONFIG_CONTENT`, the server's
+  `/v1/chat/completions`) and a data folder of its own, with no login and no cost. This, and the same setup by hand,
+  checked the plugin's hooks and payloads, a blocked `Stop` re-prompted, resume by id, and the abort after the third
+  429 retry.
+- **Real OpenCode, free model:** `bun scripts/smoke-runner.ts --harness opencode` runs `opencode:opencode/big-pickle`,
+  a free Zen model (pass `--model opencode:<provider>/<model>` for another). It uses the user's OpenCode data folder.
 - **Real Copilot, real model:** `bun scripts/smoke-runner.ts --harness copilot` uses the default `~/.copilot`'s login
   and `copilot:claude-haiku-5.5` (pass `--model copilot:<id>` for another); it skips when there is no login.
 

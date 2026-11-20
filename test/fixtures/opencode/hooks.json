@@ -1,0 +1,21 @@
+{
+  "SessionStart": {
+    "hook_event_name": "SessionStart",
+    "session_id": "ses_e06d8aa75ffeTJsuqaLTkpifOS",
+    "model": "fake/fake-model"
+  },
+  "UserPromptSubmit": {
+    "hook_event_name": "UserPromptSubmit",
+    "session_id": "ses_e06d8aa75ffeTJsuqaLTkpifOS",
+    "prompt": "Review it."
+  },
+  "Stop": {
+    "hook_event_name": "Stop",
+    "session_id": "ses_e06d8aa75ffeTJsuqaLTkpifOS"
+  },
+  "RetryStatus": {
+    "hook_event_name": "session.status",
+    "session_id": "ses_e06d00622ffeKuLlP6qmqkfS6O",
+    "status": { "type": "retry", "attempt": 3, "message": "Rate limit reached for requests", "next": 1795182126636 }
+  }
+}

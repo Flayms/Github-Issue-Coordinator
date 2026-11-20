@@ -121,7 +121,7 @@ Optional. Every Review names a **Risk tier** (`low`, `medium` or `high`) with a 
 Optional: several subscriptions, of one or more Harnesses.
 
 - List them as `accounts` in the config; sessions run on the first one of their model's Harness ([Harnesses](harnesses.md)).
-- Claude Code, Codex CLI, Antigravity CLI and Copilot CLI: a Role's model decides which runs it (`opus` on Claude Code, `gpt-6.2-sol` on Codex CLI, `gemini-4-neon` on Antigravity CLI, `copilot:claude-sonnet-5.5` on Copilot CLI); a resumed session stays on the Harness it started on. Codex, Antigravity and Copilot sessions have no Remote Control link, no Now line and no Usage quota meters yet, Antigravity has one Account, and Copilot's Accounts pause for the default interval on a usage limit ([feature matrix](harnesses.md#feature-matrix)).
+- Claude Code, Codex CLI, Antigravity CLI, Copilot CLI and OpenCode: a Role's model decides which runs it (`opus` on Claude Code, `gpt-6.2-sol` on Codex CLI, `gemini-4-neon` on Antigravity CLI, `copilot:claude-sonnet-5.5` on Copilot CLI, `opencode:opencode/big-pickle` on OpenCode); a resumed session stays on the Harness it started on. Codex, Antigravity, Copilot and OpenCode sessions have no Remote Control link, no Now line and no Usage quota meters yet, Antigravity and OpenCode have one Account each, and Copilot's and OpenCode's Accounts pause for the default interval on a usage limit ([feature matrix](harnesses.md#feature-matrix)).
 - When it hits its usage limit, it is paused until the limit resets (30 minutes when the reset time can't be read), and work, including the cut-off session, goes on with the next one.
 - New work waits only while every Account of its Harness is paused.
 

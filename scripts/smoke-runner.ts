@@ -2,10 +2,10 @@
 /**
  * Manual smoke test of the session runner against real tmux and a real Harness CLI (uses its login).
  * Starts a session in a throwaway git repo, waits for a valid Result, resumes it with a second
- * prompt, then closes it. Usage: bun scripts/smoke-runner.ts [--harness claude|codex|antigravity|copilot]
+ * prompt, then closes it. Usage: bun scripts/smoke-runner.ts [--harness claude|codex|antigravity|copilot|opencode]
  * [--role implementer|reviewer] [--model haiku] [--fake-model] [--keep]. `--fake-model` with `--harness codex`,
- * `antigravity` or `copilot` runs the real CLI against a local fake model server (scripts/fake-model-server.ts): no
- * login, no cost (docs/harnesses.md). A Harness whose CLI is missing, or that isn't logged in, is skipped.
+ * `antigravity`, `copilot` or `opencode` runs the real CLI against a local fake model server
+ * (scripts/fake-model-server.ts): no login, no cost (docs/harnesses.md). OpenCode without it runs a free Zen model. A Harness whose CLI is missing, or that isn't logged in, is skipped.
  * Checks that the session runs with skipped permissions (REQ-005-01): no permission prompt, and the Implementer's
  * commands and commit work. Exits 1 on a mismatch. Prints the Usage quota the status line recorded (REQ-001-67); it is
  * missing on plans without rate limits, so that is no mismatch.
@@ -34,7 +34,7 @@ const { values: opts } = parseArgs({
 const harness = harnessByName(opts.harness ?? "claude");
 const fake = opts["fake-model"] && harness.name !== "claude";
 if (opts["fake-model"] && !fake)
-  throw new Error("--fake-model works with --harness codex, antigravity or copilot only");
+  throw new Error("--fake-model works with --harness codex, antigravity, copilot or opencode only");
 const root = mkdtempSync(join(tmpdir(), "coordinator-smoke-"));
 // REQ-006-05: skip a Harness that can't run here, rather than fail.
 const version = Bun.spawnSync([harness.bin, "--version"], { stdout: "pipe", stderr: "pipe" });
@@ -68,6 +68,24 @@ if (fake && harness.name === "antigravity") {
     COPILOT_PROVIDER_WIRE_API: "responses",
     // No GitHub sign-in, telemetry or update check.
     COPILOT_OFFLINE: "true",
+  };
+  Bun.spawnSync(["tmux", "kill-session", "-t", "coordinator-smoke"], { stderr: "ignore" });
+  const env = Object.entries(vars).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
+  Bun.spawnSync(["tmux", "new-session", "-d", "-s", "coordinator-smoke", "-n", "keepalive", ...env]);
+} else if (fake && harness.name === "opencode") {
+  // OpenCode has one Account (REQ-006-16): a data folder of its own for the smoke run's sessions, and the fake server
+  // as an OpenAI-compatible provider in an inline config, set on the smoke run's own tmux session.
+  fakeServer = startFakeModelServer();
+  const provider = {
+    npm: "@ai-sdk/openai-compatible",
+    name: "Fake",
+    options: { baseURL: `${fakeServer.url}/v1`, apiKey: "fake" },
+    models: { "fake-model": { name: "Fake model" } },
+  };
+  const vars = {
+    OPENCODE_CONFIG_CONTENT: JSON.stringify({ provider: { fake: provider } }),
+    XDG_DATA_HOME: join(root, "opencode-data"),
+    XDG_STATE_HOME: join(root, "opencode-state"),
   };
   Bun.spawnSync(["tmux", "kill-session", "-t", "coordinator-smoke"], { stderr: "ignore" });
   const env = Object.entries(vars).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
@@ -137,6 +155,7 @@ const DEFAULT_MODEL = {
   codex: fake ? "gpt-fake" : "gpt-5.5",
   antigravity: "gemini-3.6-flash",
   copilot: fake ? "copilot:gpt-fake" : "copilot:claude-haiku-5.5",
+  opencode: fake ? "opencode:fake/fake-model" : "opencode:opencode/big-pickle",
 } as const;
 const model = { model: opts.model ?? DEFAULT_MODEL[harness.name] };
 

@@ -1,11 +1,11 @@
 /**
- * Harnesses (spec 006): the agent CLIs a session can run in, e.g. Claude Code, Codex CLI or Antigravity CLI. Each adapter
+ * Harnesses (spec 006): the agent CLIs a session can run in, e.g. Claude Code, Codex CLI or OpenCode. Each adapter
  * declares the Harness features it has (REQ-006-06): every Harness has the core ones, and the optional ones
  * are used wherever a Harness declares them (REQ-006-04), never cut down to what all Harnesses share.
  */
 import type { RoleSettings } from "../config.ts";
 
-export const HARNESS_NAMES = ["claude", "codex", "antigravity", "copilot"] as const;
+export const HARNESS_NAMES = ["claude", "codex", "antigravity", "copilot", "opencode"] as const;
 export type HarnessName = (typeof HARNESS_NAMES)[number];
 
 /** Features every Harness provides, by the name the feature matrix shows (docs/harnesses.md). */
@@ -90,12 +90,21 @@ export interface Harness {
   /** The config folder of an Account without its own, under the home folder (e.g. `.claude`). */
   readonly defaultAccountFolder: string;
   readonly dialogs: readonly Dialog[];
-  /** Writes the session's per-session config (hooks) into its folder; called on every launch. */
-  writeSessionConfig(o: { sessionDir: string; cwd: string; home: string; hook: (event: string) => string }): void;
+  /**
+   * Writes the session's per-session config (hooks) into its folder; called on every launch, with the Role's model
+   * for a Harness that takes part of it from that config (OpenCode's effort).
+   */
+  writeSessionConfig(o: {
+    sessionDir: string;
+    cwd: string;
+    home: string;
+    hook: (event: string) => string;
+    model?: RoleSettings;
+  }): void;
   /** The command line before the prompt, which the runner appends as the last argument. */
   args(o: LaunchInput): string[];
-  /** Variables the CLI needs besides the Account's folder and `TMPDIR`. */
-  env(o: { tmp: string }): Record<string, string>;
+  /** Variables the CLI needs besides the Account's folder and `TMPDIR`, e.g. where its per-session config is. */
+  env(o: { tmp: string; sessionDir: string }): Record<string, string>;
   /** How `bun run doctor` checks an Account's login (REQ-006-05). */
   loginCheck: LoginCheck;
   /** Copies a session's transcript to another Account's folder (feature `transcriptMove`). */
@@ -111,7 +120,10 @@ export interface Harness {
     payload: Record<string, unknown>,
     now?: number,
   ): { event: string; payload: Record<string, unknown> } | undefined;
-  /** The hook script's answer to an event (after `hookInput`) in this Harness's own terms, e.g. its Stop decision. */
+  /**
+   * The hook script's answer to an event (after `hookInput`) in this Harness's own terms, e.g. its Stop decision; the
+   * answer may be empty (e.g. OpenCode aborts a turn the usage limit ended, REQ-006-15). Empty output prints nothing.
+   */
   hookOutput?(event: string, stdout: string): string;
 }
 
