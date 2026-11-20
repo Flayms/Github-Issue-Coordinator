@@ -461,6 +461,14 @@ describe("Model dropdown per Harness (spec 006)", () => {
     expect(optionsOf(select)).toContainEqual(["gpt-6.2-sol", "GPT-6.2-Sol"]);
   });
 
+  test("REQ-006-07 with an Antigravity Account, its Gemini models are offered", async () => {
+    const { url } = start({ accounts: [{ name: "main" }, { name: "gemini", harness: "antigravity" }] });
+    const html = await (await fetch(`${url}/config`, { headers: { cookie: owner.cookie } })).text();
+    const select = selectOf(html, "roles.reviewer.model");
+    expect(groupsOf(select)).toEqual(["Claude Code · Latest", "Claude Code · Pinned", "Antigravity CLI"]);
+    expect(optionsOf(select)).toContainEqual(["gemini-4-neon", "Gemini 4 Neon"]);
+  });
+
   test("REQ-006-01 only Harnesses with an Account are offered; with Claude alone the dropdown stays as it was", async () => {
     const { url } = start();
     const html = await (await fetch(`${url}/config`, { headers: { cookie: owner.cookie } })).text();

@@ -2,9 +2,11 @@
 
 ## Approach
 
-A `Harness` interface in `src/harness/` with one adapter per agent CLI (`claude.ts`, `codex.ts`). Each adapter has the core methods (command line, per-session config, dialogs, login check) and declares its Harness features as data; optional features come with optional methods (`moveTranscript`, `endedTurn`). The runner, the setup check and the dashboard ask the adapter instead of hard-coding `claude`. The Harness follows from the model (`harnessOfModel`), so the Owner picks one thing per Role and invalid pairs like Codex + Opus can't happen. A session records its Harness, so a resume stays on it.
+A `Harness` interface in `src/harness/` with one adapter per agent CLI (`claude.ts`, `codex.ts`, `antigravity.ts`). Each adapter has the core methods (command line, per-session config, dialogs, login check) and declares its Harness features as data; optional features come with optional methods (`moveTranscript`, `endedTurn`). The runner, the setup check and the dashboard ask the adapter instead of hard-coding `claude`. The Harness follows from the model (`harnessOfModel`), so the Owner picks one thing per Role and invalid pairs like Codex + Opus can't happen. A session records its Harness, so a resume stays on it.
 
 Codex needs nothing written into the Account's `CODEX_HOME`: its hooks go on the command line as `-c` overrides. Its hook events and payload fields match Claude Code's, so `src/hook.ts` serves both. The one gap, no Stop hook on the usage limit, is covered by reading the rollout's last turn event every few seconds.
+
+Antigravity's hooks differ in names, fields and the Stop decision, so an adapter may translate payloads for `src/hook.ts` and its answer back (`hookInput`, `hookOutput`). Its hooks load only from a workspace folder, so the session folder becomes a second one; it has no folder per login, so it has one Account (`accountEnv` absent).
 
 The feature matrix in `docs/harnesses.md` is generated from the declarations (`src/harness/matrix.ts`) and compared by a test, so it can't drift.
 
@@ -23,3 +25,7 @@ Testing without subscriptions: recorded Codex payloads, a fake Harness CLI that 
 - [x] Fake Harness CLI, contract suite, smoke runner `--harness` and `--fake-model`
 - [x] Docs: README, architecture, how-it-works, setup, glossary, known pitfalls
 - [ ] Manual: one real Codex Planner turn on a scratch repo with a real login
+- [x] Antigravity CLI adapter (#177): `.agents/hooks.json` in the session folder added with `--add-dir`, session-only `--settings` (trust, no plan review), hook payloads translated for `src/hook.ts` (`hookInput`, `hookOutput`), resume by `--conversation`, quota error on `Stop` with `retryDelay` (REQ-006-07, REQ-006-08)
+- [x] One Antigravity Account: `accountEnv` optional in the interface, config check (REQ-006-09)
+- [x] Gemini models in the Model catalogue, `doctor` via `agy models`, fake Harness CLI and smoke runner `--harness antigravity [--fake-model]` (REQ-006-05, REQ-006-07)
+- [ ] Manual: one real Antigravity Planner turn on a scratch repo with a free Google login

@@ -1,7 +1,8 @@
 /**
- * A fake OpenAI Responses API for smoke runs of Codex CLI without a login (docs/harnesses.md). Each request is
- * answered with one assistant message; when the prompt asks for a Result, the server writes a valid one to the path
- * it names first, as a model would with its file tool. Only for `scripts/smoke-runner.ts --fake-model`.
+ * A fake model server for smoke runs without a login (docs/harnesses.md): the OpenAI Responses API for Codex CLI, and
+ * the Gemini API's `streamGenerateContent` for Antigravity CLI. Each request is answered with one assistant message;
+ * when the prompt asks for a Result, the server writes a valid one to the path it names first, as a model would with
+ * its file tool. Only for `scripts/smoke-runner.ts --fake-model`.
  */
 import { writeFileSync } from "node:fs";
 
@@ -17,7 +18,24 @@ function fakeResult(prompt: string): object {
 const sse = (events: { type: string }[]) =>
   events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join("");
 
-/** Starts the server on a free port; `base_url` for Codex is `<url>/v1`. */
+/** Writes the Result the latest prompt in the request asks for, if any. */
+function writeResult(body: string): void {
+  // The latest Result path in the conversation; JSON-escaped inside the request.
+  const resultPath = [...body.matchAll(/write your Result as JSON to (\S+?result\.json)/g)].at(-1)?.[1];
+  if (resultPath) writeFileSync(resultPath, JSON.stringify(fakeResult(body)));
+}
+
+/** The Gemini API's answer: one streamed chunk with the text "Done." (Antigravity CLI 1.5.12 sends `alt=sse`). */
+const geminiDone = () =>
+  new Response(
+    `data: ${JSON.stringify({
+      candidates: [{ content: { role: "model", parts: [{ text: "Done." }] }, finishReason: "STOP", index: 0 }],
+      usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 },
+    })}\r\n\r\n`,
+    { headers: { "content-type": "text/event-stream" } },
+  );
+
+/** Starts the server on a free port; `base_url` for Codex is `<url>/v1`, `GOOGLE_GEMINI_BASE_URL` for Antigravity `<url>`. */
 export function startFakeModelServer(): { url: string; stop: () => void } {
   let n = 0;
   const server = Bun.serve({
@@ -25,11 +43,12 @@ export function startFakeModelServer(): { url: string; stop: () => void } {
     async fetch(req) {
       const path = new URL(req.url).pathname;
       if (path.endsWith("/models")) return Response.json({ data: [], models: [] });
+      if (path.includes(":streamGenerateContent") && req.method === "POST") {
+        writeResult(await req.text());
+        return geminiDone();
+      }
       if (!path.endsWith("/responses") || req.method !== "POST") return new Response("{}", { status: 404 });
-      const body = await req.text();
-      // The latest Result path in the conversation; JSON-escaped inside the request.
-      const resultPath = [...body.matchAll(/write your Result as JSON to (\S+?result\.json)/g)].at(-1)?.[1];
-      if (resultPath) writeFileSync(resultPath, JSON.stringify(fakeResult(body)));
+      writeResult(await req.text());
       const id = `resp_${++n}`;
       return new Response(
         sse([

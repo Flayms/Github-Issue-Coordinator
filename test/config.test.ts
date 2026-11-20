@@ -249,6 +249,17 @@ describe("Harnesses (spec 006)", () => {
     expect(issuesOf({ ...valid(), accounts: [{ name: "main" }, { name: "gpt", harness: "codex" }] })).toEqual([]);
   });
 
+  test("REQ-006-09 Antigravity CLI has one Account, in its default folder", () => {
+    const agy = { name: "gemini", harness: "antigravity" as const };
+    expect(issuesOf({ ...valid(), accounts: [{ name: "main" }, agy] })).toEqual([]);
+    expect(issuesOf({ ...valid(), accounts: [{ name: "main" }, { ...agy, configDir: "/home/a/.gemini-2" }] })).toEqual([
+      "accounts.1.configDir: Antigravity CLI keeps one login per user, so its Account takes no configDir",
+    ]);
+    expect(issuesOf({ ...valid(), accounts: [{ name: "main" }, agy, { ...agy, name: "gemini2" }] })).toEqual([
+      "accounts.2.configDir: same folder as Account gemini",
+    ]);
+  });
+
   test("REQ-006-01 a Role whose model's Harness has no Account is a config error", () => {
     const v = valid();
     expect(issuesOf({ ...v, roles: codexRoles(v) })).toEqual([

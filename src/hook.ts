@@ -18,6 +18,7 @@
  */
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { harnessByName } from "./harness/index.ts";
 import { findingsToAnswer, resultInstructions, validateResult } from "./results.ts";
 import { type QuotaWindow, Store, type UsageQuota } from "./store.ts";
 
@@ -39,7 +40,23 @@ export function handleHook({ event, payload, store, sessionId, sessionDir }: Hoo
   );
   const session = store.session(sessionId);
   if (!session) return {};
+  // Spec 006: a Harness whose hooks differ from Claude Code's translates them (e.g. Antigravity, REQ-006-07).
+  const harness = harnessByName(session.harness);
+  const input = harness.hookInput ? harness.hookInput(event, payload, nowOf(store)) : { event, payload };
+  if (!input) return {};
+  const out = handleEvent(input.event, input.payload, store, sessionId, sessionDir);
+  return out.stdout && harness.hookOutput ? { stdout: harness.hookOutput(input.event, out.stdout) } : out;
+}
 
+function handleEvent(
+  event: string,
+  payload: Record<string, unknown>,
+  store: Store,
+  sessionId: number,
+  sessionDir: string,
+): { stdout?: string } {
+  const session = store.session(sessionId);
+  if (!session) return {};
   switch (event) {
     case "SessionStart":
       if (typeof payload.session_id === "string") store.setAgentSessionId(sessionId, payload.session_id);
@@ -56,8 +73,10 @@ export function handleHook({ event, payload, store, sessionId, sessionDir }: Hoo
       return {};
 
     // REQ-001-17: Claude Code fires this instead of Stop when an API error ended the turn; its output is ignored.
+    // `resets_at` (ISO) comes from a Harness that reports the reset time in the hook (REQ-006-08).
     case "StopFailure":
-      if (payload.error === "rate_limit") markUsageLimited(store, sessionId, payload.transcript_path);
+      if (payload.error === "rate_limit")
+        markUsageLimited(store, sessionId, payload.transcript_path, payload.resets_at);
       return {};
 
     case "Stop": {
@@ -93,9 +112,10 @@ export function handleHook({ event, payload, store, sessionId, sessionDir }: Hoo
   }
 }
 
-/** REQ-001-17: marks the session for its Account's pause, with the reset time if the transcript reports one. */
-function markUsageLimited(store: Store, sessionId: number, transcriptPath: unknown): void {
-  const usageLimitResetsAt = usageLimitResetTime(transcriptPath, nowOf(store)) ?? null;
+/** REQ-001-17: marks the session for its Account's pause, with the reset time if the hook or transcript reports one. */
+function markUsageLimited(store: Store, sessionId: number, transcriptPath: unknown, resetsAt?: unknown): void {
+  const reported = typeof resetsAt === "string" && Date.parse(resetsAt) > nowOf(store) ? resetsAt : undefined;
+  const usageLimitResetsAt = reported ?? usageLimitResetTime(transcriptPath, nowOf(store)) ?? null;
   store.patchSession(sessionId, { state: "idle", usageLimited: true, usageLimitResetsAt });
 }
 

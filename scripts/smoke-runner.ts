@@ -2,10 +2,11 @@
 /**
  * Manual smoke test of the session runner against real tmux and a real Harness CLI (uses its login).
  * Starts a session in a throwaway git repo, waits for a valid Result, resumes it with a second
- * prompt, then closes it. Usage: bun scripts/smoke-runner.ts [--harness claude|codex] [--role implementer|reviewer]
- * [--model haiku] [--fake-model] [--keep]. `--harness codex --fake-model` runs the real `codex` against a local fake
- * model server (scripts/fake-model-server.ts): no login, no cost (docs/harnesses.md). A Harness whose CLI is
- * missing, or that isn't logged in, is skipped.
+ * prompt, then closes it. Usage: bun scripts/smoke-runner.ts [--harness claude|codex|antigravity]
+ * [--role implementer|reviewer] [--model haiku] [--fake-model] [--keep]. `--harness codex --fake-model` and
+ * `--harness antigravity --fake-model` run the real `codex` or `agy` against a local fake model server
+ * (scripts/fake-model-server.ts): no login, no cost (docs/harnesses.md). A Harness whose CLI is missing, or that isn't
+ * logged in, is skipped.
  * Checks that the session runs with skipped permissions (REQ-005-01): no permission prompt, and the Implementer's
  * commands and commit work. Exits 1 on a mismatch. Prints the Usage quota the status line recorded (REQ-001-67); it is
  * missing on plans without rate limits, so that is no mismatch.
@@ -31,8 +32,8 @@ const { values: opts } = parseArgs({
   },
 });
 const harness = harnessByName(opts.harness ?? "claude");
-const fake = opts["fake-model"] && harness.name === "codex";
-if (opts["fake-model"] && !fake) throw new Error("--fake-model works with --harness codex only");
+const fake = opts["fake-model"] && harness.name !== "claude";
+if (opts["fake-model"] && !fake) throw new Error("--fake-model works with --harness codex or antigravity only");
 const root = mkdtempSync(join(tmpdir(), "coordinator-smoke-"));
 // REQ-006-05: skip a Harness that can't run here, rather than fail.
 const version = Bun.spawnSync([harness.bin, "--version"], { stdout: "pipe", stderr: "pipe" });
@@ -42,7 +43,19 @@ if (version.exitCode !== 0) {
 }
 let fakeServer: ReturnType<typeof startFakeModelServer> | undefined;
 const accounts: Account[] = [{ name: "smoke", harness: harness.name }];
-if (fake) {
+const tmux = new TmuxCli("coordinator-smoke");
+if (fake && harness.name === "antigravity") {
+  // Antigravity has no folder per login (REQ-006-09): a home folder of its own whose settings send model requests to
+  // the Gemini API, here the fake server. Its windows get the variables from the tmux session.
+  fakeServer = startFakeModelServer();
+  const home = join(root, "home");
+  mkdirSync(join(home, ".gemini", "antigravity-cli"), { recursive: true });
+  writeFileSync(join(home, ".gemini", "antigravity-cli", "settings.json"), JSON.stringify({ modelProvider: "gemini" }));
+  const vars = { HOME: home, GEMINI_API_KEY: "fake", GOOGLE_GEMINI_BASE_URL: fakeServer.url };
+  Bun.spawnSync(["tmux", "kill-session", "-t", "coordinator-smoke"], { stderr: "ignore" });
+  const env = Object.entries(vars).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
+  Bun.spawnSync(["tmux", "new-session", "-d", "-s", "coordinator-smoke", "-n", "keepalive", ...env]);
+} else if (fake) {
   // A CODEX_HOME of its own, whose only model provider is the fake server.
   fakeServer = startFakeModelServer();
   const home = join(root, "codex-home");
@@ -92,7 +105,6 @@ const SECOND = {
 };
 const dbPath = join(root, "state.db");
 const store = new Store(dbPath);
-const tmux = new TmuxCli("coordinator-smoke");
 const runner = new SessionRunner({
   store,
   tmux,
@@ -101,7 +113,12 @@ const runner = new SessionRunner({
   hookCommand: [process.execPath, resolve(import.meta.dir, "../src/hook.ts")],
   accounts,
 });
-const model = { model: opts.model ?? (harness.name === "codex" ? (fake ? "gpt-fake" : "gpt-5.5") : "haiku") };
+const DEFAULT_MODEL = {
+  claude: "haiku",
+  codex: fake ? "gpt-fake" : "gpt-5.5",
+  antigravity: "gemini-3.6-flash",
+} as const;
+const model = { model: opts.model ?? DEFAULT_MODEL[harness.name] };
 
 async function waitIdle(id: number, label: string, ms = 240_000) {
   const start = Date.now();

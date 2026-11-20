@@ -1,6 +1,6 @@
 /**
- * Spec 006: a Codex session end to end through real tmux and the real hook script, with the fake Harness CLI in place
- * of `codex` (test/support/fake-harness.ts), so no login is needed. Skipped where tmux is missing.
+ * Spec 006: Codex and Antigravity sessions end to end through real tmux and the real hook script, with the fake Harness
+ * CLI in place of `codex` and `agy` (test/support/fake-harness.ts), so no login is needed. Skipped where tmux is missing.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -13,7 +13,7 @@ import { TmuxCli } from "../src/tmux.ts";
 const hasTmux = Bun.spawnSync(["tmux", "-V"], { stdout: "ignore", stderr: "ignore" }).exitCode === 0;
 const RESULT = JSON.stringify({ summary: "ok", risk: "low", riskReason: "tiny", findings: [] });
 
-describe.skipIf(!hasTmux)("Codex session through tmux with a fake Harness CLI", () => {
+describe.skipIf(!hasTmux)("Harness sessions through tmux with a fake Harness CLI", () => {
   const dir = mkdtempSync(join(tmpdir(), "harness-e2e-"));
   const tmuxSession = `coordinator-test-${process.pid}`;
   const tmux = new TmuxCli(tmuxSession);
@@ -28,8 +28,14 @@ describe.skipIf(!hasTmux)("Codex session through tmux with a fake Harness CLI", 
       stateDir: dir,
       dbPath: join(dir, "state.db"),
       hookCommand: [process.execPath, resolve(import.meta.dir, "../src/hook.ts")],
-      bins: { codex: resolve(import.meta.dir, "support/fake-harness.ts") },
-      accounts: [{ name: "gpt", harness: "codex", configDir: join(dir, "codex-home") }],
+      bins: {
+        codex: resolve(import.meta.dir, "support/fake-harness.ts"),
+        antigravity: resolve(import.meta.dir, "support/fake-harness.ts"),
+      },
+      accounts: [
+        { name: "gpt", harness: "codex", configDir: join(dir, "codex-home") },
+        { name: "gemini", harness: "antigravity" },
+      ],
       home: dir,
     });
   });
@@ -63,6 +69,31 @@ describe.skipIf(!hasTmux)("Codex session through tmux with a fake Harness CLI", 
 
     store.patchSession(id, { needsSync: false });
     runner.resume(id, "Again.", { model: "gpt-6.2-sol" });
+    await waitFor(id, () => store.session(id)?.state === "idle" && store.session(id)?.needsSync === true);
+    expect(store.session(id)?.agentSessionId).toBe(first?.agentSessionId ?? "");
+    runner.close(id);
+  }, 30_000);
+
+  test("REQ-006-07 an Antigravity Reviewer turn: the Stop hook continues it until the Result is valid; it resumes by conversation id", async () => {
+    const id = runner.start({
+      repo: "octo/app",
+      role: "reviewer",
+      kind: "issue",
+      issues: [6],
+      cwd: dir,
+      prompt: "Review it.",
+      model: { model: "gemini-4-neon", effort: "high" },
+    });
+    await waitFor(id, () => store.session(id)?.state === "idle");
+    const first = store.session(id);
+    expect(first).toMatchObject({ harness: "antigravity", account: "gemini", needsSync: true, resultFailures: 0 });
+    expect(first?.agentSessionId).toBeTruthy();
+    expect(first?.modelId).toBe("gemini-4-neon");
+    // The continued model call was no new prompt of the Owner's (REQ-001-19).
+    expect(first?.ownerMessagedAt).toBeNull();
+
+    store.patchSession(id, { needsSync: false });
+    runner.resume(id, "Again.", { model: "gemini-4-neon" });
     await waitFor(id, () => store.session(id)?.state === "idle" && store.session(id)?.needsSync === true);
     expect(store.session(id)?.agentSessionId).toBe(first?.agentSessionId ?? "");
     runner.close(id);
