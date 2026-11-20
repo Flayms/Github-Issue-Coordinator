@@ -154,6 +154,15 @@ To run a Role on one of the models a GitHub Copilot plan offers (Claude, GPT, Ge
 - [ ] `accounts: [{ name: "main" }, { name: "copilot", harness: "copilot", configDir: "/root/.copilot" }]`
 - [ ] `bun run doctor` checks `copilot` and its login.
 
+### OpenCode (optional)
+
+To run a Role on a model OpenCode reaches, including its free Zen models, add OpenCode as an Account with `harness: "opencode"` and pick an `opencode:<provider>/<model>` model for the Role ([Harnesses](harnesses.md#setting-up-opencode)):
+
+- [ ] `bun i -g opencode-ai` (1.19.6 or newer)
+- [ ] For a free Zen model (e.g. `opencode:opencode/big-pickle`) nothing else; for another provider `opencode providers login`, or its API key in the Coordinator's environment.
+- [ ] `accounts: [{ name: "main" }, { name: "zen", harness: "opencode" }]`: one OpenCode Account, without `configDir`.
+- [ ] `bun run doctor` checks `opencode` and that it offers a model.
+
 ## 4. Dashboard
 
 **On by default** at `127.0.0.1:8080` ([spec 003](specs/003-dashboard/spec.md)); `dashboard: false` turns it off. Until the sign-in is set up, its pages answer 503.

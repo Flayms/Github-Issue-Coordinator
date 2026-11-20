@@ -742,6 +742,42 @@ describe("Harnesses (spec 006)", () => {
     expect(commandOf(id)).toContain("'agy' '--conversation' '955778c7' '--settings' ");
   });
 
+  test("REQ-006-14 an `opencode:` model starts `opencode --mini` with its session's config folder; a resume takes its id", () => {
+    const oc = new SessionRunner({
+      store,
+      tmux,
+      stateDir: dir,
+      dbPath: join(dir, "state.db"),
+      hookCommand: ["bun", "/app/src/hook.ts"],
+      accounts: [{ name: "main" }, { name: "zen", harness: "opencode" }],
+      home,
+    });
+    const id = oc.start({
+      repo: "octo/app",
+      role: "reviewer",
+      kind: "issue",
+      issues: [5],
+      cwd: "/work/app",
+      prompt: "p",
+      model: { model: "opencode:opencode/big-pickle", effort: "high" },
+    });
+    const configDir = join(dir, "sessions", String(id), "opencode");
+    expect(commandOf(id)).toStartWith(
+      `TMPDIR=${shellQuote([tmpOf(id)])} OPENCODE_CONFIG_DIR=${shellQuote([configDir])} 'opencode' '--mini' '--auto' `,
+    );
+    expect(commandOf(id)).toContain("'--model' 'opencode/big-pickle' '--prompt' \"$(cat ");
+    expect(readFileSync(join(configDir, "plugins", "coordinator.js"), "utf8")).toContain("'Stop'");
+    expect(JSON.parse(readFileSync(join(configDir, "opencode.json"), "utf8")).agent.build.variant).toBe("high");
+    expect(store.session(id)).toMatchObject({ harness: "opencode", account: "zen" });
+
+    store.setAgentSessionId(id, "ses_e06d8aa75ffeTJsuqaLTkpifOS");
+    store.patchSession(id, { state: "idle" });
+    oc.resume(id, "go on", { model: "opencode:opencode/big-pickle" });
+    expect(commandOf(id)).toContain("'opencode' '--session' 'ses_e06d8aa75ffeTJsuqaLTkpifOS' '--mini' ");
+    // The resume's model has no effort: the session's config no longer sets a variant.
+    expect(JSON.parse(readFileSync(join(configDir, "opencode.json"), "utf8")).agent).toBeUndefined();
+  });
+
   test("REQ-006-01 the Codex trust dialog is answered with Enter", () => {
     const id = start("gpt-6.2-sol");
     const w = tmux.windows.get(`s${id}`);

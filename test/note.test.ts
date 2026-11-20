@@ -63,4 +63,11 @@ describe("agent note per Harness (spec 006)", () => {
       "> [!Note]\n> 🤖 Claude Opus 5.5 (Copilot) (Planner) writing on behalf of octo",
     );
   });
+
+  test("REQ-006-14 / REQ-001-29 an OpenCode session's note names the model its SessionStart reported, through OpenCode", () => {
+    const by = { owner: "octo", role: "reviewer" as const, alias: "opencode:opencode/big-pickle" };
+    expect(agentNote({ ...by, modelId: "opencode:opencode/big-pickle" })).toBe(
+      "> [!Note]\n> 🤖 Big Pickle (OpenCode) (Reviewer) writing on behalf of octo",
+    );
+  });
 });

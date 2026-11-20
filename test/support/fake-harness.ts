@@ -1,10 +1,12 @@
 #!/usr/bin/env bun
 /**
  * A fake Harness CLI for tests (spec 006): takes the command line of Codex CLI (`-c hooks.<Event>=…`, `resume <id>`, the
- * prompt last), Antigravity CLI (`--add-dir <folder>` with `.agents/hooks.json`, `--conversation <id>`, `-i <prompt>`)
- * or Copilot CLI (`--plugin-dir <folder>` with `hooks/hooks.json`, `--resume <id>`, `-i <prompt>`), fires the hooks as
- * that CLI does with payloads shaped like test/fixtures/<harness>/hooks.json (Copilot also sends a blocked Stop's reason
- * back as the next prompt), and writes a Result where the prompt asks for one. It needs no login and no model, so the
+ * prompt last), Antigravity CLI (`--add-dir <folder>` with `.agents/hooks.json`, `--conversation <id>`, `-i <prompt>`),
+ * Copilot CLI (`--plugin-dir <folder>` with `hooks/hooks.json`, `--resume <id>`, `-i <prompt>`) or OpenCode (`--mini`,
+ * `--session <id>`, `--prompt <prompt>`, the plugin in `$OPENCODE_CONFIG_DIR/plugins/`), fires the hooks as that CLI
+ * does with payloads shaped like test/fixtures/<harness>/hooks.json (Copilot also sends a blocked Stop's reason back as
+ * the next prompt; for OpenCode the real generated plugin runs on OpenCode-shaped events and does that), and writes a
+ * Result where the prompt asks for one. It needs no login and no model, so the
  * whole runner path runs in `bun test`. The Result is `fake-result.json` in its working folder (tmux doesn't pass the
  * test's environment on); it writes none on the first try, so the Stop hook blocks once (REQ-001-21).
  */
@@ -19,7 +21,7 @@ const copilot = args.includes("--plugin-dir");
 let agy = false;
 for (let i = 0; i < args.length; i++) {
   const a = args[i] ?? "";
-  if (a === "resume" || a === "--conversation" || a === "--resume") resumeId = args[++i];
+  if (a === "resume" || a === "--conversation" || a === "--resume" || a === "--session") resumeId = args[++i];
   else if (a === "--model") model = args[++i] ?? model;
   else if (a === "--plugin-dir") {
     const file = JSON.parse(readFileSync(join(args[++i] ?? "", "hooks", "hooks.json"), "utf8")) as {
@@ -43,8 +45,55 @@ for (let i = 0; i < args.length; i++) {
   }
 }
 const prompt = args.at(-1) ?? "";
-const sessionId = resumeId ?? crypto.randomUUID();
 const env = process.env;
+const resultPath = /write your Result as JSON to (\S+result\.json)/.exec(prompt)?.[1];
+const resultFile = join(process.cwd(), "fake-result.json");
+const result = existsSync(resultFile) ? readFileSync(resultFile, "utf8") : undefined;
+
+if (args.includes("--mini")) await openCode(resumeId ?? `ses_${crypto.randomUUID().replaceAll("-", "").slice(0, 26)}`);
+
+/** OpenCode: the plugin gets `session.created` for a new session, then per prompt `chat.message`, busy and idle. */
+async function openCode(sessionID: string): Promise<void> {
+  const file = join(env.OPENCODE_CONFIG_DIR ?? "", "plugins", "coordinator.js");
+  const pending = [prompt];
+  let wake = () => {};
+  type Plugin = {
+    event(i: { event: { type: string; properties: object } }): Promise<void>;
+    "chat.message"(i: object, o: { parts: object[] }): Promise<void>;
+  };
+  const { CoordinatorSession } = (await import(file)) as { CoordinatorSession(i: object): Promise<Plugin> };
+  const plugin = await CoordinatorSession({
+    client: {
+      session: {
+        promptAsync: async (o: { body: { parts: { text: string }[] } }) => {
+          pending.push(o.body.parts.map((p) => p.text).join(""));
+          wake();
+        },
+        abort: async () => ({ data: true }),
+      },
+    },
+  });
+  const event = (type: string, properties: object) => plugin.event({ event: { type, properties } });
+  const [providerID, modelID] = model.split("/");
+  if (!resumeId) await event("session.created", { sessionID, info: { id: sessionID } });
+  // Stays open like the interactive CLI, until the Coordinator kills its window.
+  setInterval(() => {}, 60_000);
+  for (let turn = 0; ; turn++) {
+    while (!pending.length) await new Promise<void>((r) => (wake = r));
+    const text = pending.shift() ?? "";
+    await plugin["chat.message"](
+      { sessionID, agent: "build", model: { providerID, modelID } },
+      {
+        parts: [{ type: "text", text }],
+      },
+    );
+    await event("session.status", { sessionID, status: { type: "busy" } });
+    if (resultPath && result && turn > 0) writeFileSync(resultPath, result);
+    await event("session.idle", { sessionID });
+  }
+}
+
+const sessionId = resumeId ?? crypto.randomUUID();
 let transcript: string;
 if (agy) {
   // Not written: it would land in the real home folder (tmux passes no test environment on).
@@ -84,9 +133,6 @@ const fire = async (event: string, extra: Record<string, unknown> = {}, payload:
 if (!agy || !resumeId)
   await fire("SessionStart", agy ? {} : { source: resumeId ? "resume" : copilot ? "new" : "startup" }, startPayload);
 if (!agy) await fire("UserPromptSubmit", { prompt });
-const resultPath = /write your Result as JSON to (\S+result\.json)/.exec(prompt)?.[1];
-const resultFile = join(process.cwd(), "fake-result.json");
-const result = existsSync(resultFile) ? readFileSync(resultFile, "utf8") : undefined;
 for (let attempt = 0; attempt < 4; attempt++) {
   if (agy) await fire("PreInvocation", { invocationNum: attempt, initialNumSteps: 1 + 2 * attempt });
   if (resultPath && result && attempt > 0) writeFileSync(resultPath, result);

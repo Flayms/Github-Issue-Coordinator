@@ -70,16 +70,20 @@ for (const name of HARNESS_NAMES) {
       const sessionDir = join(dir, "s1");
       mkdirSync(sessionDir);
       const hook = (ev: string) => `'hook' '${ev}'`;
-      h.writeSessionConfig({ sessionDir, cwd: "/work/app", home: dir, hook });
-      const args = h.args({ sessionDir, name: "#5 x · Planner · app", model: { model: "m-1", effort: "high" }, hook });
+      const model = { model: "m-1", effort: "high" as const };
+      h.writeSessionConfig({ sessionDir, cwd: "/work/app", home: dir, hook, model });
+      const args = h.args({ sessionDir, name: "#5 x · Planner · app", model, hook });
       // The per-session config: the command line and every file the adapter wrote into the session folder.
       const files = readdirSync(sessionDir, { recursive: true, encoding: "utf8" })
         .map((f) => join(sessionDir, f))
         .filter((f) => statSync(f).isFile());
       const config = [args.join(" "), ...files.map((f) => readFileSync(f, "utf8"))].join("\n");
-      expect(args.join(" ")).toMatch(/--dangerously-(skip-permissions|bypass-approvals-and-sandbox)|--allow-all\b/);
+      expect(args.join(" ")).toMatch(
+        /--dangerously-(skip-permissions|bypass-approvals-and-sandbox)|--allow-all\b|--auto\b/,
+      );
       expect(args).toContain("m-1");
-      expect(args.join(" ")).toContain("high");
+      // The effort, on the command line or in the session's config (OpenCode has no flag for it).
+      expect(config).toContain("high");
       // Each hook the CLI fires, by the event the hook script handles it as (the Harness's own name may differ).
       const handled = [...config.matchAll(/'hook' '(\w+)'/g)].map(
         ([, ev = ""]) => h.hookInput?.(ev, { invocationNum: 0 })?.event ?? ev,
@@ -134,6 +138,12 @@ describe("Harness of a model", () => {
   test("REQ-006-07 Gemini models run on Antigravity CLI", () => {
     expect(harnessOfModel("gemini-4-neon")).toBe("antigravity");
     expect(harnessOfModel("gemini-3.6-flash-medium")).toBe("antigravity");
+  });
+
+  test("REQ-006-14 an `opencode:` model runs on OpenCode, any provider's", () => {
+    expect(harnessOfModel("opencode:opencode/big-pickle")).toBe("opencode");
+    expect(harnessOfModel("opencode:anthropic/claude-sonnet-5-5")).toBe("opencode");
+    expect(harnessOfModel("opencode:openai/gpt-6.2-sol")).toBe("opencode");
   });
 
   test("REQ-006-10 a `copilot:` model runs on Copilot CLI, also outside the catalogue", () => {

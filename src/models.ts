@@ -5,6 +5,7 @@
  */
 import { COPILOT_MODEL_PREFIX } from "./harness/copilot.ts";
 import type { HarnessName } from "./harness/harness.ts";
+import { OPENCODE_MODEL_PREFIX } from "./harness/opencode.ts";
 
 const FAMILIES = ["opus", "sonnet", "haiku", "fable"];
 const capitalise = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
@@ -100,6 +101,26 @@ const ANTIGRAVITY_MODELS: readonly CatalogueModel[] = [
   ["gemini-3.6-flash", "Gemini 3.6 Flash"],
 ].map(([value, label]) => ({ value: value as string, label: label as string, alias: false }));
 
+/**
+ * OpenCode's free models on its own Zen gateway, as `opencode models opencode` of OpenCode 1.19.6 lists them without a
+ * login. Free models come and go; `config.ts` may name any model OpenCode reaches as `opencode:<provider>/<model>`
+ * (e.g. `opencode:anthropic/claude-sonnet-5-5` with that provider's key or login).
+ */
+const OPENCODE_MODELS: readonly CatalogueModel[] = [
+  ["big-pickle", "Big Pickle"],
+  ["beam-free", "Beam Free"],
+  ["deepseek-v4.1-flash-free", "DeepSeek V4.1 Flash Free"],
+  ["flint-40b-free", "Flint 40B Free"],
+  ["glm-5.3-flash-free", "GLM-5.3-Flash Free"],
+  ["hy4-flash-free", "Hy4 flash Free"],
+  ["iceman-free", "Iceman Free"],
+  ["inkling-2-small-free", "Inkling 2 Small Free"],
+  ["longcat-2.5-free", "LongCat 2.5 Free"],
+  ["mimo-v2.6-flash-free", "MiMo-V2.6-Flash Free"],
+  ["nemotron-3.5-lightning-free", "Nemotron 3.5 Lightning Free"],
+  ["nemotron-3.5-super-vl-free", "Nemotron 3.5 Super VL Free"],
+].map(([id, name]) => ({ value: `${OPENCODE_MODEL_PREFIX}opencode/${id}`, label: `${name} (OpenCode)`, alias: false }));
+
 /** Claude Code's models. */
 export const MODEL_CATALOGUE: readonly CatalogueModel[] = [
   ...ALIASES.map((value) => ({ value, label: modelLabel(value), alias: true })),
@@ -112,6 +133,7 @@ export const HARNESS_MODELS: Readonly<Record<HarnessName, readonly CatalogueMode
   codex: CODEX_MODELS,
   antigravity: ANTIGRAVITY_MODELS,
   copilot: COPILOT_MODELS,
+  opencode: OPENCODE_MODELS,
 };
 
 const ALL_MODELS = Object.values(HARNESS_MODELS).flat();
@@ -119,7 +141,8 @@ const ALL_MODELS = Object.values(HARNESS_MODELS).flat();
 export const inCatalogue = (value: string): boolean => ALL_MODELS.some((m) => m.value === value);
 
 /**
- * REQ-006-01: the Harness that runs a model: its catalogue's, else Copilot CLI for a `copilot:` model (REQ-006-10), else
+ * REQ-006-01: the Harness that runs a model: its catalogue's, else Copilot CLI for a `copilot:` model (REQ-006-10),
+ * OpenCode for an `opencode:` one (REQ-006-14), else
  * Codex for OpenAI's naming (`gpt-…`, `o3`, `codex-…`), Antigravity for Google's (`gemini-…`, REQ-006-07), else Claude
  * Code, which also takes any model a gateway offers.
  */
@@ -127,15 +150,21 @@ export function harnessOfModel(value: string): HarnessName {
   for (const [name, models] of Object.entries(HARNESS_MODELS))
     if (models.some((m) => m.value === value)) return name as HarnessName;
   if (value.startsWith(COPILOT_MODEL_PREFIX)) return "copilot";
+  if (value.startsWith(OPENCODE_MODEL_PREFIX)) return "opencode";
   if (/^(gpt-|o\d|codex-)/i.test(value)) return "codex";
   return /^gemini-/i.test(value) ? "antigravity" : "claude";
 }
 
 /**
  * How the dashboard names a model (REQ-003-41): "Opus 5.5" for `claude-opus-5-5`, "Opus (latest)" for
- * `opus`, ", 1M context" for a `[1m]` suffix, "(Copilot)" after a Copilot model (REQ-006-10); anything else as it is.
+ * `opus`, ", 1M context" for a `[1m]` suffix, "(Copilot)" after a Copilot model (REQ-006-10), "(OpenCode)" after an
+ * OpenCode one (REQ-006-14); anything else as it is.
  */
 export function modelLabel(value: string): string {
+  if (value.startsWith(OPENCODE_MODEL_PREFIX))
+    return (
+      OPENCODE_MODELS.find((m) => m.value === value)?.label ?? `${value.slice(OPENCODE_MODEL_PREFIX.length)} (OpenCode)`
+    );
   if (value.startsWith(COPILOT_MODEL_PREFIX))
     return (
       COPILOT_MODELS.find((m) => m.value === value)?.label ?? `${value.slice(COPILOT_MODEL_PREFIX.length)} (Copilot)`

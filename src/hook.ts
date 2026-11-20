@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 /**
- * Claude Code hook for Coordinator sessions, configured per session through `--settings`.
+ * Claude Code hook for Coordinator sessions, configured per session through `--settings` (other Harnesses: their own
+ * per-session hooks, e.g. OpenCode's plugin, spec 006).
  * Usage: bun src/hook.ts <event> <dbPath> <sessionId> <sessionDir>   (payload JSON on stdin)
  *
  * - SessionStart: records Claude's session id (needed to resume), the model it runs (REQ-001-29) and its transcript's
@@ -14,6 +15,8 @@
  *   which marks the session for its Account's pause (REQ-001-17).
  * - errorOccurred: Copilot CLI's event for a failed model call; a rate limit or a used-up quota is the usage limit,
  *   since no Stop fires then (REQ-006-12).
+ * - session.status: OpenCode's retry of a failed model call, sent by its plugin; its adapter takes the third retry of a
+ *   rate limit for StopFailure, and its answer makes the plugin abort the turn (REQ-006-15).
  * - StatusLine: run as the session's status line command, not as a hook; records the Account's Usage quota and
  *   prints it for the session's window (REQ-001-67).
  * Every hook payload is appended to <sessionDir>/events.jsonl, so unknown shapes can be captured (T0 (e)); the status
@@ -49,7 +52,10 @@ export function handleHook({ event, payload, store, sessionId, sessionDir }: Hoo
   const input = harness.hookInput ? harness.hookInput(event, payload, nowOf(store)) : { event, payload };
   if (!input) return {};
   const out = handleEvent(input.event, input.payload, store, sessionId, sessionDir);
-  return out.stdout && harness.hookOutput ? { stdout: harness.hookOutput(input.event, out.stdout) } : out;
+  if (!harness.hookOutput) return out;
+  // An empty answer may need one too, e.g. OpenCode's plugin aborts a turn the usage limit stopped (REQ-006-15).
+  const stdout = harness.hookOutput(input.event, out.stdout ?? "");
+  return stdout ? { stdout } : {};
 }
 
 function handleEvent(
