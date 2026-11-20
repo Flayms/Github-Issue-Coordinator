@@ -7,11 +7,18 @@
  * Each meter gets its own seed, so its flow has its own phase, speed and pattern. The liquid has a
  * rounded front that wobbles, broad swirls that never repeat (noise over time), caustics and a band
  * of light. The pointer stirs it; it calms down in about 2 s. Drawn at about 30 frames a second with
- * a capped pixel ratio, and only while the tab is shown and Capacity or the Usage quota is in view.
+ * a capped pixel ratio, and only while the tab is shown and a section with tubes is in view.
+ *
+ * The Timings page's capsules (REQ-003-46) hold the same liquid, tinted per kind of step by the tube's
+ * `data-tint`: darker for checks, amber for the Owner's time, grey for the queue tile.
  */
 (() => {
-  /** The sections whose tubes hold liquid: Capacity (REQ-003-12) and the Usage quota (REQ-003-37). */
-  const SECTIONS = "#capacity, #usage-quota";
+  /**
+   * The sections whose tubes hold liquid: Capacity (REQ-003-12), the Usage quota (REQ-003-37) and the
+   * Timings page's tiles and timeline (REQ-003-46).
+   */
+  const SECTIONS = "#capacity, #usage-quota, #timing-totals, #timeline";
+  const TUBES = "#capacity .tube, #usage-quota .tube, #timing-totals .tube, #timeline .tube";
   if (!document.querySelector(SECTIONS)) return;
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
   if (reduced.matches) return;
@@ -42,6 +49,11 @@ uniform float fill;
 uniform float stir;
 uniform vec2 stirAt;
 uniform float slosh;
+uniform vec3 hi;
+uniform vec3 mid;
+uniform vec3 lo;
+uniform vec3 glint;
+uniform vec3 rim;
 float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
 float noise(vec2 p){
   vec2 i=floor(p),f=fract(p),u=f*f*(3.-2.*f);
@@ -74,20 +86,19 @@ void main(){
   vec2 f=p*vec2(.75,1.2)+seed*37.;
   vec2 w=vec2(fbm(f+vec2(t*.09,0.)*sp),fbm(f+vec2(4.3,1.7)-vec2(0.,t*.07)*sp));
   float n=fbm(f*1.2+1.7*w+vec2(t*.05*sp,0.));
-  vec3 hi=vec3(.643,.616,1.),mid=vec3(.486,.447,1.),lo=vec3(.231,.204,.502);
   vec3 col=mix(lo,mid,smoothstep(.0,.55,q.y));
   col=mix(col,hi,smoothstep(.5,1.,q.y));
   col*=.8+.42*n;
   // Caustics where the flow folds.
   float cau=pow(1.-abs(fbm(f*1.15+2.*w-vec2(t*.04,0.))*2.-1.),5.);
-  col+=vec3(.82,.82,1.)*cau*(.13+.5*stir);
+  col+=glint*cau*(.13+.5*stir);
   // A band of light near the top that drifts, and refracted light near the bottom.
   col+=vec3(1.)*exp(-pow((q.y-.74)/.09,2.))*(.04+.34*smoothstep(.35,.85,noise(vec2(q.x*.55+t*.22*sp+seed*9.,seed*5.))));
   col+=vec3(.9,.9,1.)*exp(-pow((q.y-.15)/.06,2.))*.3*noise(vec2(q.x*1.1-t*.27*sp,seed*3.));
 
   // Rounded volume: the edge of the liquid is darker, with a thin lit meniscus.
   col*=1.-.32*smoothstep(-.14,0.,d);
-  col+=vec3(.75,.72,1.)*.28*smoothstep(-.07,-.02,d)*smoothstep(.0,-.02,d)*step(.5,q.y);
+  col+=rim*.28*smoothstep(-.07,-.02,d)*smoothstep(.0,-.02,d)*step(.5,q.y);
   gl_FragColor=vec4(col*a,a);
 }`;
   const compile = (type, source) => {
@@ -121,6 +132,43 @@ void main(){
     stir: u("stir"),
     stirAt: u("stirAt"),
     slosh: u("slosh"),
+    hi: u("hi"),
+    mid: u("mid"),
+    lo: u("lo"),
+    glint: u("glint"),
+    rim: u("rim"),
+  };
+
+  /** The liquid's colours: indigo without a tint (Capacity, the Usage quota, an agent's step). */
+  const PALETTES = {
+    indigo: {
+      hi: [0.643, 0.616, 1],
+      mid: [0.486, 0.447, 1],
+      lo: [0.231, 0.204, 0.502],
+      glint: [0.82, 0.82, 1],
+      rim: [0.75, 0.72, 1],
+    },
+    checks: {
+      hi: [0.42, 0.39, 0.78],
+      mid: [0.29, 0.26, 0.6],
+      lo: [0.15, 0.13, 0.35],
+      glint: [0.6, 0.6, 0.85],
+      rim: [0.55, 0.52, 0.85],
+    },
+    owner: {
+      hi: [0.95, 0.83, 0.6],
+      mid: [0.85, 0.7, 0.42],
+      lo: [0.48, 0.35, 0.12],
+      glint: [1, 0.92, 0.75],
+      rim: [1, 0.88, 0.65],
+    },
+    queued: {
+      hi: [0.56, 0.56, 0.65],
+      mid: [0.36, 0.37, 0.45],
+      lo: [0.18, 0.18, 0.24],
+      glint: [0.8, 0.8, 0.85],
+      rim: [0.7, 0.7, 0.75],
+    },
   };
 
   /** A stable number in [0, 1) per meter, from its label and position. */
@@ -143,6 +191,7 @@ void main(){
       liquid,
       ctx,
       seed: seedOf(tube.closest("li")?.getAttribute("aria-label") || "", i),
+      palette: PALETTES[tube.dataset.tint] || PALETTES.indigo,
       w: 0,
       h: 0,
       fill: 0,
@@ -187,7 +236,7 @@ void main(){
       { passive: true },
     );
   };
-  const tubes = () => [...document.querySelectorAll("#capacity .tube, #usage-quota .tube")];
+  const tubes = () => [...document.querySelectorAll(TUBES)];
   tubes().forEach(add);
 
   // The atlas: one strip per meter, stacked.
@@ -244,6 +293,7 @@ void main(){
       gl.uniform1f(U.stir, m.stir);
       gl.uniform2f(U.stirAt, m.at[0], m.at[1]);
       gl.uniform1f(U.slosh, m.slosh);
+      for (const key of ["hi", "mid", "lo", "glint", "rim"]) gl.uniform3fv(U[key], m.palette[key]);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
     // Copied in the same task, before the drawing buffer is cleared.

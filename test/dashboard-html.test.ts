@@ -754,6 +754,23 @@ describe("dashboard html", () => {
       expect(js).toMatch(/\.observe\(/);
       expect(js.match(/getContext\("webgl"/g)?.length).toBe(1);
     });
+
+    test("REQ-003-46 the Timings page's capsules move too, tinted per kind by a uniform; Capacity keeps its indigo", () => {
+      const js = asset("meters.js");
+      expect(js).toContain("#timeline");
+      // The tubes on the Timings page are picked up like Capacity's and observed for being in view.
+      expect(js).toMatch(/querySelectorAll\(TUBES\)/);
+      expect(js).toMatch(/const TUBES = "[^"]*#timeline \.tube/);
+      // The liquid's colours are uniforms, set from the tube's tint; no CSS filter.
+      for (const u of ["hi", "mid", "lo"]) expect(js).toMatch(new RegExp(`uniform vec3 ${u};`));
+      expect(js).toContain("dataset.tint");
+      for (const tint of ["checks", "owner", "queued"]) expect(js).toMatch(new RegExp(`${tint}: \\{`));
+      // Without a tint (Capacity, the Usage quota) the liquid keeps the colours it had.
+      expect(js).toMatch(
+        /indigo: \{\s*hi: \[0\.643, 0\.616, 1\],\s*mid: \[0\.486, 0\.447, 1\],\s*lo: \[0\.231, 0\.204, 0\.502\],\s*glint: \[0\.82, 0\.82, 1\],\s*rim: \[0\.75, 0\.72, 1\]/,
+      );
+      expect(js).not.toMatch(/style\.filter|filter:/);
+    });
   });
 
   test("REQ-003-26 the pointer stirs a meter's liquid, a tap on a phone too, and it calms down", () => {
