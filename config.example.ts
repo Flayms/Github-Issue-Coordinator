@@ -40,7 +40,8 @@ export default defineConfig({
   repos: [{ name: "your-login/your-repo", setup: "bun install", roles: { reviewer: { model: "sonnet" } } }],
   // Subscriptions in priority order (optional; default: the Claude Code login in ~/.claude). Sessions run on the first
   // one of their model's Harness that isn't paused by a usage limit (docs/harnesses.md). Log in to each once:
-  // CLAUDE_CONFIG_DIR=<configDir> claude, then /login; for Codex CLI, CODEX_HOME=<configDir> codex login.
+  // CLAUDE_CONFIG_DIR=<configDir> claude, then /login; for Codex CLI, CODEX_HOME=<configDir> codex login; for Copilot
+  // CLI, COPILOT_HOME=<configDir> copilot login (its models are named `copilot:<id>`, e.g. copilot:claude-sonnet-5.5).
   // accounts: [{ name: "main" }, { name: "spare", configDir: "/root/.claude-spare" }, { name: "gpt", harness: "codex" }],
   // Read-only dashboard (docs/setup.md step 4), on by default at 127.0.0.1:8080; `dashboard: false` turns it off.
   // "Sign in with GitHub" lets only the Owner in; it is on by default and the pages answer 503 until it is set up with

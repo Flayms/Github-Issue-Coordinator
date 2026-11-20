@@ -5,7 +5,7 @@
  */
 import type { RoleSettings } from "../config.ts";
 
-export const HARNESS_NAMES = ["claude", "codex", "antigravity"] as const;
+export const HARNESS_NAMES = ["claude", "codex", "antigravity", "copilot"] as const;
 export type HarnessName = (typeof HARNESS_NAMES)[number];
 
 /** Features every Harness provides, by the name the feature matrix shows (docs/harnesses.md). */
@@ -46,6 +46,19 @@ export interface EndedTurn {
   resetsAt?: string;
 }
 
+export interface LoginStatus {
+  ok: boolean;
+  detail: string;
+}
+
+/**
+ * A login check: a CLI command and how to read its answer, or, for a CLI without one (Copilot CLI), a look into the
+ * Account's folder and the environment the CLI reads tokens from.
+ */
+export type LoginCheck =
+  | { args: string[]; read(out: { ok: boolean; out: string }): LoginStatus }
+  | { readFolder(accountDir: string, env: Record<string, string | undefined>): LoginStatus };
+
 export interface LaunchInput {
   /** The session folder (`sessions/<id>/`), holding the per-session config. */
   sessionDir: string;
@@ -83,8 +96,8 @@ export interface Harness {
   args(o: LaunchInput): string[];
   /** Variables the CLI needs besides the Account's folder and `TMPDIR`. */
   env(o: { tmp: string }): Record<string, string>;
-  /** How `bun run doctor` checks the login, and how to read its answer. */
-  loginCheck: { args: string[]; read(out: { ok: boolean; out: string }): { ok: boolean; detail: string } };
+  /** How `bun run doctor` checks an Account's login (REQ-006-05). */
+  loginCheck: LoginCheck;
   /** Copies a session's transcript to another Account's folder (feature `transcriptMove`). */
   moveTranscript?(agentSessionId: string, fromDir: string, toDir: string): boolean;
   /** A turn that ended without the turn-end hook (feature `usageLimit` without a hook for it). */

@@ -1,6 +1,7 @@
 /** REQ-006-05: what `bun run doctor` checks per Harness in use: its CLI, its version and each Account's login. */
-import { type Account, harnessOfAccount } from "../accounts.ts";
-import { HARNESSES, versionAtLeast } from "./index.ts";
+import { homedir } from "node:os";
+import { type Account, accountDir, harnessOfAccount } from "../accounts.ts";
+import { HARNESSES, type Harness, type LoginStatus, versionAtLeast } from "./index.ts";
 
 export type CheckStatus = "ok" | "fail" | "warn";
 export interface Check {
@@ -31,9 +32,8 @@ export function harnessChecks(accounts: readonly Account[], run: Run, env = proc
     for (const a of own) {
       const named = accounts.length > 1 || a.configDir;
       const check = named ? `${h.bin} logged in (Account ${a.name})` : `${h.bin} logged in`;
-      const folderEnv = a.configDir && h.accountEnv ? { [h.accountEnv]: a.configDir } : undefined;
-      const login = folderEnv ? `${h.accountEnv}=${a.configDir} ${h.bin}` : h.bin;
-      const result = h.loginCheck.read(run([h.bin, ...h.loginCheck.args], folderEnv ? { ...env, ...folderEnv } : env));
+      const login = a.configDir && h.accountEnv ? `${h.accountEnv}=${a.configDir} ${h.bin}` : h.bin;
+      const result = loginStatus(h, a, run, env);
       checks.push({
         status: result.ok ? "ok" : "fail",
         check,
@@ -42,4 +42,12 @@ export function harnessChecks(accounts: readonly Account[], run: Run, env = proc
     }
   }
   return checks;
+}
+
+/** REQ-006-05: an Account's login, by its Harness's CLI command or, without one, its folder (Copilot CLI). */
+export function loginStatus(h: Harness, a: Account, run: Run, env = process.env): LoginStatus {
+  const check = h.loginCheck;
+  if ("readFolder" in check) return check.readFolder(accountDir(a, env.HOME ?? homedir()), env);
+  const folderEnv = a.configDir && h.accountEnv ? { [h.accountEnv]: a.configDir } : undefined;
+  return check.read(run([h.bin, ...check.args], folderEnv ? { ...env, ...folderEnv } : env));
 }

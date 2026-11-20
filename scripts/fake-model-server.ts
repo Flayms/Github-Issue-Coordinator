@@ -50,21 +50,33 @@ export function startFakeModelServer(): { url: string; stop: () => void } {
       if (!path.endsWith("/responses") || req.method !== "POST") return new Response("{}", { status: 404 });
       writeResult(await req.text());
       const id = `resp_${++n}`;
+      const message = {
+        type: "message",
+        role: "assistant",
+        id: `msg_${n}`,
+        status: "completed",
+        content: [{ type: "output_text", text: "Done." }],
+      };
       return new Response(
         sse([
           { type: "response.created", response: { id } } as { type: string },
+          // Copilot CLI takes the reply's text from its deltas; Codex from the finished item.
           {
-            type: "response.output_item.done",
-            item: {
-              type: "message",
-              role: "assistant",
-              id: `msg_${n}`,
-              content: [{ type: "output_text", text: "Done." }],
-            },
+            type: "response.output_text.delta",
+            item_id: `msg_${n}`,
+            output_index: 0,
+            content_index: 0,
+            delta: "Done.",
           } as { type: string },
+          { type: "response.output_item.done", item: message } as { type: string },
           {
             type: "response.completed",
-            response: { id, usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } },
+            response: {
+              id,
+              status: "completed",
+              output: [message],
+              usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+            },
           } as { type: string },
         ]),
         { headers: { "content-type": "text/event-stream" } },

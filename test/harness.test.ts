@@ -1,6 +1,7 @@
 /**
  * Spec 006: the Harness contract. The core cases run against every adapter; the optional ones only for adapters that
- * declare the feature (REQ-006-04). Codex cases use payloads recorded from Codex CLI 0.170.0 (test/fixtures/codex).
+ * declare the feature (REQ-006-04). Codex cases use payloads recorded from Codex CLI 0.170.0 (test/fixtures/codex),
+ * Copilot cases from Copilot CLI 1.0.114 (test/fixtures/copilot).
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
@@ -17,9 +18,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { antigravity } from "../src/harness/antigravity.ts";
 import { codexEndedTurn, copyRollout } from "../src/harness/codex.ts";
-import { CORE_FEATURES, HARNESS_NAMES, HARNESSES, OPTIONAL_FEATURES, versionAtLeast } from "../src/harness/index.ts";
+import { copilot } from "../src/harness/copilot.ts";
+import {
+  CORE_FEATURES,
+  HARNESS_NAMES,
+  HARNESSES,
+  type LoginCheck,
+  OPTIONAL_FEATURES,
+  versionAtLeast,
+} from "../src/harness/index.ts";
 import { handleHook } from "../src/hook.ts";
 import { HARNESS_MODELS, harnessOfModel } from "../src/models.ts";
+import { resultInstructions } from "../src/results.ts";
 import { Store } from "../src/store.ts";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "codex");
@@ -30,6 +40,16 @@ const codexHooks = JSON.parse(readFileSync(join(FIXTURES, "hooks.json"), "utf8")
   string,
   Record<string, unknown>
 >;
+
+const COPILOT_FIXTURES = join(import.meta.dir, "fixtures", "copilot");
+const copilotHooks = JSON.parse(readFileSync(join(COPILOT_FIXTURES, "hooks.json"), "utf8")) as Record<
+  string,
+  Record<string, unknown>
+>;
+
+/** Runs a login check without a CLI: a command check gets a failed, empty answer. */
+const loginOf = (check: LoginCheck, folder: string, env: Record<string, string | undefined> = {}) =>
+  "readFolder" in check ? check.readFolder(folder, env) : check.read({ ok: false, out: "" });
 
 let dir: string;
 beforeEach(() => {
@@ -57,7 +77,7 @@ for (const name of HARNESS_NAMES) {
         .map((f) => join(sessionDir, f))
         .filter((f) => statSync(f).isFile());
       const config = [args.join(" "), ...files.map((f) => readFileSync(f, "utf8"))].join("\n");
-      expect(args.join(" ")).toMatch(/--dangerously-(skip-permissions|bypass-approvals-and-sandbox)/);
+      expect(args.join(" ")).toMatch(/--dangerously-(skip-permissions|bypass-approvals-and-sandbox)|--allow-all\b/);
       expect(args).toContain("m-1");
       expect(args.join(" ")).toContain("high");
       // Each hook the CLI fires, by the event the hook script handles it as (the Harness's own name may differ).
@@ -74,8 +94,8 @@ for (const name of HARNESS_NAMES) {
     });
 
     test("REQ-006-05 reads its login check", () => {
-      expect(h.loginCheck.args.length).toBeGreaterThan(0);
-      expect(h.loginCheck.read({ ok: false, out: "" }).ok).toBe(false);
+      if (!("readFolder" in h.loginCheck)) expect(h.loginCheck.args.length).toBeGreaterThan(0);
+      expect(loginOf(h.loginCheck, join(dir, "no-login")).ok).toBe(false);
     });
 
     if (h.moveTranscript)
@@ -85,7 +105,9 @@ for (const name of HARNESS_NAMES) {
         const file =
           name === "claude"
             ? join(from, "projects", "-work-app", "sess-9.jsonl")
-            : join(from, "sessions", "2026", "11", "19", "rollout-2026-11-19T18-04-30-sess-9.jsonl");
+            : name === "copilot"
+              ? join(from, "session-state", "sess-9", "events.jsonl")
+              : join(from, "sessions", "2026", "11", "19", "rollout-2026-11-19T18-04-30-sess-9.jsonl");
         mkdirSync(join(file, ".."), { recursive: true });
         writeFileSync(file, "turns\n");
         expect(h.moveTranscript?.("sess-9", from, to)).toBe(true);
@@ -112,6 +134,13 @@ describe("Harness of a model", () => {
   test("REQ-006-07 Gemini models run on Antigravity CLI", () => {
     expect(harnessOfModel("gemini-4-neon")).toBe("antigravity");
     expect(harnessOfModel("gemini-3.6-flash-medium")).toBe("antigravity");
+  });
+
+  test("REQ-006-10 a `copilot:` model runs on Copilot CLI, also outside the catalogue", () => {
+    expect(harnessOfModel("copilot:claude-sonnet-5.5")).toBe("copilot");
+    expect(harnessOfModel("copilot:gpt-6.1-sol")).toBe("copilot");
+    expect(harnessOfModel("copilot:gemini-4-argon")).toBe("copilot");
+    expect(harnessOfModel("copilot:some-new-model")).toBe("copilot");
   });
 
   test("REQ-006-05 compares CLI versions", () => {
@@ -187,6 +216,7 @@ describe("Codex CLI usage limit (recorded rollout)", () => {
 });
 
 describe("Antigravity CLI launch", () => {
+  const agyLogin = antigravity.loginCheck as Extract<LoginCheck, { args: string[] }>;
   const hook = (ev: string) => `'hook' '${ev}'`;
   const launch = (model: { model: string; effort?: "low" | "high" }, resumeId?: string) => {
     const sessionDir = join(dir, "s7");
@@ -229,16 +259,14 @@ describe("Antigravity CLI launch", () => {
   });
 
   test("REQ-006-05 `agy models` is its login check", () => {
-    expect(antigravity.loginCheck.args).toEqual(["models"]);
+    expect(agyLogin.args).toEqual(["models"]);
     expect(
-      antigravity.loginCheck.read({
+      agyLogin.read({
         ok: true,
         out: "Fetching available models...\ngemini-4-neon-high\tGemini 4 Neon (High)",
       }),
     ).toEqual({ ok: true, detail: "signed in" });
-    expect(antigravity.loginCheck.read({ ok: false, out: "Error: Please sign in to view available models." }).ok).toBe(
-      false,
-    );
+    expect(agyLogin.read({ ok: false, out: "Error: Please sign in to view available models." }).ok).toBe(false);
   });
 });
 
@@ -323,5 +351,116 @@ describe("Antigravity CLI hooks (recorded payloads)", () => {
     });
     const other = { ...agyHooks.StopUsageLimit, error: "Error 500, Status: INTERNAL" };
     expect(antigravity.hookInput?.("Stop", other, Date.parse("2026-11-19T12:00:00Z"))?.event).toBe("Stop");
+  });
+});
+
+describe("Copilot CLI hooks (recorded payloads)", () => {
+  let store: Store;
+  let sessionDir: string;
+  beforeEach(() => {
+    store = new Store(join(dir, "state.db"));
+    sessionDir = join(dir, "sessions", "1");
+    mkdirSync(sessionDir, { recursive: true });
+  });
+  afterEach(() => store.close());
+  const start = (role: "reviewer" | "implementer" = "reviewer") =>
+    store.createSession({ repo: "octo/app", role, kind: "issue", issues: [5], harness: "copilot" });
+  const fire = (event: string, payload: Record<string, unknown>) =>
+    handleHook({ event, payload, store, sessionId: 1, sessionDir });
+  const fixture = (name: string) => copilotHooks[name] as Record<string, unknown>;
+
+  test("REQ-006-10 SessionStart records Copilot's session id, on a start and on a resume", () => {
+    start();
+    fire("SessionStart", fixture("SessionStart"));
+    expect(store.session(1)?.agentSessionId).toBe("29ca2f8f-d225-47ac-829b-bc8e93ce5e41");
+    fire("SessionStart", fixture("SessionStartResume"));
+    expect(store.session(1)?.agentSessionId).toBe("29ca2f8f-d225-47ac-829b-bc8e93ce5e41");
+  });
+
+  test("REQ-006-10 Stop blocks the turn with the Result instructions while the Result is missing", () => {
+    start();
+    store.patchSession(1, { coordinatorPromptPending: false });
+    const out = fire("Stop", fixture("Stop"));
+    expect(JSON.parse(out.stdout ?? "{}")).toMatchObject({ decision: "block" });
+    expect(store.session(1)?.resultFailures).toBe(1);
+  });
+
+  test("REQ-006-10 Stop with a valid Result ends the turn", () => {
+    start();
+    writeFileSync(
+      join(sessionDir, "result.json"),
+      JSON.stringify({ summary: "ok", risk: "low", riskReason: "tiny", findings: [] }),
+    );
+    expect(fire("Stop", fixture("StopAfterBlock")).stdout).toBeUndefined();
+    expect(store.session(1)).toMatchObject({ state: "idle", needsSync: true });
+  });
+
+  test("REQ-006-10 / REQ-001-19 the block reason Copilot sends back as a prompt is not the Owner's message", () => {
+    start();
+    // As the runner launches it: the first prompt is the Coordinator's.
+    store.patchSession(1, { coordinatorPromptPending: true });
+    fire("UserPromptSubmit", fixture("UserPromptSubmit"));
+    const block = JSON.parse(fire("Stop", fixture("Stop")).stdout ?? "{}") as { reason: string };
+    // Copilot CLI submits the reason of a blocked Stop as the next prompt, firing UserPromptSubmit with it.
+    fire("UserPromptSubmit", { ...fixture("UserPromptSubmitAfterBlock"), prompt: block.reason });
+    expect(store.session(1)).toMatchObject({ state: "running", ownerMessagedAt: null });
+    // The reason ends with the Result instructions; a prompt that only mentions them is still the Owner's.
+    fire("UserPromptSubmit", {
+      ...fixture("UserPromptSubmit"),
+      prompt: `${resultInstructions("reviewer", join(sessionDir, "result.json"))} Also, why?`,
+    });
+    expect(store.session(1)?.ownerMessagedAt).not.toBeNull();
+  });
+
+  test("REQ-006-12 / REQ-001-17 errorOccurred on a rate limit ends the turn and marks it for the Account's pause", () => {
+    start();
+    store.patchSession(1, { coordinatorPromptPending: false });
+    fire("errorOccurred", fixture("errorOccurred"));
+    expect(store.session(1)).toMatchObject({ state: "idle", usageLimited: true, usageLimitResetsAt: null });
+  });
+
+  test("REQ-006-12 errorOccurred on a quota (premium requests used up) is a usage limit too", () => {
+    start();
+    fire("errorOccurred", {
+      ...fixture("errorOccurred"),
+      error: { name: "Error", message: "quota_exceeded: You have no premium requests left." },
+    });
+    expect(store.session(1)?.usageLimited).toBe(true);
+  });
+
+  test("REQ-006-12 errorOccurred on another error, or outside a model call, leaves the session alone", () => {
+    start();
+    fire("errorOccurred", { ...fixture("errorOccurred"), error: { name: "Error", message: "socket hang up" } });
+    fire("errorOccurred", { ...fixture("errorOccurred"), errorContext: "tool_execution" });
+    expect(store.session(1)).toMatchObject({ state: "running", usageLimited: false });
+  });
+
+  test("REQ-006-10 SessionEnd changes nothing", () => {
+    start();
+    fire("SessionEnd", fixture("SessionEnd"));
+    expect(store.session(1)?.state).toBe("running");
+  });
+});
+
+describe("Copilot CLI login check", () => {
+  const check = copilot.loginCheck as Extract<LoginCheck, { readFolder: unknown }>;
+
+  test("REQ-006-13 a login stored in the Account's folder", () => {
+    const home = join(dir, ".copilot-work");
+    mkdirSync(home);
+    writeFileSync(join(home, "config.json"), readFileSync(join(COPILOT_FIXTURES, "config.jsonc")));
+    expect(check.readFolder(home, {})).toEqual({ ok: true, detail: "octocat" });
+  });
+
+  test("REQ-006-13 a token in the environment, which Copilot prefers to a stored login", () => {
+    expect(check.readFolder(join(dir, "none"), { GH_TOKEN: "x" })).toEqual({ ok: true, detail: "token in GH_TOKEN" });
+  });
+
+  test("REQ-006-13 no login: says how to log in", () => {
+    mkdirSync(join(dir, "empty"));
+    writeFileSync(join(dir, "empty", "config.json"), '// managed\n{ "firstLaunchAt": "2026-11-19T19:48:19.217Z" }');
+    const r = check.readFolder(join(dir, "empty"), {});
+    expect(r.ok).toBe(false);
+    expect(r.detail).toStartWith("run it with the `login` subcommand");
   });
 });

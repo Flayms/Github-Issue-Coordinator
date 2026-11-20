@@ -1,0 +1,20 @@
+// User settings belong in settings.json.
+// This file is managed automatically.
+{
+  "authTokens": {
+    "https://github.com:octocat": {
+      "token": "<redacted>"
+    }
+  },
+  "loggedInUsers": [
+    {
+      "host": "https://github.com",
+      "login": "octocat",
+      "kind": "githubDotCom"
+    }
+  ],
+  "lastLoggedInUser": {
+    "host": "https://github.com",
+    "login": "octocat"
+  }
+}

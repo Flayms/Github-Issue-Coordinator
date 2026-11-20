@@ -2,11 +2,10 @@
 /**
  * Manual smoke test of the session runner against real tmux and a real Harness CLI (uses its login).
  * Starts a session in a throwaway git repo, waits for a valid Result, resumes it with a second
- * prompt, then closes it. Usage: bun scripts/smoke-runner.ts [--harness claude|codex|antigravity]
- * [--role implementer|reviewer] [--model haiku] [--fake-model] [--keep]. `--harness codex --fake-model` and
- * `--harness antigravity --fake-model` run the real `codex` or `agy` against a local fake model server
- * (scripts/fake-model-server.ts): no login, no cost (docs/harnesses.md). A Harness whose CLI is missing, or that isn't
- * logged in, is skipped.
+ * prompt, then closes it. Usage: bun scripts/smoke-runner.ts [--harness claude|codex|antigravity|copilot]
+ * [--role implementer|reviewer] [--model haiku] [--fake-model] [--keep]. `--fake-model` with `--harness codex`,
+ * `antigravity` or `copilot` runs the real CLI against a local fake model server (scripts/fake-model-server.ts): no
+ * login, no cost (docs/harnesses.md). A Harness whose CLI is missing, or that isn't logged in, is skipped.
  * Checks that the session runs with skipped permissions (REQ-005-01): no permission prompt, and the Implementer's
  * commands and commit work. Exits 1 on a mismatch. Prints the Usage quota the status line recorded (REQ-001-67); it is
  * missing on plans without rate limits, so that is no mismatch.
@@ -16,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import type { Account } from "../src/accounts.ts";
+import { loginStatus } from "../src/harness/checks.ts";
 import { harnessByName } from "../src/harness/index.ts";
 import { SessionRunner } from "../src/runner.ts";
 import { Store } from "../src/store.ts";
@@ -33,7 +33,8 @@ const { values: opts } = parseArgs({
 });
 const harness = harnessByName(opts.harness ?? "claude");
 const fake = opts["fake-model"] && harness.name !== "claude";
-if (opts["fake-model"] && !fake) throw new Error("--fake-model works with --harness codex or antigravity only");
+if (opts["fake-model"] && !fake)
+  throw new Error("--fake-model works with --harness codex, antigravity or copilot only");
 const root = mkdtempSync(join(tmpdir(), "coordinator-smoke-"));
 // REQ-006-05: skip a Harness that can't run here, rather than fail.
 const version = Bun.spawnSync([harness.bin, "--version"], { stdout: "pipe", stderr: "pipe" });
@@ -55,6 +56,22 @@ if (fake && harness.name === "antigravity") {
   Bun.spawnSync(["tmux", "kill-session", "-t", "coordinator-smoke"], { stderr: "ignore" });
   const env = Object.entries(vars).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
   Bun.spawnSync(["tmux", "new-session", "-d", "-s", "coordinator-smoke", "-n", "keepalive", ...env]);
+} else if (fake && harness.name === "copilot") {
+  // A COPILOT_HOME of its own, and the fake server as the only model provider (`copilot help providers-env`), set on
+  // the smoke run's own tmux session so its windows get it and no other session does.
+  fakeServer = startFakeModelServer();
+  const home = join(root, "copilot-home");
+  mkdirSync(home, { recursive: true });
+  accounts[0] = { ...accounts[0], configDir: home } as Account;
+  const vars = {
+    COPILOT_PROVIDER_BASE_URL: `${fakeServer.url}/v1`,
+    COPILOT_PROVIDER_WIRE_API: "responses",
+    // No GitHub sign-in, telemetry or update check.
+    COPILOT_OFFLINE: "true",
+  };
+  Bun.spawnSync(["tmux", "kill-session", "-t", "coordinator-smoke"], { stderr: "ignore" });
+  const env = Object.entries(vars).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
+  Bun.spawnSync(["tmux", "new-session", "-d", "-s", "coordinator-smoke", "-n", "keepalive", ...env]);
 } else if (fake) {
   // A CODEX_HOME of its own, whose only model provider is the fake server.
   fakeServer = startFakeModelServer();
@@ -66,9 +83,11 @@ if (fake && harness.name === "antigravity") {
   );
   accounts[0] = { ...accounts[0], configDir: home } as Account;
 } else {
-  const login = Bun.spawnSync([harness.bin, ...harness.loginCheck.args], { stdout: "pipe", stderr: "pipe" });
-  const out = { ok: login.exitCode === 0, out: login.stdout.toString().trim() || login.stderr.toString().trim() };
-  if (!harness.loginCheck.read(out).ok) {
+  const run = (cmd: string[], env?: Record<string, string | undefined>) => {
+    const p = Bun.spawnSync(cmd, { stdout: "pipe", stderr: "pipe", env });
+    return { ok: p.exitCode === 0, out: p.stdout.toString().trim() || p.stderr.toString().trim() };
+  };
+  if (!loginStatus(harness, accounts[0] as Account, run).ok) {
     console.log(`Skipped: \`${harness.bin}\` is not logged in.`);
     process.exit(0);
   }
@@ -117,6 +136,7 @@ const DEFAULT_MODEL = {
   claude: "haiku",
   codex: fake ? "gpt-fake" : "gpt-5.5",
   antigravity: "gemini-3.6-flash",
+  copilot: fake ? "copilot:gpt-fake" : "copilot:claude-haiku-5.5",
 } as const;
 const model = { model: opts.model ?? DEFAULT_MODEL[harness.name] };
 

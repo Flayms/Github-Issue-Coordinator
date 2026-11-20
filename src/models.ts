@@ -3,6 +3,7 @@
  * names a model. `config.ts` may still name any model; only the Config page is limited to this list.
  * Each model belongs to one Harness, which runs it (REQ-006-01).
  */
+import { COPILOT_MODEL_PREFIX } from "./harness/copilot.ts";
 import type { HarnessName } from "./harness/harness.ts";
 
 const FAMILIES = ["opus", "sonnet", "haiku", "fable"];
@@ -68,6 +69,23 @@ const CODEX_MODELS: readonly CatalogueModel[] = [
 ].map(([value, label]) => ({ value: value as string, label: label as string, alias: false }));
 
 /**
+ * Copilot CLI's models, from the catalogue bundled with Copilot CLI 1.0.114; which of them a login may use depends on
+ * its plan. Each carries the `copilot:` prefix, so a Role picks the Harness, its Account and its quota deliberately
+ * even where another Harness runs the same model (e.g. Claude Sonnet). `auto` lets Copilot pick per request.
+ */
+const COPILOT_MODELS: readonly CatalogueModel[] = [
+  ["auto", "Auto"],
+  ["claude-opus-5.5", "Claude Opus 5.5"],
+  ["claude-sonnet-5.5", "Claude Sonnet 5.5"],
+  ["claude-haiku-5.5", "Claude Haiku 5.5"],
+  ["gpt-6.1-sol", "GPT-6.1-Sol"],
+  ["gpt-6.1-terra", "GPT-6.1 Terra"],
+  ["gpt-6-luna", "GPT-6-Luna"],
+  ["gemini-4-argon", "Gemini 4 Argon"],
+  ["grok-4.7", "Grok 4.7"],
+].map(([id, name]) => ({ value: `${COPILOT_MODEL_PREFIX}${id}`, label: `${name} (Copilot)`, alias: false }));
+
+/**
  * Antigravity CLI's Gemini models, as `agy models` of Antigravity CLI 1.5.12 lists them, without the effort suffix
  * (`-low` … `-xhigh`), so a Role's effort applies (REQ-006-07). A Google login may offer more, which `config.ts` can
  * still name. Update when a model ships.
@@ -93,6 +111,7 @@ export const HARNESS_MODELS: Readonly<Record<HarnessName, readonly CatalogueMode
   claude: MODEL_CATALOGUE,
   codex: CODEX_MODELS,
   antigravity: ANTIGRAVITY_MODELS,
+  copilot: COPILOT_MODELS,
 };
 
 const ALL_MODELS = Object.values(HARNESS_MODELS).flat();
@@ -100,21 +119,27 @@ const ALL_MODELS = Object.values(HARNESS_MODELS).flat();
 export const inCatalogue = (value: string): boolean => ALL_MODELS.some((m) => m.value === value);
 
 /**
- * REQ-006-01: the Harness that runs a model: its catalogue's, else Codex for OpenAI's naming (`gpt-…`, `o3`, `codex-…`),
- * Antigravity for Google's (`gemini-…`, REQ-006-07), else Claude Code, which also takes any model a gateway offers.
+ * REQ-006-01: the Harness that runs a model: its catalogue's, else Copilot CLI for a `copilot:` model (REQ-006-10), else
+ * Codex for OpenAI's naming (`gpt-…`, `o3`, `codex-…`), Antigravity for Google's (`gemini-…`, REQ-006-07), else Claude
+ * Code, which also takes any model a gateway offers.
  */
 export function harnessOfModel(value: string): HarnessName {
   for (const [name, models] of Object.entries(HARNESS_MODELS))
     if (models.some((m) => m.value === value)) return name as HarnessName;
+  if (value.startsWith(COPILOT_MODEL_PREFIX)) return "copilot";
   if (/^(gpt-|o\d|codex-)/i.test(value)) return "codex";
   return /^gemini-/i.test(value) ? "antigravity" : "claude";
 }
 
 /**
  * How the dashboard names a model (REQ-003-41): "Opus 5.5" for `claude-opus-5-5`, "Opus (latest)" for
- * `opus`, ", 1M context" for a `[1m]` suffix; anything else as it is.
+ * `opus`, ", 1M context" for a `[1m]` suffix, "(Copilot)" after a Copilot model (REQ-006-10); anything else as it is.
  */
 export function modelLabel(value: string): string {
+  if (value.startsWith(COPILOT_MODEL_PREFIX))
+    return (
+      COPILOT_MODELS.find((m) => m.value === value)?.label ?? `${value.slice(COPILOT_MODEL_PREFIX.length)} (Copilot)`
+    );
   const suffix = /\[(.*)\]$/.exec(value)?.[1];
   const bare = suffix === undefined ? value : value.slice(0, -suffix.length - 2);
   const otherName = [...CODEX_MODELS, ...ANTIGRAVITY_MODELS].find((m) => m.value === bare)?.label;
