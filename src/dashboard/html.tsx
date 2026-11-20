@@ -453,24 +453,25 @@ function QuotaMeter({ w, asOf }: { w: QuotaWindowView; asOf: string | null }) {
 
 /**
  * REQ-003-37 / REQ-003-38: an Account's pair of meters, side by side on a phone too, with its reset
- * line under them; with several Accounts its name is a small label above. A paused Account says until
- * when instead of its meters.
+ * line under them; with several Accounts its name is a small label above. A paused Account keeps its
+ * meters and its line starts with until when.
  */
 const AccountQuota = ({ q }: { q: QuotaView }) => (
   <div className="mt-1">
     {q.account && <p className="mt-2 font-medium text-[12px] text-fg">{q.account}</p>}
-    {q.pausedUntil ? (
-      <p className="border-line border-t py-3 text-[12px] text-muted" title={q.asOf ?? undefined}>
-        paused until <b className="font-semibold text-fg">{q.pausedUntil}</b>
-      </p>
-    ) : (
-      <ul className="grid grid-cols-2 gap-x-6">
-        {q.windows.map((w) => (
-          <QuotaMeter key={w.label} w={w} asOf={q.asOf} />
-        ))}
-      </ul>
-    )}
-    <p className="text-[12px] text-faint">{q.line}</p>
+    <ul className="grid grid-cols-2 gap-x-6">
+      {q.windows.map((w) => (
+        <QuotaMeter key={w.label} w={w} asOf={q.asOf} />
+      ))}
+    </ul>
+    <p className="text-[12px] text-faint">
+      {q.pausedUntil && (
+        <>
+          paused until <b className="font-semibold text-fg">{q.pausedUntil}</b> ·{" "}
+        </>
+      )}
+      {q.line}
+    </p>
   </div>
 );
 

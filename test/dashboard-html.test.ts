@@ -525,7 +525,7 @@ describe("dashboard html", () => {
 
     /** The quota meters of a section: label, value text, tube columns, liquid span and the tooltip. */
     const meters = (section: string) =>
-      [...section.matchAll(/<li title="([^"]*)" class="([^"]*)" role="meter"([^>]*)>([\s\S]*?)<\/li>/g)].map(
+      [...section.matchAll(/<li (?:title="([^"]*)" )?class="([^"]*)" role="meter"([^>]*)>([\s\S]*?)<\/li>/g)].map(
         ([, title, cls, attrs, body]) => ({
           title,
           cls,
@@ -577,9 +577,18 @@ describe("dashboard html", () => {
       expect(line).toBeGreaterThan(section.lastIndexOf('role="meter"'));
     });
 
-    test("REQ-003-38 several Accounts: the name above each pair; a paused one says until when; – for a missing window", () => {
+    test("REQ-003-38 several Accounts: the name above each pair; a paused one keeps its meters and says until when in its line; – for a missing window", () => {
       const { section } = page([
-        { ...one, account: "main", pausedUntil: "14:30 UTC", line: "main · resets in 3 h 12 min" },
+        {
+          ...one,
+          account: "main",
+          pausedUntil: "14:30 UTC",
+          windows: [
+            { label: "5-hour", percent: 100, high: true },
+            { label: "weekly", percent: 50, high: false },
+          ],
+          line: "main · resets in 3 h 12 min",
+        },
         {
           ...one,
           account: "spare",
@@ -590,18 +599,51 @@ describe("dashboard html", () => {
           line: "spare · resets Fri 09:00 UTC",
         },
       ]);
-      expect(section).toMatch(/>main<\/p><p[^>]*>paused until <b[^>]*>14:30 UTC<\/b><\/p>/);
-      // Only the spare Account has meters; its name comes before them, its line after.
+      // Both Accounts have their pair of meters; the paused one's used-up window reads 100 % in accent.
       const ms = meters(section);
-      expect(ms.map((m) => m.text)).toEqual(["5-hour window– used", "Weekly24% used"]);
-      expect(ms[0]?.liquid).toBeUndefined();
-      expect(ms[0]?.attrs).not.toContain("aria-valuenow");
-      expect(ms[1]?.liquid).toBe("col-span-2");
+      expect(ms.map((m) => m.text)).toEqual([
+        "5-hour window100% used",
+        "Weekly50% used",
+        "5-hour window– used",
+        "Weekly24% used",
+      ]);
+      expect(ms[0]?.body).toMatch(/<span class="[^"]*font-display[^"]*text-acc-hi[^"]*">100<span/);
+      expect(ms[0]?.liquid).toBe("col-span-10");
+      expect(ms[2]?.liquid).toBeUndefined();
+      expect(ms[2]?.attrs).not.toContain("aria-valuenow");
+      expect(ms[3]?.liquid).toBe("col-span-2");
+      expect(section).toMatch(/>main<\/p>\s*<ul class="grid grid-cols-2/);
       expect(section).toMatch(/>spare<\/p>\s*<ul class="grid grid-cols-2/);
-      const order3 = ["main", "paused until", "main · resets", "spare", 'role="meter"', "spare · resets"].map((s) =>
-        section.indexOf(s),
+      // The pause starts the faint line under the meters, the time in bold, before the reset text.
+      expect(section).toMatch(
+        /<p class="[^"]*text-faint[^"]*">paused until <b[^>]*>14:30 UTC<\/b> · main · resets in 3 h 12 min<\/p>/,
       );
-      expect([...order3].sort((a, b) => a - b)).toEqual(order3);
+      expect(section.match(/paused until/g)).toHaveLength(1);
+      const order = ["main", 'role="meter"', "paused until", "spare", 'role="meter"', "spare · resets"];
+      let at = -1;
+      for (const s of order) {
+        const next = section.indexOf(s, at + 1);
+        expect(next).toBeGreaterThan(at);
+        at = next;
+      }
+    });
+
+    test("REQ-003-38 a paused Account with no report shows two – meters and the pause, not the note", () => {
+      const { section } = page([
+        {
+          account: null,
+          pausedUntil: "Mon 01:00 UTC",
+          windows: [
+            { label: "5-hour", percent: null, high: false },
+            { label: "weekly", percent: null, high: false },
+          ],
+          line: "Claude subscription",
+          asOf: null,
+        },
+      ]);
+      expect(meters(section).map((m) => m.text)).toEqual(["5-hour window– used", "Weekly– used"]);
+      expect(text(section)).toContain("paused until Mon 01:00 UTC · Claude subscription");
+      expect(text(section)).not.toContain("Shown once");
     });
 
     test("REQ-003-38 a single Account has no name above its meters", () => {

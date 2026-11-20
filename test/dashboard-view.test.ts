@@ -847,6 +847,26 @@ describe("dashboard view", () => {
       });
     });
 
+    test("REQ-003-38 a paused Account with no report still gets its meters, both –, and the pause", () => {
+      const v = dashboardView(
+        snapshot({ accounts: [{ name: "default", quota: null, pausedUntil: "2026-11-15T14:30:00.000Z" }] }),
+        config,
+        NOW,
+      );
+      expect(v.usageQuota).toEqual([
+        {
+          account: null,
+          pausedUntil: "14:30 UTC",
+          windows: [
+            { label: "5-hour", percent: null, high: false },
+            { label: "weekly", percent: null, high: false },
+          ],
+          line: "Claude subscription",
+          asOf: null,
+        },
+      ]);
+    });
+
     test("REQ-003-38 with no report and no pause there is nothing to show", () => {
       expect(dashboardView(snapshot(), config, NOW).usageQuota).toEqual([]);
       expect(dashboardView(undefined, config, NOW).usageQuota).toEqual([]);
