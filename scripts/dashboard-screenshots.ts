@@ -21,10 +21,10 @@ import { renderTimings } from "../src/dashboard/timings-html.tsx";
 import { dashboardView } from "../src/dashboard/view.ts";
 import {
   MOCK_CONFIG,
-  MOCK_CONFIG_BASE,
   MOCK_NOW,
   MOCK_SNAPSHOT,
   MOCK_TIMING_SOURCE,
+  MOCK_VERSION,
   mockTranscript,
 } from "../test/fixtures/dashboard-mock.ts";
 
@@ -60,15 +60,15 @@ export const SCREENSHOTS: readonly Screenshot[] = [
 export function mockPages(): string[] {
   const view = dashboardView(MOCK_SNAPSHOT, MOCK_CONFIG, MOCK_NOW, { transcript: mockTranscript });
   const timings = timingsView({ source: MOCK_TIMING_SOURCE, pick: null, includeOwner: false, now: MOCK_NOW });
-  // The Config page as the signed-in Owner sees it: the editable settings as a form (REQ-003-36).
+  // The Config page as the signed-in Owner sees it: the editable settings as a form (REQ-007-05).
   const form = {
     token: "mock-form-token",
-    fields: settingFields(MOCK_CONFIG_BASE, MOCK_CONFIG),
+    fields: settingFields(MOCK_CONFIG),
     errors: [],
     saved: false,
     reportedModels: MOCK_SNAPSHOT.sessions.flatMap((s) => (s.modelId ? [s.modelId] : [])),
   };
-  return [renderDashboard(view), renderConfig(view, form), renderTimings(view, timings)];
+  return [renderDashboard(view), renderConfig(view, form, { version: MOCK_VERSION }), renderTimings(view, timings)];
 }
 
 /** A hash of the pages and the assets, each length-prefixed so moving bytes between them changes it. */

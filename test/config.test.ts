@@ -1,4 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   autoMergeMode,
   ConfigError,
@@ -17,6 +20,17 @@ const valid = () => ({
     reviewer: { model: "opus" },
   },
 });
+
+let dirs: string[] = [];
+afterEach(() => {
+  for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  dirs = [];
+});
+const tmp = () => {
+  const d = mkdtempSync(join(tmpdir(), "config-"));
+  dirs.push(d);
+  return d;
+};
 
 const issuesOf = (raw: unknown): string[] => {
   try {
@@ -98,7 +112,7 @@ describe("config", () => {
   test("applies the defaults the Owner accepted", () => {
     const c = parseConfig(valid());
     expect(c.pollIntervalSec).toBe(60);
-    expect(c.stateDir).toBe(".coordinator");
+    expect(c.stateDir).toBe(join(homedir(), ".local", "share", "github-issue-coordinator"));
     expect(c.limits).toEqual({
       maxRunning: 1,
       maxPlanners: 1,
@@ -222,11 +236,43 @@ describe("config", () => {
     ]);
   });
 
-  test("loads and validates a config module's default export", async () => {
-    const dir = `${import.meta.dir}/fixtures`;
-    expect((await loadConfig(`${dir}/config.valid.ts`)).owner.login).toBe("octo");
-    expect(loadConfig(`${dir}/config.invalid.ts`)).rejects.toThrow(ConfigError);
-    expect(loadConfig(`${dir}/missing.ts`)).rejects.toThrow("config file not found");
+  test("REQ-007-02 loads and validates a JSON config file, with a $schema key", () => {
+    const dir = tmp();
+    const path = join(dir, "config.json");
+    writeFileSync(path, JSON.stringify({ $schema: "./config.schema.json", ...valid() }));
+    expect(loadConfig(path).owner.login).toBe("octo");
+    writeFileSync(path, JSON.stringify({ owner: { login: "octo" }, repos: [], roles: {} }));
+    expect(() => loadConfig(path)).toThrow(ConfigError);
+  });
+
+  test("REQ-007-02 a missing file, a TypeScript config or a file that isn't JSON say what to do", () => {
+    const dir = tmp();
+    expect(() => loadConfig(join(dir, "missing.json"))).toThrow(
+      /config file not found: .*missing\.json.*coordinator init/,
+    );
+    for (const name of ["config.ts", "config.js"]) {
+      writeFileSync(join(dir, name), "export default {}");
+      expect(() => loadConfig(join(dir, name))).toThrow(/is a JSON file now.*coordinator init/);
+    }
+    writeFileSync(join(dir, "config.json"), "{ not json");
+    expect(() => loadConfig(join(dir, "config.json"))).toThrow(/\(root\): not JSON/);
+  });
+
+  test("REQ-007-03 a relative stateDir is read relative to the config file, never the working folder", () => {
+    const dir = tmp();
+    const path = join(dir, "config.json");
+    writeFileSync(path, JSON.stringify({ ...valid(), stateDir: "state" }));
+    expect(loadConfig(path).stateDir).toBe(join(dir, "state"));
+    writeFileSync(path, JSON.stringify({ ...valid(), stateDir: "/var/lib/c" }));
+    expect(loadConfig(path).stateDir).toBe("/var/lib/c");
+  });
+
+  test("REQ-007-03 without stateDir, state goes to $XDG_DATA_HOME/github-issue-coordinator", () => {
+    expect(parseConfig(valid(), { env: { XDG_DATA_HOME: "/data" } }).stateDir).toBe("/data/github-issue-coordinator");
+    // A relative XDG value is ignored, as the XDG spec says.
+    expect(parseConfig(valid(), { env: { XDG_DATA_HOME: "data" } }).stateDir).toBe(
+      join(homedir(), ".local", "share", "github-issue-coordinator"),
+    );
   });
 });
 

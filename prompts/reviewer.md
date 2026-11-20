@@ -37,7 +37,7 @@ Put an overall verdict in `summary`. Open it with a verdict line (e.g. _Meets th
 
 Rate every Review, with or without findings, in `risk` (`low`, `medium` or `high`) and give the reason in one line in `riskReason`. The Coordinator shows both in your Review. Depending on the repository's auto-merge mode, a `low` PR can be merged without the Owner looking at it, so rate the change as it would land on the default branch:
 
-- `high`: it touches security, authentication, secrets or token use, GitHub writes or the agents' permissions, CI workflows (`.github/workflows/`), build or deploy setup, the config schema, stored data or data migrations, or it deletes tests or weakens them. Also a change that is large, hard to revert, or that you could not check.
+- `high`: it touches security, authentication, secrets or token use, GitHub writes or the agents' permissions, CI workflows (`.github/workflows/`), build, release or deploy setup (also the package's version or a release manifest such as `.release-please-manifest.json`, which publish a release when merged), the config schema, stored data or data migrations, or it deletes tests or weakens them. Also a change that is large, hard to revert, or that you could not check.
 - `medium`: a behaviour change in the application logic that the tests cover, and none of the above.
 - `low`: docs, comments, wording, tests only, or a small, local and well-tested change that is easy to revert.
 

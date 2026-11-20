@@ -1,7 +1,7 @@
 /**
  * The Config page (REQ-003-05): the effective settings as React components rendered on the server
  * (REQ-003-19). It renders only the allow-listed `SettingsView` and the editable fields, so no secret
- * reaches it. For the signed-in Owner the editable settings are a form (REQ-003-36), with the Extra instructions
+ * reaches it. For the signed-in Owner the editable settings are a form (REQ-007-05), with the Extra instructions
  * (REQ-003-44).
  */
 import type { ReactNode } from "react";
@@ -232,25 +232,6 @@ const input =
 const button =
   "inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-[13px] hover:border-acc hover:text-fg";
 
-/** REQ-003-36: a changed field names config.ts's value and can go back to it. */
-function Changed({ f, empty, show = (v) => v }: { f: SettingField; empty: string; show?: (v: string) => string }) {
-  if (!f.changed) return null;
-  return (
-    <span className="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-acc-hi">
-      <span>{`config.ts: ${f.base ? show(f.base) : empty}`}</span>
-      <button
-        type="submit"
-        name="reset"
-        value={f.name}
-        formNoValidate
-        className="cursor-pointer text-muted underline hover:text-fg"
-      >
-        Reset
-      </button>
-    </span>
-  );
-}
-
 const fieldId = (name: string) => `f-${name}`;
 
 function NumberField({ f }: { f: SettingField }) {
@@ -271,13 +252,12 @@ function NumberField({ f }: { f: SettingField }) {
         defaultValue={f.value}
         className={`${input} mt-1.5 font-bold font-display text-[22px]`}
       />
-      <Changed f={f} empty="–" />
     </div>
   );
 }
 
 /**
- * REQ-003-40: the Model catalogue, plus the field's own value and config.ts's when they aren't in it. REQ-006-01: only
+ * REQ-003-40: the Model catalogue, plus the field's value in the config file and the entered one when they aren't in it. REQ-006-01: only
  * the models of Harnesses that have an Account, grouped by Harness when there are several.
  */
 function ModelField({
@@ -293,88 +273,70 @@ function ModelField({
   reported: string[];
   harnesses?: HarnessName[];
 }) {
-  const own = [...new Set([f.value, f.base])].filter((v) => v && !inCatalogue(v));
+  const own = [...new Set([f.value, f.current])].filter((v) => v && !inCatalogue(v));
   const option = (value: string) => (
     <option key={value} value={value}>
       {modelOptionLabel(value, reported)}
     </option>
   );
   return (
-    <>
-      <select
-        id={fieldId(f.name)}
-        aria-label={label}
-        name={f.name}
-        defaultValue={f.value}
-        title={f.value || undefined}
-        required={inherit === undefined}
-        className={`${input} w-auto max-w-full`}
-      >
-        {inherit !== undefined && <option value="">{`global (${modelLabel(inherit)})`}</option>}
-        {own.map(option)}
-        {harnesses.flatMap((h) => {
-          const models = HARNESS_MODELS[h];
-          const prefix = harnesses.length > 1 ? `${HARNESSES[h].label} · ` : "";
-          const groups = [
-            ["Latest", models.filter((m) => m.alias)],
-            ["Pinned", models.filter((m) => !m.alias)],
-          ] as const;
-          // A Harness without aliases has one group, named after it.
-          const shown = groups.filter(([, ms]) => ms.length);
-          return shown.map(([name, ms]) => (
-            <optgroup
-              key={`${h}-${name}`}
-              label={shown.length > 1 || !prefix ? `${prefix}${name}` : HARNESSES[h].label}
-            >
-              {ms.map((m) => option(m.value))}
-            </optgroup>
-          ));
-        })}
-      </select>
-      <Changed f={f} empty={inherit ? "the global model" : "–"} show={modelLabel} />
-    </>
+    <select
+      id={fieldId(f.name)}
+      aria-label={label}
+      name={f.name}
+      defaultValue={f.value}
+      title={f.value || undefined}
+      required={inherit === undefined}
+      className={`${input} w-auto max-w-full`}
+    >
+      {inherit !== undefined && <option value="">{`global (${modelLabel(inherit)})`}</option>}
+      {own.map(option)}
+      {harnesses.flatMap((h) => {
+        const models = HARNESS_MODELS[h];
+        const prefix = harnesses.length > 1 ? `${HARNESSES[h].label} · ` : "";
+        const groups = [
+          ["Latest", models.filter((m) => m.alias)],
+          ["Pinned", models.filter((m) => !m.alias)],
+        ] as const;
+        // A Harness without aliases has one group, named after it.
+        const shown = groups.filter(([, ms]) => ms.length);
+        return shown.map(([name, ms]) => (
+          <optgroup key={`${h}-${name}`} label={shown.length > 1 || !prefix ? `${prefix}${name}` : HARNESSES[h].label}>
+            {ms.map((m) => option(m.value))}
+          </optgroup>
+        ));
+      })}
+    </select>
   );
 }
 
 function EffortField({ f, label, inherit }: { f: SettingField; label: string; inherit?: string }) {
   return (
-    <>
-      <select
-        id={fieldId(f.name)}
-        aria-label={label}
-        name={f.name}
-        defaultValue={f.value}
-        className={`${input} w-auto`}
-      >
-        <option value="">{inherit === undefined ? "default" : `global (${inherit})`}</option>
-        {EFFORTS.map((e) => (
-          <option key={e} value={e}>
-            {e}
-          </option>
-        ))}
-      </select>
-      <Changed f={f} empty={inherit === undefined ? "default" : "the global effort"} />
-    </>
+    <select id={fieldId(f.name)} aria-label={label} name={f.name} defaultValue={f.value} className={`${input} w-auto`}>
+      <option value="">{inherit === undefined ? "default" : `global (${inherit})`}</option>
+      {EFFORTS.map((e) => (
+        <option key={e} value={e}>
+          {e}
+        </option>
+      ))}
+    </select>
   );
 }
 
 /** Sized to its options, also inside a repository card's grid. */
 const autoMergeSelect = `${input.replace("w-full ", "")} w-auto`;
 
-/** REQ-003-36: the auto-merge mode; in a repository, empty means the global mode. */
+/** REQ-007-05: the auto-merge mode; in a repository, empty means the global mode. */
 function AutoMergeField({ f, inherit }: { f: SettingField; inherit?: string }) {
   return (
-    <>
-      <select id={fieldId(f.name)} name={f.name} defaultValue={f.value} className={autoMergeSelect}>
-        {inherit !== undefined && <option value="">{`global (${inherit})`}</option>}
-        {AUTO_MERGE_MODES.map((m) => (
-          <option key={m} value={m}>
-            {AUTO_MERGE_LABELS[m]}
-          </option>
-        ))}
-      </select>
-      <Changed f={f} empty={inherit === undefined ? "–" : "the global mode"} />
-    </>
+    <select id={fieldId(f.name)} name={f.name} defaultValue={f.value} className={autoMergeSelect}>
+      {inherit !== undefined && <option value="">{`global (${inherit})`}</option>}
+      {AUTO_MERGE_MODES.map((m) => (
+        <option key={m} value={m}>
+          {AUTO_MERGE_LABELS[m]}
+        </option>
+      ))}
+    </select>
   );
 }
 
@@ -476,7 +438,7 @@ function EditModels({ form, s }: { form: SettingsForm; s: SettingsView }) {
       {table(<RoleRows form={form} prefix="roles" />)}
       {s.repos.map((r) => {
         const prefix = `repos.${r.name}.roles`;
-        const set = form.fields.some((f) => f.name.startsWith(`${prefix}.`) && (f.value || f.changed));
+        const set = form.fields.some((f) => f.name.startsWith(`${prefix}.`) && f.value !== "");
         return (
           <details key={r.name} open={set} className="mt-4 border-line border-t pt-3">
             <summary className="cursor-pointer text-[14px] text-muted">
@@ -512,7 +474,6 @@ function InstructionFields({ form, prefix, where }: { form: SettingsForm; prefix
               placeholder={where ? "None, the global ones only" : "None"}
               className={`${input} mt-1.5 resize-y font-mono text-[12px]`}
             />
-            <Changed f={f} empty="none" show={() => "set"} />
           </div>
         );
       })}
@@ -528,7 +489,7 @@ function EditInstructions({ form, s }: { form: SettingsForm; s: SettingsView }) 
       <InstructionFields form={form} prefix="instructions" />
       {s.repos.map((r) => {
         const prefix = `repos.${r.name}.instructions`;
-        const set = form.fields.some((f) => f.name.startsWith(`${prefix}.`) && (f.value || f.changed));
+        const set = form.fields.some((f) => f.name.startsWith(`${prefix}.`) && f.value !== "");
         return (
           <details key={r.name} open={set} className="mt-4 border-line border-t pt-3">
             <summary className="cursor-pointer text-[14px] text-muted">
@@ -577,7 +538,7 @@ const SaveButton = () => (
   </button>
 );
 
-/** REQ-003-36: the editable settings as one plain form, so it works without JavaScript. */
+/** REQ-007-05: the editable settings as one plain form, so it works without JavaScript. */
 function EditForm({ form, s }: { form: SettingsForm; s: SettingsView }) {
   return (
     <form method="post" action="/config" id="settings" className="mt-10">
@@ -585,7 +546,7 @@ function EditForm({ form, s }: { form: SettingsForm; s: SettingsView }) {
       {/* The first submit button, so Enter in a field saves instead of resetting one. */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px] text-muted">
         <SaveButton />
-        <span>Applies from the next tick on; running sessions keep going. Changes are kept in the state dir.</span>
+        <span>Applies from the next tick on; running sessions keep going. Saved into the config file.</span>
       </div>
       <Notice form={form} />
       <EditAutoMerge form={form} />
@@ -602,7 +563,37 @@ function EditForm({ form, s }: { form: SettingsForm; s: SettingsView }) {
   );
 }
 
-export function ConfigPage({ v, form }: { v: DashboardView; form?: SettingsForm }) {
+/** What the Config page says about the running Coordinator itself. */
+export interface ConfigAbout {
+  /** REQ-007-12: the package's version. */
+  version?: string;
+  /** REQ-007-07: the settings changed in the config file that apply after a restart. */
+  restartPending?: readonly string[];
+}
+
+/** REQ-007-07: names the settings that changed in the file and wait for a restart. */
+function RestartPending({ keys }: { keys: readonly string[] }) {
+  if (!keys.length) return null;
+  return (
+    <div role="status" className="mt-6 max-w-[80ch] rounded-md border border-warn/50 px-4 py-3 text-[14px]">
+      <p className="flex items-center gap-2 font-semibold text-warn">
+        <Icon name="alert" />
+        Changed in the config file, applies after a restart:
+      </p>
+      <p className="mt-1.5 text-muted">
+        {keys.map((k, i) => (
+          <span key={k}>
+            {i > 0 && ", "}
+            <code className="font-mono text-[0.86em] text-fg">{k}</code>
+          </span>
+        ))}
+        . Run <code className="font-mono text-[0.86em] text-fg">coordinator service restart</code> to use them.
+      </p>
+    </div>
+  );
+}
+
+export function ConfigPage({ v, form, about = {} }: { v: DashboardView; form?: SettingsForm; about?: ConfigAbout }) {
   const s = v.settings;
   return (
     <Layout v={v} page="config" editing={form !== undefined}>
@@ -616,9 +607,11 @@ export function ConfigPage({ v, form }: { v: DashboardView; form?: SettingsForm 
           </h1>
           <p className="mt-3.5 max-w-[60ch] text-muted">
             {form
-              ? "The effective settings: the config file with your changes from here. Repositories, Accounts and access stay in the config file. No secrets: keys and tokens are never shown."
-              : "The effective settings. Read-only, and no secrets: keys and tokens are never shown."}
+              ? "The settings in use. Saving writes them into the config file. Repositories, Accounts and access are changed in the file. No secrets: keys and tokens are never shown."
+              : "The settings in use. Read-only, and no secrets: keys and tokens are never shown."}
           </p>
+          {about.version && <p className="mt-2 font-mono text-[12px] text-muted">{`Coordinator ${about.version}`}</p>}
+          <RestartPending keys={about.restartPending ?? []} />
         </section>
         <Access s={s} />
         {form ? (
@@ -639,5 +632,5 @@ export function ConfigPage({ v, form }: { v: DashboardView; form?: SettingsForm 
   );
 }
 
-export const renderConfig = (v: DashboardView, form?: SettingsForm): string =>
-  renderPage(<ConfigPage v={v} form={form} />);
+export const renderConfig = (v: DashboardView, form?: SettingsForm, about?: ConfigAbout): string =>
+  renderPage(<ConfigPage v={v} form={form} about={about} />);

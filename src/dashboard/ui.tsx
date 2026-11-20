@@ -134,7 +134,7 @@ const TITLES = { overview: "Coordinator", config: "Config · Coordinator", timin
 
 /**
  * The page frame shared by the pages: header with tabs, countdown and alerts. While `editing` (the Config form,
- * REQ-003-36) the page doesn't refresh itself, so entered values and a save's errors stay.
+ * REQ-007-05) the page doesn't refresh itself, so entered values and a save's errors stay.
  */
 export function Layout({
   v,

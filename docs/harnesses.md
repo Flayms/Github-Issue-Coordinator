@@ -14,19 +14,19 @@ down to what every Harness can do. The table is built from what each adapter in 
 `bun test` fails when the two differ (REQ-006-06), so adding a Harness or a feature updates this table in the same PR.
 
 <!-- feature-matrix:start (generated from src/harness; bun test checks it) -->
-| Feature                                  | Claude Code                         | Codex CLI                                       | Antigravity CLI                     | Copilot CLI                     | OpenCode                         |
-| ---------------------------------------- | ----------------------------------- | ----------------------------------------------- | ----------------------------------- | ------------------------------- | -------------------------------- |
-| Start in tmux, skip permissions (core)   | ✅ `--dangerously-skip-permissions` | ✅ `--dangerously-bypass-approvals-and-sandbox` | ✅ `--dangerously-skip-permissions` | ✅ `--allow-all`                | ✅ `--auto`, `permission: allow` |
-| Resume by session id (core)              | ✅ `--resume`                       | ✅ `codex resume`                               | ✅ `--conversation`                 | ✅ `--resume <id>`              | ✅ `--session <id>`              |
-| Turn-end hook (Result validation) (core) | ✅ `Stop`                           | ✅ `Stop`                                       | ✅ `Stop`                           | ✅ `Stop` (`agentStop`)         | ✅ plugin on `session.idle`      |
-| Login check (`bun run doctor`) (core)    | ✅ `claude auth status`             | ✅ `codex login status`                         | ✅ `agy models`                     | ✅ `config.json` of the Account | ✅ `opencode models`             |
-| Remote Control / Open chat               | ✅ `--remote-control`               | ❌                                              | ❌                                  | ❌                              | ❌                               |
-| Now line from the transcript             | ✅ transcript                       | ❌                                              | ❌                                  | ❌                              | ❌                               |
-| Usage quota meters                       | ✅ status line                      | ❌                                              | ❌                                  | ❌                              | ❌                               |
-| Usage limit detected                     | ✅ `StopFailure`                    | ✅ rollout `task_complete` error                | ✅ `Stop` error                     | ✅ `errorOccurred`              | ✅ plugin on a `retry` status    |
-| Usage limit with reset time              | ✅ transcript                       | ❌                                              | ✅ `retryDelay` of the error        | ❌                              | ❌                               |
-| Transcript move on Account switch        | ✅ copied                           | ✅ rollout copied                               | ❌                                  | ✅ `session-state/<id>/` copied | ❌                               |
-| Minimum CLI version                      | `claude` 2.1.0                      | `codex` 0.170.0                                 | `agy` 1.5.12                        | `copilot` 1.0.114               | `opencode` 1.19.6                |
+| Feature                                   | Claude Code                         | Codex CLI                                       | Antigravity CLI                     | Copilot CLI                     | OpenCode                         |
+| ----------------------------------------- | ----------------------------------- | ----------------------------------------------- | ----------------------------------- | ------------------------------- | -------------------------------- |
+| Start in tmux, skip permissions (core)    | ✅ `--dangerously-skip-permissions` | ✅ `--dangerously-bypass-approvals-and-sandbox` | ✅ `--dangerously-skip-permissions` | ✅ `--allow-all`                | ✅ `--auto`, `permission: allow` |
+| Resume by session id (core)               | ✅ `--resume`                       | ✅ `codex resume`                               | ✅ `--conversation`                 | ✅ `--resume <id>`              | ✅ `--session <id>`              |
+| Turn-end hook (Result validation) (core)  | ✅ `Stop`                           | ✅ `Stop`                                       | ✅ `Stop`                           | ✅ `Stop` (`agentStop`)         | ✅ plugin on `session.idle`      |
+| Login check (`coordinator doctor`) (core) | ✅ `claude auth status`             | ✅ `codex login status`                         | ✅ `agy models`                     | ✅ `config.json` of the Account | ✅ `opencode models`             |
+| Remote Control / Open chat                | ✅ `--remote-control`               | ❌                                              | ❌                                  | ❌                              | ❌                               |
+| Now line from the transcript              | ✅ transcript                       | ❌                                              | ❌                                  | ❌                              | ❌                               |
+| Usage quota meters                        | ✅ status line                      | ❌                                              | ❌                                  | ❌                              | ❌                               |
+| Usage limit detected                      | ✅ `StopFailure`                    | ✅ rollout `task_complete` error                | ✅ `Stop` error                     | ✅ `errorOccurred`              | ✅ plugin on a `retry` status    |
+| Usage limit with reset time               | ✅ transcript                       | ❌                                              | ✅ `retryDelay` of the error        | ❌                              | ❌                               |
+| Transcript move on Account switch         | ✅ copied                           | ✅ rollout copied                               | ❌                                  | ✅ `session-state/<id>/` copied | ❌                               |
+| Minimum CLI version                       | `claude` 2.1.0                      | `codex` 0.170.0                                 | `agy` 1.5.12                        | `copilot` 1.0.114               | `opencode` 1.19.6                |
 
 - **Codex CLI, Remote Control / Open chat:** Codex has no link into a phone or web app; attach to tmux instead.
 - **Codex CLI, Now line from the transcript:** the rollout format differs from Claude's transcript; not read yet.
@@ -54,7 +54,7 @@ To regenerate the block: `bun -e 'import { featureMatrix } from "./src/harness/m
 1. Install it: `npm i -g @openai/codex` (or `bun i -g @openai/codex`), version 0.170.0 or newer.
 2. Log in once per Account, each in its own `CODEX_HOME`: `CODEX_HOME=~/.codex-work codex login` (a ChatGPT
    subscription), or `codex login --with-api-key` (pay per use).
-3. Add the Account to `config.ts` with `harness: "codex"`:
+3. Add the Account to `config.json` with `harness: "codex"`:
 
    ```ts
    accounts: [
@@ -63,9 +63,9 @@ To regenerate the block: `bun -e 'import { featureMatrix } from "./src/harness/m
    ],
    ```
 
-4. Pick a Codex model for a Role, in `config.ts` or on the Config page, whose Model dropdown now lists Codex's models.
+4. Pick a Codex model for a Role, in `config.json` or on the Config page, whose Model dropdown now lists Codex's models.
    A Role whose model's Harness has no Account is a config error.
-5. `bun run doctor` checks the `codex` CLI, its version and each Codex Account's login (REQ-006-05).
+5. `coordinator doctor` checks the `codex` CLI, its version and each Codex Account's login (REQ-006-05).
 
 How a Codex session runs:
 
@@ -88,7 +88,7 @@ Google's Antigravity CLI (`agy`) replaced Gemini CLI, and it still works with a 
    newer.
 2. Run `agy` once in a terminal of the Coordinator's user and sign in. On a server it prints a URL to open on your own
    machine and asks for the code. Finish its first-run screens (color scheme, terms) there too.
-3. Add the Account to `config.ts` with `harness: "antigravity"` and no `configDir`:
+3. Add the Account to `config.json` with `harness: "antigravity"` and no `configDir`:
 
    ```ts
    accounts: [
@@ -103,7 +103,7 @@ Google's Antigravity CLI (`agy`) replaced Gemini CLI, and it still works with a 
 
 4. Pick a Gemini model for a Role, e.g. `gemini-4-neon`. The catalogue lists the models without their effort suffix,
    so the Role's effort applies; a model id with its own suffix (`gemini-4-neon-high`) wins, since `agy` refuses both.
-5. `bun run doctor` checks `agy`, its version, and the login with `agy models` (REQ-006-05).
+5. `coordinator doctor` checks `agy`, its version, and the login with `agy models` (REQ-006-05).
 
 How an Antigravity session runs:
 
@@ -133,7 +133,7 @@ How an Antigravity session runs:
 2. Log in once per Account, each in its own `COPILOT_HOME`: `COPILOT_HOME=~/.copilot-work copilot login`. On a server
    without a keyring, `copilot login` asks to store the token in that folder's `config.json`; say yes. A fine-grained
    PAT with the **Copilot Requests** permission works too (`copilot login --with-token`). Classic `ghp_` tokens don't.
-3. Add the Account to `config.ts` with `harness: "copilot"`:
+3. Add the Account to `config.json` with `harness: "copilot"`:
 
    ```ts
    accounts: [
@@ -144,9 +144,9 @@ How an Antigravity session runs:
 
 4. Pick a Copilot model for a Role. Copilot's models carry a `copilot:` prefix, e.g. `copilot:claude-sonnet-5.5` or
    `copilot:auto`, so a Role on "Claude Sonnet 5.5 (Copilot)" runs on the Copilot Account and its quota, never on a
-   Claude Code Account. `config.ts` may name any model Copilot offers as `copilot:<id>`; the Config page lists the ones
+   Claude Code Account. `config.json` may name any model Copilot offers as `copilot:<id>`; the Config page lists the ones
    bundled with Copilot CLI 1.0.114, and which of them a login may use depends on its plan.
-5. `bun run doctor` checks the `copilot` CLI, its version and each Copilot Account's login. Copilot has no command
+5. `coordinator doctor` checks the `copilot` CLI, its version and each Copilot Account's login. Copilot has no command
    that reports the login, so the check reads `loggedInUsers` from the Account's `config.json`, or a token in
    `COPILOT_GITHUB_TOKEN`, `GH_TOKEN` or `GITHUB_TOKEN` (REQ-006-13).
 
@@ -176,7 +176,7 @@ need no login at all, so it is the cheapest Harness to run for real.
    `curl -fsSL https://opencode.ai/install | bash`).
 2. Nothing else for a free Zen model. For another provider, log in once as the Coordinator's user
    (`opencode providers login`), or give the Coordinator that provider's API key in its environment.
-3. Add the Account to `config.ts` with `harness: "opencode"` and no `configDir`:
+3. Add the Account to `config.json` with `harness: "opencode"` and no `configDir`:
 
    ```ts
    accounts: [
@@ -193,7 +193,7 @@ need no login at all, so it is the cheapest Harness to run for real.
    `opencode:anthropic/claude-sonnet-5-5`. The prefix keeps them apart from the same models on their own Harness. The
    Config page lists the free Zen models of OpenCode 1.19.6; free models come and go, and `opencode models` lists the
    current ones. A Role's effort becomes the model's variant (e.g. `high`); a variant the model lacks is ignored.
-5. `bun run doctor` checks `opencode`, its version, and that `opencode models` offers a model (REQ-006-05).
+5. `coordinator doctor` checks `opencode`, its version, and that `opencode models` offers a model (REQ-006-05).
 
 How an OpenCode session runs:
 
