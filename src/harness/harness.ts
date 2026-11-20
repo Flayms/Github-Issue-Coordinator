@@ -13,7 +13,7 @@ export const CORE_FEATURES = {
   launch: "Start in tmux, skip permissions",
   resume: "Resume by session id",
   turnEndHook: "Turn-end hook (Result validation)",
-  loginCheck: "Login check (`bun run doctor`)",
+  loginCheck: "Login check (`coordinator doctor`)",
 } as const;
 
 /** Features a Harness may have; the dashboard and the scheduler use them only where declared (REQ-006-04). */
@@ -77,7 +77,7 @@ export interface Harness {
   readonly label: string;
   /** The CLI on the PATH, e.g. `claude`. */
   readonly bin: string;
-  /** The oldest CLI version the adapter was checked against; `bun run doctor` warns below it. */
+  /** The oldest CLI version the adapter was checked against; `coordinator doctor` warns below it. */
   readonly minVersion: string;
   readonly features: Readonly<
     Record<CoreFeature, FeatureSupport & { has: true }> & Record<OptionalFeature, FeatureSupport>
@@ -105,7 +105,7 @@ export interface Harness {
   args(o: LaunchInput): string[];
   /** Variables the CLI needs besides the Account's folder and `TMPDIR`, e.g. where its per-session config is. */
   env(o: { tmp: string; sessionDir: string }): Record<string, string>;
-  /** How `bun run doctor` checks an Account's login (REQ-006-05). */
+  /** How `coordinator doctor` checks an Account's login (REQ-006-05). */
   loginCheck: LoginCheck;
   /** Copies a session's transcript to another Account's folder (feature `transcriptMove`). */
   moveTranscript?(agentSessionId: string, fromDir: string, toDir: string): boolean;

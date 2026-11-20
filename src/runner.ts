@@ -23,10 +23,10 @@ export { claudeArgs, parentInstructionFiles } from "./harness/claude.ts";
 
 const WINDOW = /^s(\d+)$/;
 
-/** REQ-006-02: work for a Harness that has no Account in `config.ts`. */
+/** REQ-006-02: work for a Harness that has no Account in the config file. */
 export class NoAccountError extends Error {
   constructor(harness: Harness) {
-    super(`no Account of ${harness.label} (accounts with harness: "${harness.name}" in config.ts)`);
+    super(`no Account of ${harness.label} (accounts with harness: "${harness.name}" in the config file)`);
     this.name = "NoAccountError";
   }
 }

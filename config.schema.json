@@ -1,0 +1,363 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "owner": {
+      "type": "object",
+      "properties": {
+        "login": {
+          "type": "string",
+          "minLength": 1
+        },
+        "id": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": ["login", "id"],
+      "additionalProperties": false
+    },
+    "github": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "commitAuthor": {
+          "default": {
+            "name": "Claude",
+            "email": "noreply@anthropic.com"
+          },
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "email": {
+              "type": "string",
+              "minLength": 3
+            }
+          },
+          "required": ["name", "email"],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "pollIntervalSec": {
+      "default": 60,
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "checksGraceSeconds": {
+      "default": 120,
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "stateDir": {
+      "type": "string",
+      "minLength": 1
+    },
+    "autoMerge": {
+      "type": "string",
+      "enum": ["off", "evaluated", "all", "risk-evaluated"]
+    },
+    "limits": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "maxRunning": {
+          "default": 1,
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "maxPlanners": {
+          "default": 1,
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "maxImplementers": {
+          "default": 1,
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "maxReviewers": {
+          "default": 1,
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "maxLiveSessions": {
+          "default": 2,
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "idleTimeoutMin": {
+          "default": 30,
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "maxWorktrees": {
+          "default": 5,
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "maxFeedbackRounds": {
+          "default": 2,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "additionalProperties": false
+    },
+    "roles": {
+      "type": "object",
+      "properties": {
+        "planner": {
+          "type": "object",
+          "properties": {
+            "model": {
+              "type": "string",
+              "minLength": 1
+            },
+            "effort": {
+              "type": "string",
+              "enum": ["low", "medium", "high", "xhigh", "max"]
+            }
+          },
+          "required": ["model"],
+          "additionalProperties": false
+        },
+        "implementer": {
+          "type": "object",
+          "properties": {
+            "model": {
+              "type": "string",
+              "minLength": 1
+            },
+            "effort": {
+              "type": "string",
+              "enum": ["low", "medium", "high", "xhigh", "max"]
+            }
+          },
+          "required": ["model"],
+          "additionalProperties": false
+        },
+        "reviewer": {
+          "type": "object",
+          "properties": {
+            "model": {
+              "type": "string",
+              "minLength": 1
+            },
+            "effort": {
+              "type": "string",
+              "enum": ["low", "medium", "high", "xhigh", "max"]
+            }
+          },
+          "required": ["model"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["planner", "implementer", "reviewer"],
+      "additionalProperties": false
+    },
+    "instructions": {
+      "type": "object",
+      "properties": {
+        "planner": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "implementer": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "reviewer": {
+          "type": "string",
+          "maxLength": 4000
+        }
+      },
+      "additionalProperties": false
+    },
+    "repos": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[\\w.-]+\\/[\\w.-]+$"
+          },
+          "setup": {
+            "type": "string",
+            "minLength": 1
+          },
+          "roles": {
+            "type": "object",
+            "properties": {
+              "planner": {
+                "type": "object",
+                "properties": {
+                  "model": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "effort": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high", "xhigh", "max"]
+                  }
+                },
+                "additionalProperties": false
+              },
+              "implementer": {
+                "type": "object",
+                "properties": {
+                  "model": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "effort": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high", "xhigh", "max"]
+                  }
+                },
+                "additionalProperties": false
+              },
+              "reviewer": {
+                "type": "object",
+                "properties": {
+                  "model": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "effort": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high", "xhigh", "max"]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "autoMerge": {
+            "type": "string",
+            "enum": ["off", "evaluated", "all", "risk-evaluated"]
+          },
+          "instructions": {
+            "type": "object",
+            "properties": {
+              "planner": {
+                "type": "string",
+                "maxLength": 4000
+              },
+              "implementer": {
+                "type": "string",
+                "maxLength": 4000
+              },
+              "reviewer": {
+                "type": "string",
+                "maxLength": 4000
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": ["name"],
+        "additionalProperties": false
+      }
+    },
+    "accounts": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[\\w.-]+$"
+          },
+          "harness": {
+            "type": "string",
+            "enum": ["claude", "codex", "antigravity", "copilot", "opencode"]
+          },
+          "configDir": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["name"],
+        "additionalProperties": false
+      }
+    },
+    "dashboard": {
+      "default": {},
+      "anyOf": [
+        {
+          "type": "boolean",
+          "const": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "host": {
+              "default": "127.0.0.1",
+              "type": "string",
+              "minLength": 1
+            },
+            "port": {
+              "default": 8080,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 65535
+            },
+            "tokenPath": {
+              "type": "string",
+              "minLength": 1
+            },
+            "githubLogin": {
+              "default": {},
+              "anyOf": [
+                {
+                  "type": "boolean",
+                  "const": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "clientId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "clientSecretPath": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "required": ["owner", "roles", "repos"],
+  "additionalProperties": false
+}

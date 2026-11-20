@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ConfigInput, extraInstructions } from "../src/config.ts";
+import { ConfigFile } from "../src/config-file.ts";
 import type { TickSnapshot } from "../src/coordinator.ts";
 import { formToken, newSession } from "../src/dashboard/auth.ts";
 import { type DashboardServer, startDashboard } from "../src/dashboard/server.ts";
-import { LiveConfig, OVERRIDES_FILE } from "../src/overrides.ts";
 
 const OWNER_ID = 42;
 const NOW = new Date("2026-11-15T10:01:00Z");
@@ -41,7 +41,8 @@ const start = (
     token?: string;
     roles?: ConfigInput["roles"];
     reportedModels?: string[];
-    overrides?: object;
+    /** More keys of the config file. */
+    file?: object;
     instructions?: ConfigInput["instructions"];
     accounts?: ConfigInput["accounts"];
   } = {},
@@ -62,11 +63,13 @@ const start = (
     ...(opts.accounts && { accounts: opts.accounts }),
     dashboard: { port: 0, githubLogin: opts.githubLogin ?? LOGIN, ...(opts.token ? { tokenPath: "/t" } : {}) },
   };
-  if (opts.overrides) writeFileSync(join(dir, OVERRIDES_FILE), JSON.stringify(opts.overrides));
-  const settings = new LiveConfig(raw, "config.ts");
+  const path = join(dir, "config.json");
+  writeFileSync(path, `${JSON.stringify({ ...raw, ...opts.file }, null, 2)}\n`);
+  const settings = new ConfigFile(path);
   const server = startDashboard({
-    config: settings.base,
+    config: settings.startup,
     settings,
+    version: "1.2.3",
     token: opts.token,
     login: opts.githubLogin === false ? undefined : SECRETS,
     snapshot: () => snap,
@@ -75,7 +78,16 @@ const start = (
     now: () => NOW,
   });
   if (server) servers.push(server);
-  return { settings, path: join(dir, OVERRIDES_FILE), url: `http://127.0.0.1:${server?.port}` };
+  const initial = readFileSync(path, "utf8");
+  return {
+    settings,
+    path,
+    url: `http://127.0.0.1:${server?.port}`,
+    /** The config file's JSON now. */
+    file: () => JSON.parse(readFileSync(path, "utf8")),
+    /** The file is as it was written, and no other file appeared next to it. */
+    unchanged: () => readFileSync(path, "utf8") === initial && readdirSync(dir).join() === "config.json",
+  };
 };
 
 /** The inside of the select named `name`. */
@@ -87,13 +99,6 @@ const optionsOf = (html: string) =>
 
 const owner = { cookie: `coordinator_session=${SESSION}`, "sec-fetch-site": "same-origin" };
 
-/** The fields that offer a Reset: the values of the `reset` buttons. */
-const resets = (html: string) =>
-  [...html.matchAll(/<button [^>]*>/g)]
-    .map(([b]) => b)
-    .filter((b) => b.includes('name="reset"'))
-    .map((b) => /value="([^"]*)"/.exec(b)?.[1]);
-
 const post = (url: string, fields: Record<string, string>, headers: Record<string, string> = owner) =>
   fetch(`${url}/config`, {
     method: "POST",
@@ -103,7 +108,7 @@ const post = (url: string, fields: Record<string, string>, headers: Record<strin
   });
 
 describe("dashboard settings", () => {
-  test("REQ-003-36 the signed-in Owner gets the editable settings as a form with a form token", async () => {
+  test("REQ-007-05 the signed-in Owner gets the editable settings as a form with a form token", async () => {
     const { url } = start();
     const res = await fetch(`${url}/config`, { headers: { cookie: owner.cookie } });
     expect(res.status).toBe(200);
@@ -131,7 +136,7 @@ describe("dashboard settings", () => {
     expect(html).not.toMatch(/name="(repos\.[^"]*\.setup|accounts[^"]*|dashboard[^"]*|stateDir|owner[^"]*)"/);
   });
 
-  test("REQ-003-07 / REQ-003-36 a token gives the Config page read-only, without a form", async () => {
+  test("REQ-003-07 / REQ-007-05 a token gives the Config page read-only, without a form", async () => {
     const { url } = start({ token: TOKEN });
     const res = await fetch(`${url}/config`, { headers: { authorization: `Bearer ${TOKEN}` } });
     expect(res.status).toBe(200);
@@ -164,8 +169,8 @@ describe("dashboard settings", () => {
     ]);
   });
 
-  test("REQ-003-40 a config.ts model outside the catalogue stays an option and saving keeps it", async () => {
-    const { url, settings, path } = start({
+  test("REQ-003-40 a model in the config file outside the catalogue stays an option and saving keeps it", async () => {
+    const { url, settings, file } = start({
       roles: { planner: { model: "opus[1m]" }, implementer: { model: "sonnet" }, reviewer: { model: "opus" } },
     });
     const html = await (await fetch(`${url}/config`, { headers: { cookie: owner.cookie } })).text();
@@ -176,11 +181,11 @@ describe("dashboard settings", () => {
     const res = await post(url, { formToken: FORM_TOKEN, "roles.planner.model": "opus[1m]", pollIntervalSec: "30" });
     expect(res.status).toBe(303);
     expect(settings.current.roles.planner.model).toBe("opus[1m]");
-    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ pollIntervalSec: 30 });
+    expect(file()).toMatchObject({ pollIntervalSec: 30, roles: { planner: { model: "opus[1m]" } } });
   });
 
-  test("REQ-003-40 a model that is neither in the catalogue nor config.ts's is refused and nothing is saved", async () => {
-    const { url, settings, path } = start();
+  test("REQ-003-40 a model that is neither in the catalogue nor the field's value in the file is refused and nothing is saved", async () => {
+    const { url, settings, unchanged } = start();
     for (const [field, value] of [
       ["roles.planner.model", "gpt-4"],
       ["repos.octo/app.roles.reviewer.model", "opus[1m]"],
@@ -191,7 +196,7 @@ describe("dashboard settings", () => {
     }
     expect(settings.current.roles.planner.model).toBe("opus");
     expect(settings.current.pollIntervalSec).toBe(60);
-    expect(existsSync(path)).toBe(false);
+    expect(unchanged()).toBe(true);
 
     const ok = await post(url, { formToken: FORM_TOKEN, "roles.planner.model": "claude-opus-5-5" });
     expect(ok.status).toBe(303);
@@ -199,12 +204,13 @@ describe("dashboard settings", () => {
   });
 
   test("REQ-003-40 a saved model outside the catalogue still loads, stays selected and other fields still save", async () => {
-    const { url, settings } = start({ overrides: { roles: { reviewer: { model: "claude-opus-4-6" } } } });
+    const { url, settings } = start({
+      roles: { planner: { model: "opus" }, implementer: { model: "sonnet" }, reviewer: { model: "claude-opus-4-6" } },
+    });
     expect(settings.current.roles.reviewer.model).toBe("claude-opus-4-6");
     const html = await (await fetch(`${url}/config`, { headers: { cookie: owner.cookie } })).text();
     const reviewer = selectOf(html, "roles.reviewer.model");
     expect(reviewer).toMatch(/<option value="claude-opus-4-6" selected[^>]*>Opus 4.6</);
-    expect(html).toContain("config.ts: Opus (latest)");
 
     const res = await post(url, {
       formToken: FORM_TOKEN,
@@ -216,8 +222,8 @@ describe("dashboard settings", () => {
     expect(settings.current.roles.reviewer.model).toBe("claude-opus-4-6");
   });
 
-  test("REQ-003-36 saving writes the values that differ from config.ts and applies them at once", async () => {
-    const { url, settings, path } = start();
+  test("REQ-007-05 saving writes the changed values into the config file and applies them at once", async () => {
+    const { url, settings, file, path } = start();
     const res = await post(url, {
       formToken: FORM_TOKEN,
       pollIntervalSec: "30",
@@ -233,29 +239,25 @@ describe("dashboard settings", () => {
     expect(settings.current.pollIntervalSec).toBe(30);
     expect(settings.current.limits.maxRunning).toBe(1);
     expect(settings.current.roles.planner).toEqual({ model: "opus" });
-    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
-      pollIntervalSec: 30,
-      limits: { maxRunning: 1 },
-      roles: { planner: { effort: null } },
-      repos: { "octo/app": { roles: { reviewer: { model: "sonnet", effort: "max" } } } },
-    });
+    const json = file();
+    expect(json.limits).toEqual({ maxRunning: 1, maxLiveSessions: 3 });
+    expect(json.roles.planner).toEqual({ model: "opus" });
+    expect(json.repos).toEqual([
+      { name: "octo/app", setup: "bun install", roles: { reviewer: { model: "sonnet", effort: "max" } } },
+    ]);
+    expect(json.pollIntervalSec).toBe(30);
+    expect(readdirSync(join(path, ".."))).toEqual(["config.json"]);
 
     const page = await (await fetch(`${url}/config?saved=1`, { headers: { cookie: owner.cookie } })).text();
     expect(page).toContain("Saved. The Coordinator uses the new settings from its next tick on.");
     expect(page).toContain("Polling 1 repository every 30 s");
-    // A changed field says so, with config.ts's value, and offers a Reset.
-    expect(resets(page)).toEqual([
-      "pollIntervalSec",
-      "limits.maxRunning",
-      "roles.planner.effort",
-      "repos.octo/app.roles.reviewer.model",
-      "repos.octo/app.roles.reviewer.effort",
-    ]);
-    expect(page).toContain("config.ts: 2");
+    // No other value to go back to: the file is the only place settings are kept.
+    expect(page).not.toContain('name="reset"');
+    expect(page).not.toContain("config.ts");
   });
 
-  test("REQ-003-36 autoMerge is a select globally and per repository, and saving it applies at once", async () => {
-    const { url, settings, path } = start();
+  test("REQ-007-05 autoMerge is a select globally and per repository, and saving it applies at once", async () => {
+    const { url, settings, file } = start();
     const page = async () => (await fetch(`${url}/config`, { headers: { cookie: owner.cookie } })).text();
     const select = (html: string, name: string) =>
       new RegExp(`<select [^>]*name="${name.replace(/[./]/g, "\\$&")}"[^>]*>(.*?)</select>`).exec(html)?.[1] ?? "";
@@ -278,20 +280,14 @@ describe("dashboard settings", () => {
     expect(res.status).toBe(303);
     expect(settings.current.autoMerge).toBe("off");
     expect(settings.current.repos[0]?.autoMerge).toBe("all");
-    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
-      autoMerge: "off",
-      repos: { "octo/app": { autoMerge: "all" } },
-    });
+    expect(file()).toMatchObject({ autoMerge: "off", repos: [{ name: "octo/app", autoMerge: "all" }] });
     const after = await page();
     expect(select(after, "autoMerge")).toMatch(/<option value="off" selected/);
     expect(select(after, "repos.octo/app.autoMerge")).toMatch(/<option value="all" selected/);
-    expect(resets(after)).toEqual(["autoMerge", "repos.octo/app.autoMerge"]);
-    expect(after).toContain("config.ts: evaluated");
-    expect(after).toContain("config.ts: the global mode");
 
-    // Back to the global mode: the repository's override goes away.
+    // Back to the global mode: the repository's own mode goes away from the file.
     await post(url, { formToken: FORM_TOKEN, autoMerge: "off", "repos.octo/app.autoMerge": "" });
-    expect(settings.overrides).toEqual({ autoMerge: "off" });
+    expect(file().repos[0]).toEqual({ name: "octo/app", setup: "bun install" });
     expect(settings.current.repos[0]?.autoMerge).toBeUndefined();
 
     const bad = await post(url, { formToken: FORM_TOKEN, autoMerge: "risky" });
@@ -300,8 +296,8 @@ describe("dashboard settings", () => {
     expect(settings.current.autoMerge).toBe("off");
   });
 
-  test("REQ-003-36 an invalid value shows the error, keeps the entered values and saves nothing", async () => {
-    const { url, settings, path } = start();
+  test("REQ-007-05 an invalid value shows the error, keeps the entered values and saves nothing", async () => {
+    const { url, settings, unchanged } = start();
     const res = await post(url, { formToken: FORM_TOKEN, "limits.maxRunning": "5", pollIntervalSec: "abc" });
     expect(res.status).toBe(400);
     const html = await res.text();
@@ -309,21 +305,45 @@ describe("dashboard settings", () => {
     expect(html).toContain("pollIntervalSec: must be a whole number");
     expect(html).toContain('name="limits.maxRunning" value="5"');
     expect(settings.current.limits.maxRunning).toBe(2);
-    expect(existsSync(path)).toBe(false);
+    expect(unchanged()).toBe(true);
 
     const tooMany = await post(url, { formToken: FORM_TOKEN, "limits.maxRunning": "5" });
     expect(tooMany.status).toBe(400);
     expect(await tooMany.text()).toContain("limits.maxRunning: must not exceed maxLiveSessions");
-    expect(existsSync(path)).toBe(false);
+    expect(unchanged()).toBe(true);
   });
 
-  test("REQ-003-36 Reset removes a field's override and keeps the other saved ones", async () => {
-    const { url, settings } = start();
-    settings.save({ limits: { maxRunning: 1 }, pollIntervalSec: 30 });
-    const res = await post(url, { formToken: FORM_TOKEN, reset: "limits.maxRunning", pollIntervalSec: "99" });
+  test("REQ-007-06 a save keeps a hand edit of the file; while the file is invalid it is refused and left as it is", async () => {
+    const { url, settings, path, file } = start();
+    const json = file();
+    writeFileSync(path, JSON.stringify({ ...json, checksGraceSeconds: 7 }, null, 2));
+    const res = await post(url, { formToken: FORM_TOKEN, pollIntervalSec: "30" });
     expect(res.status).toBe(303);
-    expect(settings.overrides).toEqual({ pollIntervalSec: 30 });
-    expect(settings.current.limits.maxRunning).toBe(2);
+    expect(file()).toMatchObject({ checksGraceSeconds: 7, pollIntervalSec: 30 });
+
+    writeFileSync(path, "{ half");
+    const bad = await post(url, { formToken: FORM_TOKEN, pollIntervalSec: "45" });
+    expect(bad.status).toBe(400);
+    expect(await bad.text()).toContain("(root): not JSON");
+    expect(readFileSync(path, "utf8")).toBe("{ half");
+    expect(settings.current.pollIntervalSec).toBe(30);
+  });
+
+  test("REQ-007-07 / REQ-007-12 the Config page shows the version and the settings that wait for a restart", async () => {
+    const { url, path, file, settings } = start({ token: TOKEN });
+    const page = async () => (await fetch(`${url}/config`, { headers: { authorization: `Bearer ${TOKEN}` } })).text();
+    const before = await page();
+    expect(before).toContain("Coordinator 1.2.3");
+    expect(before).not.toContain("applies after a restart");
+
+    writeFileSync(path, JSON.stringify({ ...file(), repos: [{ name: "octo/app" }, { name: "octo/new" }] }));
+    settings.reload();
+    const after = await page();
+    expect(after).toContain("Changed in the config file, applies after a restart:");
+    expect(after).toMatch(/<code[^>]*>repos<\/code>/);
+    expect(after).toContain("coordinator service restart");
+    // The Coordinator still watches the repositories it started with.
+    expect(after).toContain("Polling 1 repository");
   });
 
   /** The text of the textarea named `name`, or undefined without one. */
@@ -342,8 +362,8 @@ describe("dashboard settings", () => {
     expect(html).toContain("At most 4,000 characters each");
   });
 
-  test("REQ-003-44 saving Extra instructions stores them and applies them to sessions started from then on; Reset removes them", async () => {
-    const { url, settings, path } = start({ instructions: { implementer: "Use pnpm." } });
+  test("REQ-003-44 saving Extra instructions stores them in the file and applies them to sessions started from then on; empty removes them", async () => {
+    const { url, settings, file } = start({ instructions: { implementer: "Use pnpm." } });
     const res = await post(url, {
       formToken: FORM_TOKEN,
       "instructions.planner": "Always answer in German.\r\nUse {{x}} literally.",
@@ -351,10 +371,11 @@ describe("dashboard settings", () => {
       "instructions.implementer": "",
     });
     expect(res.status).toBe(303);
-    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
-      instructions: { planner: "Always answer in German.\nUse {{x}} literally.", implementer: "" },
-      repos: { "octo/app": { instructions: { planner: "Mention the ticket." } } },
+    expect(file()).toMatchObject({
+      instructions: { planner: "Always answer in German.\nUse {{x}} literally." },
+      repos: [{ name: "octo/app", instructions: { planner: "Mention the ticket." } }],
     });
+    expect(file().instructions.implementer).toBeUndefined();
     expect(extraInstructions(settings.current, "octo/app", "planner")).toEqual([
       "Always answer in German.\nUse {{x}} literally.",
       "Mention the ticket.",
@@ -363,19 +384,11 @@ describe("dashboard settings", () => {
 
     const page = await (await fetch(`${url}/config`, { headers: { cookie: owner.cookie } })).text();
     expect(textareaOf(page, "instructions.planner")).toBe("Always answer in German.\nUse {{x}} literally.");
-    expect(resets(page)).toEqual([
-      "instructions.planner",
-      "instructions.implementer",
-      "repos.octo/app.instructions.planner",
-    ]);
-
-    await post(url, { formToken: FORM_TOKEN, reset: "instructions.implementer" });
-    expect(extraInstructions(settings.current, "octo/app", "implementer")).toEqual(["Use pnpm."]);
-    expect(settings.overrides.instructions).toEqual({ planner: "Always answer in German.\nUse {{x}} literally." });
+    expect(textareaOf(page, "instructions.implementer")).toBe("");
   });
 
   test("REQ-003-44 Extra instructions over the size limit are refused, kept in the form, and nothing is saved", async () => {
-    const { url, settings, path } = start();
+    const { url, settings, unchanged } = start();
     const long = "x".repeat(4_001);
     const res = await post(url, {
       formToken: FORM_TOKEN,
@@ -387,13 +400,13 @@ describe("dashboard settings", () => {
     expect(html).toContain("repos.octo/app.instructions.reviewer: must be at most 4,000 characters");
     expect(textareaOf(html, "repos.octo/app.instructions.reviewer")).toBe(long);
     expect(settings.current.pollIntervalSec).toBe(60);
-    expect(existsSync(path)).toBe(false);
+    expect(unchanged()).toBe(true);
   });
 
   test("REQ-003-44 a token sees the Extra instructions but gets no field to change them", async () => {
     const { url } = start({
       token: TOKEN,
-      overrides: { instructions: { planner: "Always answer in German." } },
+      instructions: { planner: "Always answer in German." },
     });
     const html = await (await fetch(`${url}/config`, { headers: { authorization: `Bearer ${TOKEN}` } })).text();
     expect(html).toContain("Extra instructions");
@@ -402,7 +415,7 @@ describe("dashboard settings", () => {
   });
 
   test("REQ-003-07 a POST without the form token, with a wrong one, or from another site is refused", async () => {
-    const { url, settings, path } = start();
+    const { url, settings, unchanged } = start();
     const fields = { "limits.maxRunning": "1" };
     for (const [body, headers] of [
       [fields, owner],
@@ -421,11 +434,11 @@ describe("dashboard settings", () => {
       expect(res.status).toBe(403);
     }
     expect(settings.current.limits.maxRunning).toBe(2);
-    expect(existsSync(path)).toBe(false);
+    expect(unchanged()).toBe(true);
   });
 
   test("REQ-003-07 a token never saves settings; without any access a POST gets 401", async () => {
-    const { url, settings, path } = start({ token: TOKEN });
+    const { url, settings, unchanged } = start({ token: TOKEN });
     const fields = { "limits.maxRunning": "1", formToken: FORM_TOKEN };
     const viaBearer = await post(url, fields, { authorization: `Bearer ${TOKEN}`, "sec-fetch-site": "same-origin" });
     expect(viaBearer.status).toBe(403);
@@ -437,7 +450,7 @@ describe("dashboard settings", () => {
     const anonymous = await post(url, fields, { "sec-fetch-site": "same-origin" });
     expect(anonymous.status).toBe(401);
     expect(settings.current.limits.maxRunning).toBe(2);
-    expect(existsSync(path)).toBe(false);
+    expect(unchanged()).toBe(true);
   });
 
   test("REQ-003-07 with the GitHub sign-in off no one can save settings", async () => {
