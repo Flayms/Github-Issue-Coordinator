@@ -117,3 +117,11 @@ export async function start(configPath: string) {
   dashboard?.stop();
   store.close();
 }
+
+// The unit before spec 007 ran `bun src/index.ts` with a `config.ts`: say what to do instead of exiting quietly.
+if (import.meta.main) {
+  console.error(
+    "src/index.ts is no longer run directly: run `coordinator init` (writes config.json), then `coordinator service install`; from a checkout `bun src/cli.ts start --config <config.json>` (docs/setup.md)",
+  );
+  process.exit(1);
+}
