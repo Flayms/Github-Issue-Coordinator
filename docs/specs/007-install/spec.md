@@ -159,7 +159,7 @@ Deprecates REQ-003-36 (replaced by REQ-007-05 to REQ-007-07). Where other requir
 
 ## Assumptions
 
-- Bun stays a prerequisite, with tmux, git, `gh` and Claude Code; the package runs its TypeScript with Bun, without a build step.
+- Bun stays a prerequisite, with tmux, git, `gh` and at least one Harness installed and logged in (REQ-007-08 lets `init` pick any); the package runs its TypeScript with Bun, without a build step.
 - The npm scope `@flayms` is the maintainer's npm account (REQ-007-16).
 - The machine runs systemd and `issueflow service` is run as root (or with `sudo`), like the documented setup.
 - A one-time maintainer setup: this repository's `release.yml` registered as the package's trusted publisher on npmjs.com, a small GitHub App (Contents and Pull requests write, this repository only) whose id and key are the `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` secrets, so release-please's PR triggers CI.
