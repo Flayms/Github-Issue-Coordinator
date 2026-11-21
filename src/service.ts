@@ -7,6 +7,7 @@ import { homedir, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { ServiceCommand } from "./cli.ts";
 import { APP_NAME } from "./paths.ts";
+import { PACKAGE_NAME } from "./version.ts";
 
 export const SERVICE_NAME = APP_NAME;
 export const UNIT_PATH = `/etc/systemd/system/${SERVICE_NAME}.service`;
@@ -153,7 +154,7 @@ function install(configPath: string, env: ServiceEnv, steps: (...cmds: string[][
   const code = steps(["systemctl", "daemon-reload"], ["systemctl", "enable", "--now", SERVICE_NAME]);
   if (!code)
     env.print(
-      `installed and started ${SERVICE_NAME} (${UNIT_PATH}); follow it with \`issueflow service logs\`, update with \`bun add -g ${APP_NAME}@latest && issueflow service restart\``,
+      `installed and started ${SERVICE_NAME} (${UNIT_PATH}); follow it with \`issueflow service logs\`, update with \`bun add -g ${PACKAGE_NAME}@latest && issueflow service restart\``,
     );
   return code;
 }

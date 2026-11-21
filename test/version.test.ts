@@ -31,8 +31,18 @@ describe("doctor's version check", () => {
     expect(await versionCheck("0.1.0", npm({ version: "0.3.0" }))).toEqual({
       status: "warn",
       check: "version",
-      detail: "0.1.0; 0.3.0 is on npm: bun add -g issueflow@latest && issueflow service restart",
+      detail: "0.1.0; 0.3.0 is on npm: bun add -g @flayms/issueflow@latest && issueflow service restart",
     });
+  });
+
+  test("REQ-007-16 asks npm for @flayms/issueflow", async () => {
+    const asked: string[] = [];
+    const fetchFn = (async (url: string) => {
+      asked.push(url);
+      return new Response(JSON.stringify({ version: "0.1.0" }));
+    }) as unknown as typeof fetch;
+    await versionCheck("0.1.0", fetchFn);
+    expect(asked).toEqual(["https://registry.npmjs.org/@flayms/issueflow/latest"]);
   });
 
   test("REQ-007-12 npm out of reach is a warning, never a problem", async () => {

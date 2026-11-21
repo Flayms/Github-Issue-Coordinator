@@ -1,9 +1,11 @@
 /** The package's version (REQ-007-12) and the files it ships next to the source (REQ-007-15). */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { APP_NAME } from "./paths.ts";
 
-/** The package's root folder: the checkout, or the global install's `node_modules/issueflow`. */
+/** REQ-007-16: the npm package; npm refused the unscoped `issueflow`. The command and folders stay `APP_NAME`. */
+export const PACKAGE_NAME = "@flayms/issueflow";
+
+/** The package's root folder: the checkout, or the global install's `node_modules/@flayms/issueflow`. */
 export const PACKAGE_ROOT = join(import.meta.dir, "..");
 /** REQ-007-04: the JSON Schema of the config file. */
 export const CONFIG_SCHEMA_PATH = join(PACKAGE_ROOT, "config.schema.json");
@@ -21,7 +23,7 @@ export function newerVersion(current: string, latest: string): boolean {
 
 /** REQ-007-12: the newest version on npm; throws when the registry can't be reached or answers oddly. */
 export async function latestOnNpm(fetchFn: typeof fetch = fetch): Promise<string> {
-  const res = await fetchFn(`https://registry.npmjs.org/${APP_NAME}/latest`, {
+  const res = await fetchFn(`https://registry.npmjs.org/${PACKAGE_NAME}/latest`, {
     headers: { accept: "application/json" },
     signal: AbortSignal.timeout(5_000),
   });
@@ -42,7 +44,7 @@ export async function versionCheck(
       ? {
           status: "warn",
           check: "version",
-          detail: `${current}; ${latest} is on npm: bun add -g ${APP_NAME}@latest && issueflow service restart`,
+          detail: `${current}; ${latest} is on npm: bun add -g ${PACKAGE_NAME}@latest && issueflow service restart`,
         }
       : {
           status: "ok",

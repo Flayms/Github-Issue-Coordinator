@@ -25,11 +25,11 @@ A self-hosted Bun daemon that turns your GitHub issues into reviewed pull reques
 You need a Linux VM dedicated to the Coordinator with tmux, git, `gh`, [Bun](https://bun.sh) and [Claude Code](https://code.claude.com) logged in ([prerequisites](docs/setup.md#prerequisites)).
 
 ```sh
-bun add -g issueflow
+bun add -g @flayms/issueflow
 issueflow init        # asks a few questions, writes the config, installs the service
 ```
 
-`init` logs in the GitHub CLI with a fine-grained PAT, picks your repositories, models and dashboard sign-in, writes `~/.config/issueflow/config.json`, runs `issueflow doctor` and installs the systemd service. Update with `bun add -g issueflow@latest && issueflow service restart`.
+`init` logs in the GitHub CLI with a fine-grained PAT, picks your repositories, models and dashboard sign-in, writes `~/.config/issueflow/config.json`, runs `issueflow doctor` and installs the systemd service. Update with `bun add -g @flayms/issueflow@latest && issueflow service restart`.
 
 The [setup guide](docs/setup.md) walks through each step: the PAT, the ruleset, the config, the dashboard and the service.
 
