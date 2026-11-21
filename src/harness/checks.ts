@@ -1,4 +1,4 @@
-/** REQ-006-05: what `coordinator doctor` checks per Harness in use: its CLI, its version and each Account's login. */
+/** REQ-006-05: what `issueflow doctor` checks per Harness in use: its CLI, its version and each Account's login. */
 import { homedir } from "node:os";
 import { type Account, accountDir, harnessOfAccount } from "../accounts.ts";
 import { HARNESSES, type Harness, type LoginStatus, versionAtLeast } from "./index.ts";

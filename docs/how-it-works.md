@@ -103,8 +103,8 @@ Optional. Every Review names a **Risk tier** (`low`, `medium` or `high`) with a 
 | `off`                 | nothing: set it to merge every PR yourself |
 | `all`                 | every such PR                              |
 
-- `evaluated` applies when nothing sets `autoMerge`: set `"autoMerge": "off"` (or pick `off` in `coordinator init`) to keep merging by hand.
-- Set it globally or per repository, in `config.json` or on the dashboard's Config page. `risk-evaluated`, its old name, still works, and `coordinator doctor` warns about it.
+- `evaluated` applies when nothing sets `autoMerge`: set `"autoMerge": "off"` (or pick `off` in `issueflow init`) to keep merging by hand.
+- Set it globally or per repository, in `config.json` or on the dashboard's Config page. `risk-evaluated`, its old name, still works, and `issueflow doctor` warns about it.
 - **No gate is skipped:** PRs with findings, declined findings, failing checks, conflicts or your `/agent` comment waiting are never merged.
 - A PR that changes `.github/workflows/` is always rated `high`.
 - The merge is a squash pinned to the reviewed commit; the Coordinator comments on the PR why it merged.
@@ -143,7 +143,7 @@ On by default ([setup](setup.md#4-dashboard), [spec 003](specs/003-dashboard/spe
 
 ### Config and Timings
 
-- The **Config page** shows the settings without secrets. Once you are signed in, it lets you change limits, poll interval, the auto-merge mode, each Role's model and effort and its Extra instructions (also per repository); a model is picked from a list of aliases ("Opus (latest)") and pinned versions ("Opus 5.5"). They apply from the next tick on, without a restart, and are saved into the config file itself. A hand edit of the file applies from the next tick on too; repositories, Accounts and access apply after `coordinator service restart`.
+- The **Config page** shows the settings without secrets. Once you are signed in, it lets you change limits, poll interval, the auto-merge mode, each Role's model and effort and its Extra instructions (also per repository); a model is picked from a list of aliases ("Opus (latest)") and pinned versions ("Opus 5.5"). They apply from the next tick on, without a restart, and are saved into the config file itself. A hand edit of the file applies from the next tick on too; repositories, Accounts and access apply after `issueflow service restart`.
 - The **Timings page** shows one issue's Planning, Building and Review on one time axis, each step a glass capsule like the Capacity meters: indigo liquid while an agent works, darker for checks, amber for your time (only with "Include your time"; otherwise it is cut out of the axis) and empty glass while waiting in the queue. Tiles above it give the total, the agents' and the queue's share and the rounds. On a phone each phase has its own scale.
 
 ### Behaviour and access

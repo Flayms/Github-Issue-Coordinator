@@ -6,13 +6,11 @@ const GB = 1024 ** 3;
 describe("REQ-005-08 doctor warns about low temp space", () => {
   test("warns, naming the volume and its free space, when one has less than 1 GB free", () => {
     const free = new Map([
-      ["/srv/coordinator/.coordinator", 27 * GB],
+      ["/srv/coordinator/.issueflow", 27 * GB],
       ["/tmp", 11 * 1024 ** 2],
     ]);
-    expect(
-      tempSpaceChecks({ sessions: "/srv/coordinator/.coordinator", tmp: "/tmp" }, (p) => free.get(p) ?? 0),
-    ).toEqual([
-      { status: "ok", check: "free space for session folders", detail: "/srv/coordinator/.coordinator: 27.0 GB free" },
+    expect(tempSpaceChecks({ sessions: "/srv/coordinator/.issueflow", tmp: "/tmp" }, (p) => free.get(p) ?? 0)).toEqual([
+      { status: "ok", check: "free space for session folders", detail: "/srv/coordinator/.issueflow: 27.0 GB free" },
       {
         status: "warn",
         check: "free space in /tmp",

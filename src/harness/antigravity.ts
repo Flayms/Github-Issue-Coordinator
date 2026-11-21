@@ -92,7 +92,7 @@ export const antigravity: Harness = {
     const handlers = Object.fromEntries(
       ANTIGRAVITY_HOOK_EVENTS.map((ev) => [ev, [{ type: "command", command: hook(ev) }]]),
     );
-    writeFileSync(join(agents, "hooks.json"), JSON.stringify({ coordinator: handlers }, null, 2));
+    writeFileSync(join(agents, "hooks.json"), JSON.stringify({ issueflow: handlers }, null, 2));
     // Session-only settings, never saved: workspace hooks load only in trusted folders, and the agent must not wait
     // for a review of its plan (REQ-005-01).
     const settings = {

@@ -28,7 +28,7 @@ describe("releases", () => {
     const config = json("release-please-config.json");
     expect(config.packages["."]).toMatchObject({
       "release-type": "node",
-      "package-name": "github-issue-coordinator",
+      "package-name": "issueflow",
       "bump-minor-pre-major": true,
       "include-component-in-tag": false,
       "changelog-path": "CHANGELOG.md",
@@ -73,10 +73,10 @@ describe("releases", () => {
 });
 
 describe("package", () => {
-  test("REQ-007-01 / REQ-007-15 the package has the coordinator command and ships what it runs, without tests or docs", async () => {
+  test("REQ-007-01 / REQ-007-15 the package has the issueflow command and ships what it runs, without tests or docs", async () => {
     const pkg = json("package.json");
     expect(pkg.private).toBeUndefined();
-    expect(pkg.bin).toEqual({ coordinator: "src/cli.ts" });
+    expect(pkg.bin).toEqual({ issueflow: "src/cli.ts" });
     expect(read("src/cli.ts")).toStartWith("#!/usr/bin/env bun\n");
     // `bun pm pack` reads `files` as npm does; its dry run lists each file as `packed <size> <path>`.
     const packed = Bun.spawnSync(["bun", "pm", "pack", "--dry-run", "--ignore-scripts"], {

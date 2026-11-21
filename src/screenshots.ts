@@ -6,8 +6,8 @@
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-/** Where the Implementer saves Screenshots, relative to the Worktree; its git ignores `.coordinator/`. */
-export const SCREENSHOT_DIR = ".coordinator/screenshots";
+/** Where the Implementer saves Screenshots, relative to the Worktree; its git ignores `.issueflow/`. */
+export const SCREENSHOT_DIR = ".issueflow/screenshots";
 export const MAX_SCREENSHOTS = 5;
 export const MAX_SCREENSHOT_BYTES = 2 * 1024 * 1024;
 /** Where a Planner saves Mockups, relative to its session folder, outside the repository (REQ-001-60). */

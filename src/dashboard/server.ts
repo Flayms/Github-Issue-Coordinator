@@ -296,7 +296,7 @@ function logout(req: Request): Response {
 const notice = (status: number, title: string, head: string, body: string, cookies: string[]) =>
   respond(
     status,
-    `<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark">${head}<title>${title} · Coordinator</title></head><body><p>${body}</p></body></html>\n`,
+    `<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark">${head}<title>${title} · Issueflow</title></head><body><p>${body}</p></body></html>\n`,
     { "content-type": "text/html; charset=utf-8" },
     cookies,
   );

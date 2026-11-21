@@ -93,7 +93,7 @@ export const copilot: Harness = {
     mkdirSync(join(dir, "hooks"), { recursive: true });
     writeFileSync(
       join(dir, ".plugin", "plugin.json"),
-      JSON.stringify({ name: "coordinator-session", version: "1.0.0", description: "Coordinator session hooks" }),
+      JSON.stringify({ name: "issueflow-session", version: "1.0.0", description: "Coordinator session hooks" }),
     );
     const hooks: Record<string, unknown[]> = Object.fromEntries(
       COPILOT_HOOK_EVENTS.map((ev) => [ev, [{ hooks: [{ type: "command", command: hook(ev) }] }]]),

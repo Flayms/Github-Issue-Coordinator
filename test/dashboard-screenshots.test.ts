@@ -51,7 +51,7 @@ describe("dashboard screenshots", () => {
     for (const r of repos) expect(r.startsWith("acme/")).toBe(true);
     const html = mockPages().join("\n");
     expect(html).toContain("acme/storefront");
-    expect(html).not.toMatch(/Flayms|Github-Issue-Coordinator/i);
+    expect(html).not.toMatch(/Flayms/i);
   });
 
   test("REQ-003-22 the fingerprint is stable for the same input and changes with the HTML or an asset", () => {

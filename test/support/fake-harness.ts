@@ -54,7 +54,7 @@ if (args.includes("--mini")) await openCode(resumeId ?? `ses_${crypto.randomUUID
 
 /** OpenCode: the plugin gets `session.created` for a new session, then per prompt `chat.message`, busy and idle. */
 async function openCode(sessionID: string): Promise<void> {
-  const file = join(env.OPENCODE_CONFIG_DIR ?? "", "plugins", "coordinator.js");
+  const file = join(env.OPENCODE_CONFIG_DIR ?? "", "plugins", "issueflow.js");
   const pending = [prompt];
   let wake = () => {};
   type Plugin = {

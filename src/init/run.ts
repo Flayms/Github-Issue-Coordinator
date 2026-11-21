@@ -1,4 +1,4 @@
-/** `coordinator init` on this machine (REQ-007-08): the terminal questions, `gh`, the files, the doctor and systemd. */
+/** `issueflow init` on this machine (REQ-007-08): the terminal questions, `gh`, the files, the doctor and systemd. */
 import { randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";

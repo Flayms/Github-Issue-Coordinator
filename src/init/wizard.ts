@@ -1,5 +1,5 @@
 /**
- * `coordinator init` (REQ-007-08 to REQ-007-10): asks the Owner a few questions, writes the config file and the secret
+ * `issueflow init` (REQ-007-08 to REQ-007-10): asks the Owner a few questions, writes the config file and the secret
  * files, runs the setup check and offers to install the service. Everything outside goes through `InitEnv`, every
  * question through the `Prompter`, so tests run it without a terminal, `gh` or systemd.
  */
@@ -79,9 +79,9 @@ interface Existing {
   stateDir: string;
 }
 
-/** Runs `coordinator init` for the config at `configPath`; returns the exit code. */
+/** Runs `issueflow init` for the config at `configPath`; returns the exit code. */
 export async function init(configPath: string, p: Prompter, env: InitEnv): Promise<number> {
-  p.intro("GitHub Issue Coordinator setup");
+  p.intro("Issueflow setup");
   try {
     const existing = await startingPoint(configPath, p, env);
     if (existing === null) {
@@ -101,11 +101,11 @@ export async function init(configPath: string, p: Prompter, env: InitEnv): Promi
     env.writeFile(configPath, `${JSON.stringify(raw, null, 2)}\n`);
     p.info(`Wrote ${configPath}`);
     const problems = await env.doctor(configPath);
-    if (problems) p.note("Fix what the check names, then run `coordinator doctor` again.", "Not all set yet");
+    if (problems) p.note("Fix what the check names, then run `issueflow doctor` again.", "Not all set yet");
     if (await p.confirm({ message: "Install and start the systemd service now?", initial: problems === 0 })) {
       const code = await env.serviceInstall(configPath);
       if (code) return code;
-    } else p.info("Later: `sudo coordinator service install`");
+    } else p.info("Later: `sudo issueflow service install`");
     p.outro("Done.");
     return 0;
   } catch (e) {

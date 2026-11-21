@@ -1,5 +1,5 @@
 /**
- * How `coordinator init` asks (REQ-007-08): a small interface of its own, so tests answer from a script without a
+ * How `issueflow init` asks (REQ-007-08): a small interface of its own, so tests answer from a script without a
  * terminal. `src/init/clack.ts` asks in the terminal.
  */
 

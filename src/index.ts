@@ -1,4 +1,4 @@
-/** The Coordinator itself: `coordinator start` (REQ-007-01), with the config file from `src/cli.ts`. */
+/** The Coordinator itself: `issueflow start` (REQ-007-01), with the config file from `src/cli.ts`. */
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { ConfigFile } from "./config-file.ts";
@@ -14,7 +14,7 @@ import { TmuxCli } from "./tmux.ts";
 import { VERSION } from "./version.ts";
 import { Worktrees } from "./worktrees.ts";
 
-export const NAME = "github-issue-coordinator";
+export const NAME = "issueflow";
 const DIALOG_CHECK_MS = 3_000;
 /** How often the config file is read for hand edits while waiting for the next tick (REQ-007-06). */
 const RELOAD_EVERY_MS = 5_000;
@@ -121,7 +121,7 @@ export async function start(configPath: string) {
 // The unit before spec 007 ran `bun src/index.ts` with a `config.ts`: say what to do instead of exiting quietly.
 if (import.meta.main) {
   console.error(
-    "src/index.ts is no longer run directly: run `coordinator init` (writes config.json), then `coordinator service install`; from a checkout `bun src/cli.ts start --config <config.json>` (docs/setup.md)",
+    "src/index.ts is no longer run directly: run `issueflow init` (writes config.json), then `issueflow service install`; from a checkout `bun src/cli.ts start --config <config.json>` (docs/setup.md)",
   );
   process.exit(1);
 }

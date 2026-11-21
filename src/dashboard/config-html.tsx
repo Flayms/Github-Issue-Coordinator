@@ -587,7 +587,7 @@ function RestartPending({ keys }: { keys: readonly string[] }) {
             <code className="font-mono text-[0.86em] text-fg">{k}</code>
           </span>
         ))}
-        . Run <code className="font-mono text-[0.86em] text-fg">coordinator service restart</code> to use them.
+        . Run <code className="font-mono text-[0.86em] text-fg">issueflow service restart</code> to use them.
       </p>
     </div>
   );
@@ -610,7 +610,7 @@ export function ConfigPage({ v, form, about = {} }: { v: DashboardView; form?: S
               ? "The settings in use. Saving writes them into the config file. Repositories, Accounts and access are changed in the file. No secrets: keys and tokens are never shown."
               : "The settings in use. Read-only, and no secrets: keys and tokens are never shown."}
           </p>
-          {about.version && <p className="mt-2 font-mono text-[12px] text-muted">{`Coordinator ${about.version}`}</p>}
+          {about.version && <p className="mt-2 font-mono text-[12px] text-muted">{`Issueflow ${about.version}`}</p>}
           <RestartPending keys={about.restartPending ?? []} />
         </section>
         <Access s={s} />

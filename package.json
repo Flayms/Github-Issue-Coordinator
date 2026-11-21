@@ -1,14 +1,14 @@
 {
-  "name": "github-issue-coordinator",
+  "name": "issueflow",
   "version": "0.0.0",
   "description": "Self-hosted daemon that runs Claude Code and other agent CLIs to triage, plan, implement and review GitHub issues, with human approval gates.",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Flayms/Github-Issue-Coordinator.git"
+    "url": "git+https://github.com/Flayms/Issueflow.git"
   },
   "type": "module",
   "bin": {
-    "coordinator": "src/cli.ts"
+    "issueflow": "src/cli.ts"
   },
   "files": [
     "src/",

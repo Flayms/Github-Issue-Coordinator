@@ -33,15 +33,15 @@ const runCli = async (argv: string[], env: Record<string, string | undefined> = 
   return { exit, calls: r.calls, out: out.join("\n") };
 };
 
-const DEFAULT = join("/cfg", "github-issue-coordinator", "config.json");
+const DEFAULT = join("/cfg", "issueflow", "config.json");
 
-describe("coordinator command", () => {
-  test("REQ-007-01 each command gets the config path: --config before or after it, else $COORDINATOR_CONFIG, else the default", async () => {
+describe("issueflow command", () => {
+  test("REQ-007-01 each command gets the config path: --config before or after it, else $ISSUEFLOW_CONFIG, else the default", async () => {
     const env = { XDG_CONFIG_HOME: "/cfg" };
     expect((await runCli(["start"], env)).calls).toEqual([["start", DEFAULT]]);
     expect((await runCli(["doctor", "--config", "/a.json"], env)).calls).toEqual([["doctor", "/a.json"]]);
     expect((await runCli(["--config=/b.json", "init"], env)).calls).toEqual([["init", "/b.json"]]);
-    expect((await runCli(["service", "install"], { ...env, COORDINATOR_CONFIG: "/c.json" })).calls).toEqual([
+    expect((await runCli(["service", "install"], { ...env, ISSUEFLOW_CONFIG: "/c.json" })).calls).toEqual([
       ["service", "install", "/c.json"],
     ]);
     for (const sub of ["uninstall", "status", "logs", "restart"])
@@ -57,14 +57,14 @@ describe("coordinator command", () => {
     expect(await runCli(["--version"])).toEqual({ exit: 0, calls: [], out: VERSION });
     const help = await runCli(["--help"]);
     expect(help.exit).toBe(0);
-    expect(help.out).toContain("Usage: coordinator <command>");
+    expect(help.out).toContain("Usage: issueflow <command>");
     for (const cmd of ["init", "start", "doctor", "service install", "--config <path>"])
       expect(help.out).toContain(cmd);
     for (const argv of [[], ["frobnicate"], ["service"], ["service", "explode"], ["start", "--config"]]) {
       const r = await runCli(argv);
       expect(r.exit).toBe(2);
       expect(r.calls).toEqual([]);
-      expect(r.out).toContain("Usage: coordinator <command>");
+      expect(r.out).toContain("Usage: issueflow <command>");
     }
   });
 });

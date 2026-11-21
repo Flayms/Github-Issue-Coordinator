@@ -21,13 +21,13 @@ export const branchName = (issue: number, title: string): string => {
 /** The orphan branch Screenshots are published on (REQ-001-49). */
 export const SCREENSHOT_BRANCH = "agent-screenshots";
 
-/** REQ-001-48: the Worktree's git ignores `.coordinator/` (Screenshots) through `.git/info/exclude`, not a tracked file. */
+/** REQ-001-48: the Worktree's git ignores `.issueflow/` (Screenshots) through `.git/info/exclude`, not a tracked file. */
 function excludeCoordinatorFolder(path: string): void {
   const file = join(path, ".git", "info", "exclude");
   const text = existsSync(file) ? readFileSync(file, "utf8") : "";
-  if (text.split("\n").includes(".coordinator/")) return;
+  if (text.split("\n").includes(".issueflow/")) return;
   mkdirSync(dirname(file), { recursive: true });
-  appendFileSync(file, `${text && !text.endsWith("\n") ? "\n" : ""}.coordinator/\n`);
+  appendFileSync(file, `${text && !text.endsWith("\n") ? "\n" : ""}.issueflow/\n`);
 }
 
 export interface Worktree {

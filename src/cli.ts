@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * The `coordinator` command (REQ-007-01): the package's `bin`, or `bun src/cli.ts` in a checkout. Each command loads
+ * The `issueflow` command (REQ-007-01): the package's `bin`, or `bun src/cli.ts` in a checkout. Each command loads
  * its own modules, so `--version` and `--help` stay quick.
  */
 import { configPathOf } from "./paths.ts";
@@ -24,7 +24,7 @@ const COMMANDS: Commands = {
   service: async (command, path) => (await import("./service.ts")).service(command, path),
 };
 
-export const USAGE = `Usage: coordinator <command> [--config <path>]
+export const USAGE = `Usage: issueflow <command> [--config <path>]
 
 Commands:
   init                 Set up: asks a few questions, writes the config, installs the service
@@ -37,8 +37,8 @@ Commands:
   service restart      Restart the service, e.g. after an update
 
 Options:
-  --config <path>      The config file (default: $COORDINATOR_CONFIG, else
-                       ~/.config/github-issue-coordinator/config.json)
+  --config <path>      The config file (default: $ISSUEFLOW_CONFIG, else
+                       ~/.config/issueflow/config.json)
   --version            Print the version
   --help               Print this help`;
 

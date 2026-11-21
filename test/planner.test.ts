@@ -753,15 +753,15 @@ describe("Linked history", () => {
       events: [
         ...Array.from({ length: 19 }, (_, i) => ({
           event: i % 2 ? "unlabeled" : "labeled",
-          actor: "github-issue-coordinator[bot]",
+          actor: "issueflow[bot]",
           at: `2026-11-10T00:00:${String(i).padStart(2, "0")}Z`,
           detail: "agent:reviewing",
         })),
-        { event: "convert_to_draft", actor: "github-issue-coordinator[bot]", at: "2026-11-10T09:00:00Z" },
+        { event: "convert_to_draft", actor: "issueflow[bot]", at: "2026-11-10T09:00:00Z" },
       ],
       reviews: Array.from({ length: 5 }, (_, i) => ({
         state: "commented",
-        author: "github-issue-coordinator[bot]",
+        author: "issueflow[bot]",
         body: `review ${i + 1} ${"r".repeat(500)}`,
         at: "2026-11-10T08:00:00Z",
       })),
@@ -774,7 +774,7 @@ describe("Linked history", () => {
     const text = renderLinkedHistory([{ number: 47, linkedFrom: [51], history: busy }], []);
     expect(text).not.toEndWith("(truncated)"); // the item as a whole is not cut
     expect(text.slice(text.indexOf("### PR #47")).length).toBeLessThanOrEqual(3_000);
-    expect(text).toContain("convert_to_draft by github-issue-coordinator[bot]");
+    expect(text).toContain("convert_to_draft by issueflow[bot]");
     for (let i = 1; i <= 5; i++) expect(text).toContain(`review ${i} `);
     expect(text).toContain("comment 5 ");
   });

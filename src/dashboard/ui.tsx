@@ -130,7 +130,7 @@ const Ring = () => (
   </svg>
 );
 
-const TITLES = { overview: "Coordinator", config: "Config · Coordinator", timings: "Timings · Coordinator" };
+const TITLES = { overview: "Issueflow", config: "Config · Issueflow", timings: "Timings · Issueflow" };
 
 /**
  * The page frame shared by the pages: header with tabs, countdown and alerts. While `editing` (the Config form,
@@ -192,10 +192,10 @@ export function Layout({
             <a
               className="flex shrink-0 items-center gap-2 font-bold font-display text-[16px] text-fg leading-none"
               href="/"
-              aria-label="Coordinator"
+              aria-label="Issueflow"
             >
               <Icon name="logo" className="size-[22px] text-acc" />
-              <span className="max-sm:hidden">Coordinator</span>
+              <span className="max-sm:hidden">Issueflow</span>
             </a>
             <nav className="flex shrink-0 gap-1 rounded-full border border-line bg-white/2 p-[3px]" aria-label="Pages">
               <Tab href="/" current={page === "overview"}>

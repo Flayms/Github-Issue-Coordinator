@@ -86,7 +86,7 @@ export default {
 - [x] T13 Feedback rounds: blocking findings, Owner `/agent` and changes-requested, failing checks, `/wake` (all pending feedback on a PR goes into one round; it counts only without Owner input; no Review of a head a pending round is about to change). (REQ-001-11, REQ-001-12, REQ-001-13, REQ-001-24)
 - [x] T15 Reconcile loop (`src/coordinator.ts`, `src/index.ts`; main clones in `src/git.ts`): poll each repo, gather facts (Owner comments, body changes, live windows), derive actions, schedule, execute and sync; the `bun start` entry point. Done right after T8 so the Coordinator runs end to end as features land. (REQ-001-01, REQ-001-07, REQ-001-16, REQ-001-17, REQ-001-20)
 - [ ] T14 Deployment: systemd unit, a setup guide for the VM, the PAT, the ruleset, the one-time `/login`, and disabling the GitHub Actions reviewer. Reworked by spec 005: README prerequisites, root on a VM. (REQ-005-02)
-  - [x] Prepared: `deploy/github-issue-coordinator.service` (`KillMode=process` keeps sessions alive across restarts), `docs/setup.md`, `bun run doctor`.
+  - [x] Prepared: the systemd unit (now `issueflow service install`; `KillMode=process` keeps sessions alive across restarts), `docs/setup.md`, `bun run doctor`.
   - [ ] Owner: set up the VM, the PAT and the rulesets, install the service.
 - [ ] T16 Screenshots of UI changes (#59). Captured in the Implementer's sandbox with a headless Chrome the Owner installs on the host (no new sandbox domains, no GitHub access for the Implementer); published by the Coordinator on the orphan branch `agent-screenshots`, which keeps binaries out of the default branch's history. (REQ-001-48–51, REQ-002-13)
   - [x] ~~Verify that the sandbox can serve a page locally and shoot it with the host's browser (#66, REQ-001-53)~~: obsolete, spec 005 removed the sandbox.
@@ -94,7 +94,7 @@ export default {
     - [x] `bun run doctor` starts the browser headless and checks it writes a PNG (`src/browser.ts`, shared with the smoke runner).
     - [x] Implementer prompt: only the host's browser, with `--no-sandbox`, never a downloaded one; quote the error otherwise. (REQ-002-13)
     - [x] ~~Owner: run `bun scripts/smoke-runner.ts --screenshot`~~: obsolete with the sandbox (spec 005).
-  - [x] Result field `screenshots` and the local exclude rule for `.coordinator/` in every Worktree (`src/results.ts`, `src/worktrees.ts`). (REQ-001-48)
+  - [x] Result field `screenshots` and the local exclude rule for `.issueflow/` in every Worktree (`src/results.ts`, `src/worktrees.ts`). (REQ-001-48)
   - [x] Checks on the listed files: folder, symlinks, regular file, PNG/JPEG first bytes, 2 MB, 5 files (`src/screenshots.ts`). (REQ-001-51)
   - [x] Publish to `agent-screenshots` from a bare repository of its own under `state/screenshots/` (`src/worktrees.ts`). (REQ-001-49)
   - [x] `## Screenshots` section in the PR body, kept in the store for turns without Screenshots (`src/implementer.ts`, `src/store.ts`). (REQ-001-50)

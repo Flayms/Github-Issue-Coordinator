@@ -1,5 +1,5 @@
 node_modules/
 # A local config for `bun src/cli.ts --config ./config.json`
 /config.json
-/.coordinator/
+/.issueflow/
 /state/

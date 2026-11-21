@@ -45,7 +45,7 @@ Deprecates REQ-001-15, REQ-001-25, REQ-001-26, REQ-001-30, REQ-001-53, REQ-001-5
 
 ### REQ-005-05 The setup check fits the VM
 
-- **Given** `coordinator doctor` (formerly `bun run doctor`) on the VM
+- **Given** `issueflow doctor` (formerly `bun run doctor`) on the VM
 - **When** it runs
 - **Then** it fails if `gh` is missing or not logged in, if the token's account isn't known, or if the token can't push to a configured repository
 - **And** it says whether the token's account is the Owner's
@@ -71,7 +71,7 @@ Deprecates REQ-001-15, REQ-001-25, REQ-001-26, REQ-001-30, REQ-001-53, REQ-001-5
 ### REQ-005-08 The setup check warns about low temp space
 
 - **Given** the volume that holds the session folders (the Coordinator's state folder, REQ-001-62), and `/tmp`
-- **When** `coordinator doctor` runs and one of them has less than 1 GB free
+- **When** `issueflow doctor` runs and one of them has less than 1 GB free
 - **Then** it prints a warning naming the folder and its free space, saying agent sessions may fail with ENOSPC
 - **And** this is a warning, not a problem to fix: it does not make `doctor` fail
 

@@ -17,7 +17,7 @@ export class GitHubError extends Error {
 export const baseHeaders = {
   accept: "application/vnd.github+json",
   "x-github-api-version": "2022-11-28",
-  "user-agent": "github-issue-coordinator",
+  "user-agent": "issueflow",
 };
 
 export async function errorFrom(res: Response, method: string, path: string): Promise<GitHubError> {

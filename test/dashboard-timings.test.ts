@@ -277,7 +277,7 @@ describe("dashboard timings", () => {
       const html = page();
       expect(html).toContain('<a href="/timings" aria-current="page"');
       expect(html.indexOf('href="/config"')).toBeLessThan(html.indexOf('href="/timings"'));
-      expect(html).toContain("<title>Timings · Coordinator</title>");
+      expect(html).toContain("<title>Timings · Issueflow</title>");
       const form = /<form[^>]*action="\/timings"[^>]*>[\s\S]*?<\/form>/.exec(html)?.[0] ?? "";
       expect(form).toMatch(/^<form[^>]*method="get"/);
       expect(form).toMatch(/<select[^>]*name="issue"/);

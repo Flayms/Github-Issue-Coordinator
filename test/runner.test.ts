@@ -244,13 +244,13 @@ describe("session runner", () => {
       role: "implementer",
       kind: "issue",
       issues: [87],
-      cwd: "/root/coordinator/.coordinator/worktrees/octo/app/87",
+      cwd: "/root/coordinator/.issueflow/worktrees/octo/app/87",
       prompt: "p",
       model: { model: "opus" },
     });
     const excludes: string[] = settingsOf(id).claudeMdExcludes;
     // The Coordinator's own checkout, whose CLAUDE.md imports AGENTS.md (#87), and every folder up to the root.
-    for (const parent of ["/root/coordinator", "/root/coordinator/.coordinator/worktrees/octo/app", "/root", "/"]) {
+    for (const parent of ["/root/coordinator", "/root/coordinator/.issueflow/worktrees/octo/app", "/root", "/"]) {
       const at = parent === "/" ? "" : parent;
       expect(excludes).toContain(`${at}/CLAUDE.md`);
       expect(excludes).toContain(`${at}/CLAUDE.local.md`);
@@ -258,7 +258,7 @@ describe("session runner", () => {
     expect(excludes).toContain("/root/coordinator/.claude/CLAUDE.md");
     expect(excludes).toContain("/root/coordinator/.claude/rules/**");
     // The repository's own instructions still load.
-    const own = "/root/coordinator/.coordinator/worktrees/octo/app/87";
+    const own = "/root/coordinator/.issueflow/worktrees/octo/app/87";
     expect(excludes.filter((e) => e.startsWith(`${own}/`))).toEqual([]);
   });
 
@@ -277,7 +277,7 @@ describe("session runner", () => {
       role: "planner",
       kind: "issue",
       issues: [5],
-      cwd: join(home, "coordinator", ".coordinator", "worktrees", "octo", "app", "5"),
+      cwd: join(home, "coordinator", ".issueflow", "worktrees", "octo", "app", "5"),
       prompt: "p",
       model: { model: "opus" },
     });
@@ -766,7 +766,7 @@ describe("Harnesses (spec 006)", () => {
       `TMPDIR=${shellQuote([tmpOf(id)])} OPENCODE_CONFIG_DIR=${shellQuote([configDir])} 'opencode' '--mini' '--auto' `,
     );
     expect(commandOf(id)).toContain("'--model' 'opencode/big-pickle' '--prompt' \"$(cat ");
-    expect(readFileSync(join(configDir, "plugins", "coordinator.js"), "utf8")).toContain("'Stop'");
+    expect(readFileSync(join(configDir, "plugins", "issueflow.js"), "utf8")).toContain("'Stop'");
     expect(JSON.parse(readFileSync(join(configDir, "opencode.json"), "utf8")).agent.build.variant).toBe("high");
     expect(store.session(id)).toMatchObject({ harness: "opencode", account: "zen" });
 

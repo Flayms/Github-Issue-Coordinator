@@ -4,8 +4,8 @@ import { type ServiceEnv, service, serviceUnit, UNIT_PATH } from "../src/service
 const UNIT_INPUT = {
   bun: "/root/.bun/bin/bun",
   claude: "/root/.local/bin/claude",
-  entry: "/root/.bun/install/global/node_modules/github-issue-coordinator/src/cli.ts",
-  configPath: "/root/.config/github-issue-coordinator/config.json",
+  entry: "/root/.bun/install/global/node_modules/issueflow/src/cli.ts",
+  configPath: "/root/.config/issueflow/config.json",
   user: "root",
   home: "/root",
 };
@@ -38,21 +38,21 @@ const fakeEnv = (o: { fail?: string[]; config?: boolean; writable?: boolean } = 
   return { env, ran, files, out };
 };
 
-describe("coordinator service", () => {
+describe("issueflow service", () => {
   test("REQ-007-11 the unit is made from the environment and keeps agent sessions on a restart", () => {
     const unit = serviceUnit(UNIT_INPUT);
     expect(unit).toContain("User=root\n");
     expect(unit).toContain(
       "Environment=PATH=/root/.bun/bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n",
     );
-    expect(unit).toContain(`Environment=COORDINATOR_CONFIG=${UNIT_INPUT.configPath}\n`);
+    expect(unit).toContain(`Environment=ISSUEFLOW_CONFIG=${UNIT_INPUT.configPath}\n`);
     expect(unit).toContain(
       `ExecStart=/root/.bun/bin/bun ${UNIT_INPUT.entry} start --config ${UNIT_INPUT.configPath}\n`,
     );
     expect(unit).toContain("KillMode=process\n");
     expect(unit).toContain("Restart=on-failure\n");
     expect(unit).toContain("WantedBy=multi-user.target\n");
-    expect(unit).not.toContain("WorkingDirectory=/root/github-issue-coordinator");
+    expect(unit).not.toContain("WorkingDirectory=/root/issueflow");
   });
 
   test("REQ-007-11 bun and claude elsewhere are on PATH too; paths with spaces are quoted", () => {
@@ -65,7 +65,7 @@ describe("coordinator service", () => {
     expect(unit).toContain(
       "Environment=PATH=/opt/bun/bin:/usr/local/bin:/root/.local/bin:/root/.bun/bin:/usr/local/sbin:",
     );
-    expect(unit).toContain('Environment="COORDINATOR_CONFIG=/root/my config.json"\n');
+    expect(unit).toContain('Environment="ISSUEFLOW_CONFIG=/root/my config.json"\n');
     expect(unit).toContain(`ExecStart=/opt/bun/bin/bun ${UNIT_INPUT.entry} start --config "/root/my config.json"\n`);
   });
 
@@ -73,15 +73,15 @@ describe("coordinator service", () => {
     const m = fakeEnv();
     expect(await service("install", UNIT_INPUT.configPath, m.env)).toBe(0);
     expect(m.files.get(UNIT_PATH)).toBe(serviceUnit(UNIT_INPUT));
-    expect(UNIT_PATH).toBe("/etc/systemd/system/github-issue-coordinator.service");
-    expect(m.ran).toEqual(["systemctl daemon-reload", "systemctl enable --now github-issue-coordinator"]);
-    expect(m.out.join("\n")).toContain("coordinator service logs");
+    expect(UNIT_PATH).toBe("/etc/systemd/system/issueflow.service");
+    expect(m.ran).toEqual(["systemctl daemon-reload", "systemctl enable --now issueflow"]);
+    expect(m.out.join("\n")).toContain("issueflow service logs");
   });
 
   test("REQ-007-11 install without a config, without root, or with a failing systemctl stops with the reason", async () => {
     const noConfig = fakeEnv({ config: false });
     expect(await service("install", UNIT_INPUT.configPath, noConfig.env)).toBe(1);
-    expect(noConfig.out.join("\n")).toContain("coordinator init");
+    expect(noConfig.out.join("\n")).toContain("issueflow init");
     expect(noConfig.ran).toEqual([]);
 
     const notRoot = fakeEnv({ writable: false });
@@ -100,16 +100,16 @@ describe("coordinator service", () => {
     m.files.set(UNIT_PATH, "unit");
     expect(await service("uninstall", UNIT_INPUT.configPath, m.env)).toBe(0);
     expect(m.files.has(UNIT_PATH)).toBe(false);
-    expect(m.ran).toEqual(["systemctl disable --now github-issue-coordinator", "systemctl daemon-reload"]);
+    expect(m.ran).toEqual(["systemctl disable --now issueflow", "systemctl daemon-reload"]);
 
-    const o = fakeEnv({ fail: ["systemctl status github-issue-coordinator --no-pager"] });
+    const o = fakeEnv({ fail: ["systemctl status issueflow --no-pager"] });
     expect(await service("status", UNIT_INPUT.configPath, o.env)).toBe(1);
     expect(await service("logs", UNIT_INPUT.configPath, o.env)).toBe(0);
     expect(await service("restart", UNIT_INPUT.configPath, o.env)).toBe(0);
     expect(o.ran).toEqual([
-      "systemctl status github-issue-coordinator --no-pager",
-      "journalctl -u github-issue-coordinator -f -n 100",
-      "systemctl restart github-issue-coordinator",
+      "systemctl status issueflow --no-pager",
+      "journalctl -u issueflow -f -n 100",
+      "systemctl restart issueflow",
     ]);
   });
 });

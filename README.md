@@ -1,6 +1,6 @@
-# github-issue-coordinator
+# Issueflow
 
-[![CI](https://github.com/Flayms/Github-Issue-Coordinator/actions/workflows/ci.yml/badge.svg)](https://github.com/Flayms/Github-Issue-Coordinator/actions/workflows/ci.yml)
+[![CI](https://github.com/Flayms/Issueflow/actions/workflows/ci.yml/badge.svg)](https://github.com/Flayms/Issueflow/actions/workflows/ci.yml)
 
 A self-hosted Bun daemon that turns your GitHub issues into reviewed pull requests: Claude Code, Codex CLI, Antigravity CLI, Copilot CLI or OpenCode agents triage, plan, implement and review them, and nothing is built or merged without your approval.
 
@@ -25,11 +25,11 @@ A self-hosted Bun daemon that turns your GitHub issues into reviewed pull reques
 You need a Linux VM dedicated to the Coordinator with tmux, git, `gh`, [Bun](https://bun.sh) and [Claude Code](https://code.claude.com) logged in ([prerequisites](docs/setup.md#prerequisites)).
 
 ```sh
-bun add -g github-issue-coordinator
-coordinator init        # asks a few questions, writes the config, installs the service
+bun add -g issueflow
+issueflow init        # asks a few questions, writes the config, installs the service
 ```
 
-`init` logs in the GitHub CLI with a fine-grained PAT, picks your repositories, models and dashboard sign-in, writes `~/.config/github-issue-coordinator/config.json`, runs `coordinator doctor` and installs the systemd service. Update with `bun add -g github-issue-coordinator@latest && coordinator service restart`.
+`init` logs in the GitHub CLI with a fine-grained PAT, picks your repositories, models and dashboard sign-in, writes `~/.config/issueflow/config.json`, runs `issueflow doctor` and installs the systemd service. Update with `bun add -g issueflow@latest && issueflow service restart`.
 
 The [setup guide](docs/setup.md) walks through each step: the PAT, the ruleset, the config, the dashboard and the service.
 
@@ -205,7 +205,7 @@ stateDiagram-v2
 
 ## Configuration
 
-`coordinator init` writes `~/.config/github-issue-coordinator/config.json` (or the file named by `--config` or `$COORDINATOR_CONFIG`) and can edit it again later. The file's `$schema` points at the package's [`config.schema.json`](config.schema.json), so an editor completes and checks every key. Saving on the dashboard's Config page writes into the same file, and a hand edit applies from the next tick on; repositories, Accounts and access need `coordinator service restart`. State (the store, sessions, clones and Worktrees) is kept in `~/.local/share/github-issue-coordinator/`.
+`issueflow init` writes `~/.config/issueflow/config.json` (or the file named by `--config` or `$ISSUEFLOW_CONFIG`) and can edit it again later. The file's `$schema` points at the package's [`config.schema.json`](config.schema.json), so an editor completes and checks every key. Saving on the dashboard's Config page writes into the same file, and a hand edit applies from the next tick on; repositories, Accounts and access need `issueflow service restart`. State (the store, sessions, clones and Worktrees) is kept in `~/.local/share/issueflow/`.
 
 - **Owner, Roles, repositories:** your login and id, a model (and effort) per Role, and each managed repository with its `setup` command.
 - **Limits:** Slots per Role, live sessions, Worktrees and `maxFeedbackRounds`. Also editable on the dashboard's Config page.
@@ -236,7 +236,7 @@ stateDiagram-v2
 | `bun run lint`                | Biome and `tsc --noEmit` (`bun run lint:fix` autofixes)                                                                                                                                                             |
 | `bun scripts/smoke-runner.ts` | Real tmux + claude; needs a subscription, so it doesn't run in CI. `--harness codex\|antigravity\|copilot\|opencode --fake-model`: the real CLI, fake model, no login; `--harness opencode` alone runs a free model |
 | `bun run screenshots`         | The dashboard screenshots above; needs Chrome or Chromium. `bun test` fails when they are older than the dashboard                                                                                                  |
-| `bun src/cli.ts <command>`    | The `coordinator` command from a checkout, e.g. `bun src/cli.ts start --config ./config.json`                                                                                                                       |
+| `bun src/cli.ts <command>`    | The `issueflow` command from a checkout, e.g. `bun src/cli.ts start --config ./config.json`                                                                                                                         |
 | `bun run schema`              | Writes `config.schema.json` from the config rules after changing them; `bun test` fails when it is out of date                                                                                                      |
 
 - CI (`.github/workflows/ci.yml`) runs `bun install --frozen-lockfile`, `bun run lint` and `bun test` on every push to `main` and every PR, drafts included, so agent PRs here are checked before their Review. PR titles must be [Conventional Commits](https://www.conventionalcommits.org) (`feat: …`, `fix: …`, `feat!: …`), since they make the versions and the changelog.

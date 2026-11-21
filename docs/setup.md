@@ -1,13 +1,13 @@
 # Setup
 
-One-time steps to get the Coordinator running. Work through them in order; `coordinator init` does steps 1, 3, 4 and 5 for you by asking a few questions, and `coordinator doctor` checks the result.
+One-time steps to get the Coordinator running. Work through them in order; `issueflow init` does steps 1, 3, 4 and 5 for you by asking a few questions, and `issueflow doctor` checks the result.
 
 | Step                                                                        | Needed                        |
 | --------------------------------------------------------------------------- | ----------------------------- |
 | [Prerequisites](#prerequisites)                                             | **Required**                  |
 | [1. GitHub access: a fine-grained PAT](#1-github-access-a-fine-grained-pat) | **Required**                  |
 | [2. Each managed repository](#2-each-managed-repository)                    | **Required**                  |
-| [3. Configure: `coordinator init`](#3-configure-coordinator-init)           | **Required**                  |
+| [3. Configure: `issueflow init`](#3-configure-issueflow-init)               | **Required**                  |
 | [4. Dashboard](#4-dashboard)                                                | On by default; sign-in needed |
 | [5. Run as a service](#5-run-as-a-service)                                  | Recommended                   |
 | [6. Verify](#6-verify)                                                      | **Required**                  |
@@ -36,10 +36,10 @@ One-time steps to get the Coordinator running. Work through them in order; `coor
   curl -fsSL https://claude.ai/install.sh | bash
   ```
 - [ ] Run `claude` once and `/login` with your subscription. Remote Control needs this login, not `claude setup-token`.
-- [ ] The Coordinator itself, which gives you the `coordinator` command:
+- [ ] The Coordinator itself, which gives you the `issueflow` command:
 
   ```sh
-  bun add -g github-issue-coordinator
+  bun add -g issueflow
   ```
 
 ## 1. GitHub access: a fine-grained PAT
@@ -54,7 +54,7 @@ One-time steps to get the Coordinator running. Work through them in order; `coor
 | Read-only         | **Commit statuses**, **Actions**                                                 |
 
 - [ ] Create the token with the settings above.
-- [ ] Log in with it (`coordinator init` asks for it when the GitHub CLI isn't logged in yet):
+- [ ] Log in with it (`issueflow init` asks for it when the GitHub CLI isn't logged in yet):
 
   ```sh
   gh auth login --with-token <<< 'github_pat_…'
@@ -64,7 +64,7 @@ Good to know:
 
 - The Coordinator reads it with `gh auth token` and picks up a new one within 5 minutes.
 - Its comments show as yours. It recognises its own by the agent note they start with (REQ-005-03), so don't start a comment of your own with it.
-- If `coordinator doctor` says check runs aren't readable, add the read permission GitHub offers for checks.
+- If `issueflow doctor` says check runs aren't readable, add the read permission GitHub offers for checks.
 
 ## 2. Each managed repository
 
@@ -84,14 +84,14 @@ Good to know:
   This keeps pushes off the default branch. Agents never merge; the Coordinator merges only what `autoMerge` allows (step 3; by default PRs rated low risk), and only within these rules.
 - [ ] **Disable the old review workflow:** any GitHub Actions workflow that reviews PRs with Claude. The Reviewer replaces it.
 
-## 3. Configure: `coordinator init`
+## 3. Configure: `issueflow init`
 
 **Required.**
 
 - [ ] Run the wizard:
 
   ```sh
-  coordinator init
+  issueflow init
   ```
 
   | It asks for    | Then                                                                                                      |
@@ -104,14 +104,14 @@ Good to know:
   | Extra Accounts | Optional; prints the login command for each                                                               |
   | Auto-merge     | `off`, `evaluated` or `all` (below)                                                                       |
 
-  It writes `~/.config/github-issue-coordinator/config.json`, runs `coordinator doctor` and offers to install the service (step 5). Run it again to change the answers: it offers to edit the file with its values preselected, and keeps the keys it doesn't ask about.
+  It writes `~/.config/issueflow/config.json`, runs `issueflow doctor` and offers to install the service (step 5). Run it again to change the answers: it offers to edit the file with its values preselected, and keeps the keys it doesn't ask about.
 
 Good to know:
 
-- The file is plain JSON. Its `"$schema"` points at the installed `config.schema.json`, so an editor such as VS Code completes and checks every key. `--config <path>` or `$COORDINATOR_CONFIG` use another file.
+- The file is plain JSON. Its `"$schema"` points at the installed `config.schema.json`, so an editor such as VS Code completes and checks every key. `--config <path>` or `$ISSUEFLOW_CONFIG` use another file.
 - **Optional keys** `init` doesn't ask about: `limits`, `pollIntervalSec`, `checksGraceSeconds`, `instructions`, `github.commitAuthor`, `stateDir`, a repository's own `roles`, `autoMerge` and `instructions`.
-- State (the store, sessions, clones, Worktrees and the secret files `init` writes) is kept in `~/.local/share/github-issue-coordinator/`, or in `stateDir`; a relative `stateDir` is read relative to the config file.
-- While the service runs, a hand edit applies from the next tick on; an invalid one is logged and ignored. Repositories, Accounts, `owner`, `github`, `dashboard` and `stateDir` need `coordinator service restart`; the Config page names them until then.
+- State (the store, sessions, clones, Worktrees and the secret files `init` writes) is kept in `~/.local/share/issueflow/`, or in `stateDir`; a relative `stateDir` is read relative to the config file.
+- While the service runs, a hand edit applies from the next tick on; an invalid one is logged and ignored. Repositories, Accounts, `owner`, `github`, `dashboard` and `stateDir` need `issueflow service restart`; the Config page names them until then.
 
 ### Auto-merge (optional)
 
@@ -120,7 +120,7 @@ Good to know:
 Good to know:
 
 - Once signed in, you can also change both on the dashboard's Config page.
-- The old name `"risk-evaluated"` still works; `coordinator doctor` warns about it.
+- The old name `"risk-evaluated"` still works; `issueflow doctor` warns about it.
 - The PAT's **Contents** and **Pull requests** write permissions already allow it.
 - The ruleset from step 2 allows it as long as it requires 0 approvals. A ruleset or branch protection that requires an approving review (or anything else the PAT can't satisfy) makes GitHub refuse the merge; the PR is then left ready for you with GitHub's reason in a comment.
 
@@ -133,7 +133,7 @@ When one Account hits its usage limit, the Coordinator goes on with the next ([s
   ```sh
   CLAUDE_CONFIG_DIR=/root/.claude-spare claude   # then /login
   ```
-- [ ] List them in `accounts` (`coordinator init` adds them and prints these commands):
+- [ ] List them in `accounts` (`issueflow init` adds them and prints these commands):
 
   ```json
   "accounts": [{ "name": "main" }, { "name": "spare", "configDir": "/root/.claude-spare" }]
@@ -148,7 +148,7 @@ To run a Role on an OpenAI model, add a Codex CLI login as an Account with `harn
 - [ ] `npm i -g @openai/codex` (0.170.0 or newer)
 - [ ] `CODEX_HOME=/root/.codex codex login` (a ChatGPT plan, or `--with-api-key`)
 - [ ] `"accounts": [{ "name": "main" }, { "name": "gpt", "harness": "codex", "configDir": "/root/.codex" }]`
-- [ ] `coordinator doctor` checks `codex` and its login.
+- [ ] `issueflow doctor` checks `codex` and its login.
 
 ### Antigravity CLI (optional)
 
@@ -157,7 +157,7 @@ To run a Role on a Gemini model, add Google's Antigravity CLI as an Account with
 - [ ] `curl -fsSL https://antigravity.google/cli/install.sh | bash` (1.5.12 or newer, into `~/.local/bin`)
 - [ ] Run `agy` once as the Coordinator's user, sign in (over SSH it prints a URL and asks for the code) and finish its first-run screens.
 - [ ] `"accounts": [{ "name": "main" }, { "name": "gemini", "harness": "antigravity" }]`: one Antigravity Account, without `configDir`, since `agy` keeps one login per user.
-- [ ] `coordinator doctor` checks `agy` and its login.
+- [ ] `issueflow doctor` checks `agy` and its login.
 
 ### Copilot CLI (optional)
 
@@ -166,7 +166,7 @@ To run a Role on one of the models a GitHub Copilot plan offers (Claude, GPT, Ge
 - [ ] `npm i -g @github/copilot` (1.0.114 or newer)
 - [ ] `COPILOT_HOME=/root/.copilot copilot login`; without a keyring, let it store the token in `config.json`
 - [ ] `"accounts": [{ "name": "main" }, { "name": "copilot", "harness": "copilot", "configDir": "/root/.copilot" }]`
-- [ ] `coordinator doctor` checks `copilot` and its login.
+- [ ] `issueflow doctor` checks `copilot` and its login.
 
 ### OpenCode (optional)
 
@@ -175,11 +175,11 @@ To run a Role on a model OpenCode reaches, including its free Zen models, add Op
 - [ ] `bun i -g opencode-ai` (1.19.6 or newer)
 - [ ] For a free Zen model (e.g. `opencode:opencode/big-pickle`) nothing else; for another provider `opencode providers login`, or its API key in the Coordinator's environment.
 - [ ] `"accounts": [{ "name": "main" }, { "name": "zen", "harness": "opencode" }]`: one OpenCode Account, without `configDir`.
-- [ ] `coordinator doctor` checks `opencode` and that it offers a model.
+- [ ] `issueflow doctor` checks `opencode` and that it offers a model.
 
 ## 4. Dashboard
 
-**On by default** at `127.0.0.1:8080` ([spec 003](specs/003-dashboard/spec.md)); `"dashboard": false` turns it off. Until the sign-in is set up, its pages answer 503. `coordinator init` does this step: it prints the two URLs to register, asks for the client id and secret, and writes the secret into a file only you can read.
+**On by default** at `127.0.0.1:8080` ([spec 003](specs/003-dashboard/spec.md)); `"dashboard": false` turns it off. Until the sign-in is set up, its pages answer 503. `issueflow init` does this step: it prints the two URLs to register, asks for the client id and secret, and writes the secret into a file only you can read.
 
 ### Reach it
 
@@ -199,13 +199,13 @@ To run a Role on a model OpenCode reaches, including its free Zen models, add Op
   | Authorization callback URL | That URL + `/auth/callback`, e.g. `https://<vm>.<tailnet>.ts.net/auth/callback`                                               |
 
   Open the dashboard with exactly that host, or the sign-in ends with 400.
-- [ ] Generate a client secret and give it and the client id to `coordinator init`. It writes the secret to `~/.local/share/github-issue-coordinator/github-client-secret` (mode 600) and the config gets:
+- [ ] Generate a client secret and give it and the client id to `issueflow init`. It writes the secret to `~/.local/share/issueflow/github-client-secret` (mode 600) and the config gets:
 
   ```json
   "dashboard": {
     "githubLogin": {
       "clientId": "Ov23li…",
-      "clientSecretPath": "/root/.local/share/github-issue-coordinator/github-client-secret"
+      "clientSecretPath": "/root/.local/share/issueflow/github-client-secret"
     }
   }
   ```
@@ -219,7 +219,7 @@ Good to know:
 
 ### Token for scripts (optional)
 
-- [ ] Let `coordinator init` generate one: it writes it to `~/.local/share/github-issue-coordinator/dashboard-token` (mode 600) and sets `dashboard.tokenPath`.
+- [ ] Let `issueflow init` generate one: it writes it to `~/.local/share/issueflow/dashboard-token` (mode 600) and sets `dashboard.tokenPath`.
 
 Send it as `Authorization: Bearer <token>`, or open the dashboard once as `…/?token=<token>` and a cookie keeps it. Off loopback, the dashboard needs the sign-in or a token.
 
@@ -227,38 +227,38 @@ Send it as `Authorization: Bearer <token>`, or open the dashboard once as `…/?
 
 - Once signed in, the Config page lets you change the limits, the poll interval, `checksGraceSeconds`, the auto-merge mode and each Role's model and effort (globally and per repository). The dashboard changes nothing on GitHub.
 - Saving writes them into `config.json` itself, keeping its other keys, their order and `$schema`; they apply from the next tick on. While the file on disk isn't valid (e.g. a half-done hand edit), saving is refused and the file is left alone.
-- Repositories, Accounts, access and `setup` commands change only in the file, and apply after `coordinator service restart`.
+- Repositories, Accounts, access and `setup` commands change only in the file, and apply after `issueflow service restart`.
 
 ## 5. Run as a service
 
-**Recommended** (otherwise `coordinator start`). `coordinator init` offers this at the end.
+**Recommended** (otherwise `issueflow start`). `issueflow init` offers this at the end.
 
 - [ ] Install and start it:
 
   ```sh
-  coordinator service install
+  issueflow service install
   ```
 
-  This writes `/etc/systemd/system/github-issue-coordinator.service` from the actual environment (the paths of `bun` and `claude`, the installed package, the config in use, a `PATH` with `~/.local/bin` and `~/.bun/bin`), reloads systemd and enables and starts the service. Run it again after moving `bun` or the config.
+  This writes `/etc/systemd/system/issueflow.service` from the actual environment (the paths of `bun` and `claude`, the installed package, the config in use, a `PATH` with `~/.local/bin` and `~/.bun/bin`), reloads systemd and enables and starts the service. Run it again after moving `bun` or the config.
 - [ ] Follow its log:
 
   ```sh
-  coordinator service logs
+  issueflow service logs
   ```
 
-`coordinator service status`, `restart` and `uninstall` do what they say. Restarts leave running agent sessions alone (`KillMode=process`); the Coordinator picks them up again. To watch one directly: `tmux attach -t coordinator`.
+`issueflow service status`, `restart` and `uninstall` do what they say. Restarts leave running agent sessions alone (`KillMode=process`); the Coordinator picks them up again. To watch one directly: `tmux attach -t coordinator`.
 
 ## 6. Verify
 
-- [ ] `coordinator doctor` says "All set." (it names the step to fix otherwise).
+- [ ] `issueflow doctor` says "All set." (it names the step to fix otherwise).
 - [ ] Open the dashboard and sign in with GitHub.
 - [ ] Open an issue in a managed repository: once a Planner Slot is free, it gets `agent:planning`, then an Assessment.
 
 ## Later
 
-- **Add a repository:** add it to the PAT, set up step 2, then `coordinator init` → Edit it and pick it too (or add it to `repos` by hand), `coordinator doctor`, `coordinator service restart`.
-- **Update:** `bun add -g github-issue-coordinator@latest && coordinator service restart`. `coordinator doctor` says when a newer version is on npm.
-- **From a checkout** (contributors): `bun install`, then `bun src/cli.ts <command>` in place of `coordinator <command>`.
+- **Add a repository:** add it to the PAT, set up step 2, then `issueflow init` → Edit it and pick it too (or add it to `repos` by hand), `issueflow doctor`, `issueflow service restart`.
+- **Update:** `bun add -g issueflow@latest && issueflow service restart`. `issueflow doctor` says when a newer version is on npm.
+- **From a checkout** (contributors): `bun install`, then `bun src/cli.ts <command>` in place of `issueflow <command>`.
 
 ## Releases (maintainers)
 
@@ -266,7 +266,7 @@ This repository only. [release-please](https://github.com/googleapis/release-ple
 
 One-time setup:
 
-- [ ] On npmjs.com, add this repository's `release.yml` as the trusted publisher of `github-issue-coordinator` (OIDC, no npm token).
+- [ ] On npmjs.com, add this repository's `release.yml` as the trusted publisher of `issueflow` (OIDC, no npm token).
 - [ ] Create a GitHub App with Contents and Pull requests read & write, install it on this repository only, and add its id and a private key as the Actions secrets `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`. release-please opens its PR with this App's token, since a PR opened with `GITHUB_TOKEN` doesn't trigger `ci.yml`.
 - [ ] Settings → Actions → General: allow GitHub Actions to create pull requests.
 - [ ] Make the `title` check of `.github/workflows/pr-title.yml` required next to `check`.
