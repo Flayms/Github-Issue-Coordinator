@@ -45,7 +45,7 @@ export class Worktrees {
       remoteUrl?: (repo: string) => string;
       /** The repository's setup command (config `repos[].setup`). */
       setup: (repo: string) => string | undefined;
-      /** Read on every check, so a saved setting applies without a restart (REQ-003-36). */
+      /** Read on every check, so a saved setting applies without a restart (REQ-007-05). */
       maxWorktrees: () => number;
       /** Identity for the agent's commits (the server has no global git identity). */
       commitAuthor: { name: string; email: string };

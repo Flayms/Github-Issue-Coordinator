@@ -126,7 +126,7 @@ describe("worktrees", () => {
     expect(w.create("octo/app", [6], "y")).rejects.toThrow("maxWorktrees");
   });
 
-  test("REQ-003-36 maxWorktrees is read on every check, so a saved setting applies without a restart", async () => {
+  test("REQ-007-05 maxWorktrees is read on every check, so a saved setting applies without a restart", async () => {
     let max = 1;
     const w = make(undefined, () => max);
     await w.create("octo/app", [5], "x");

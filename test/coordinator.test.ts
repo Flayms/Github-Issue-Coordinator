@@ -2009,8 +2009,8 @@ describe("reconcile loop", () => {
   });
 });
 
-describe("reconcile loop with Settings overrides", () => {
-  test("REQ-003-36 settings changed after the start apply at the next tick: a lowered maxRunning, another model", async () => {
+describe("reconcile loop with settings changed while running", () => {
+  test("REQ-007-05 settings changed after the start apply at the next tick: a lowered maxRunning, another model", async () => {
     const raw = {
       owner: OWNER,
       roles: { planner: { model: "opus" }, implementer: { model: "sonnet" }, reviewer: { model: "opus" } },

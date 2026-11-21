@@ -1,6 +1,6 @@
 /**
  * The Model catalogue (REQ-003-40, REQ-003-41): the models the Config page offers, and how the dashboard
- * names a model. `config.ts` may still name any model; only the Config page is limited to this list.
+ * names a model. `config.json` may still name any model; only the Config page is limited to this list.
  * Each model belongs to one Harness, which runs it (REQ-006-01).
  */
 import { COPILOT_MODEL_PREFIX } from "./harness/copilot.ts";
@@ -88,7 +88,7 @@ const COPILOT_MODELS: readonly CatalogueModel[] = [
 
 /**
  * Antigravity CLI's Gemini models, as `agy models` of Antigravity CLI 1.5.12 lists them, without the effort suffix
- * (`-low` … `-xhigh`), so a Role's effort applies (REQ-006-07). A Google login may offer more, which `config.ts` can
+ * (`-low` … `-xhigh`), so a Role's effort applies (REQ-006-07). A Google login may offer more, which `config.json` can
  * still name. Update when a model ships.
  */
 const ANTIGRAVITY_MODELS: readonly CatalogueModel[] = [
@@ -103,7 +103,7 @@ const ANTIGRAVITY_MODELS: readonly CatalogueModel[] = [
 
 /**
  * OpenCode's free models on its own Zen gateway, as `opencode models opencode` of OpenCode 1.19.6 lists them without a
- * login. Free models come and go; `config.ts` may name any model OpenCode reaches as `opencode:<provider>/<model>`
+ * login. Free models come and go; `config.json` may name any model OpenCode reaches as `opencode:<provider>/<model>`
  * (e.g. `opencode:anthropic/claude-sonnet-5-5` with that provider's key or login).
  */
 const OPENCODE_MODELS: readonly CatalogueModel[] = [

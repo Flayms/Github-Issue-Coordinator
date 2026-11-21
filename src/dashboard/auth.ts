@@ -102,7 +102,7 @@ export function validSession(key: string, value: string | undefined, ownerId: nu
 }
 
 /**
- * The Config form's token (REQ-003-07, REQ-003-36): bound to the session, so another site that can't read the page
+ * The Config form's token (REQ-003-07, REQ-007-05): bound to the session, so another site that can't read the page
  * can't save settings, and a new sign-in gets a new one.
  */
 export const formToken = (key: string, session: string): string => sign(key, `form.${session}`);

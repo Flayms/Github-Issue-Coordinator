@@ -31,6 +31,7 @@ You may get Review findings, failing check output, merge conflicts or the Owner'
 ## The Result
 
 - `prTitle` and `prBody` describe the whole change (the Coordinator adds the "Closes #N" lines and the agent note). Name the Tier, the requirements touched, how you tested, any deviation from the Assessment, and what you did not verify (e.g. a manual check you couldn't run).
+- `prTitle` is a Conventional Commit, since squash-merge titles often make the versions and the changelog: `feat: …` for a feature, `fix: …` for a bug fix, `docs:`, `test:`, `ci:`, `refactor:` or `chore:` otherwise, with an optional scope (`fix(dashboard): …`). Mark a breaking change with `!` (`feat!: …`).
 - `summary` says what you did in this turn.
 
 ## Formatting

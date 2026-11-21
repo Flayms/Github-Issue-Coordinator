@@ -1,15 +1,15 @@
 /**
  * Dashboard server (spec 003), inside the Coordinator process. It serves the last tick's snapshot, the
  * sessions' transcripts read for the Now line (REQ-003-42), and the Timings page the recorded Timings
- * (REQ-003-34): no store writes, and no GitHub calls besides the sign-in's (REQ-003-07, REQ-003-08). Its one write is the Owner's Settings overrides (REQ-003-36).
+ * (REQ-003-34): no store writes, and no GitHub calls besides the sign-in's (REQ-003-07, REQ-003-08). Its one write is the Owner's settings, into the config file (REQ-007-05).
  */
 
 import { readFileSync } from "node:fs";
 import { harnessOfAccount } from "../accounts.ts";
 import type { Config } from "../config.ts";
+import type { SettingsEditor } from "../config-file.ts";
 import type { TickSnapshot } from "../coordinator.ts";
 import type { Fetch } from "../github/http.ts";
-import type { SettingsEditor } from "../overrides.ts";
 import { TranscriptReader } from "../transcript.ts";
 import { asset } from "./assets.ts";
 import {
@@ -28,7 +28,7 @@ import {
   validSession,
   whoSignedIn,
 } from "./auth.ts";
-import { renderConfig } from "./config-html.tsx";
+import { type ConfigAbout, renderConfig } from "./config-html.tsx";
 import { renderDashboard } from "./html.tsx";
 import { type SettingField, type SettingsForm, saveSettings, settingFields } from "./settings-form.ts";
 import { type TimingSource, timingsView } from "./timings.ts";
@@ -55,10 +55,12 @@ const MAX_BODY_BYTES = 64 * 1024;
 const ASSET_CACHE = "private, max-age=86400";
 
 export interface DashboardDeps {
-  /** `config.ts`; the pages show `settings.current` when there are `settings`. */
+  /** The config the Coordinator started with; the pages show `settings.current` when there are `settings`. */
   config: Config;
-  /** The editable settings (REQ-003-36); without them the Config page is read-only. */
+  /** The editable settings (REQ-007-05); without them the Config page is read-only. */
   settings?: SettingsEditor;
+  /** REQ-007-12: the package's version, shown on the Config page. */
+  version?: string;
   /** The configured token (REQ-003-07); without one, no request needs one. */
   token?: string;
   /** The GitHub sign-in's secrets (REQ-003-29); absent while it is off or not set up. */
@@ -182,7 +184,13 @@ async function handle(req: Request, d: DashboardDeps): Promise<Response> {
   }
 }
 
-/** The Config form for the signed-in Owner (REQ-003-36); undefined for a token or without a sign-in. */
+/** REQ-007-07 / REQ-007-12: the version and the settings waiting for a restart, for the Config page. */
+const aboutOf = (d: DashboardDeps): ConfigAbout => ({
+  version: d.version,
+  restartPending: d.settings?.restartPending ?? [],
+});
+
+/** The Config form for the signed-in Owner (REQ-007-05); undefined for a token or without a sign-in. */
 function settingsForm(
   d: DashboardDeps,
   login: DashboardLogin | undefined,
@@ -193,7 +201,7 @@ function settingsForm(
   if (!d.settings || !login || !session) return undefined;
   return {
     token: formToken(login.sessionKey, session),
-    fields: failed?.fields ?? settingFields(d.settings.base, d.settings.current),
+    fields: failed?.fields ?? settingFields(d.settings.current),
     errors: failed?.errors ?? [],
     saved,
     reportedModels: d.reportedModels?.() ?? [],
@@ -202,7 +210,7 @@ function settingsForm(
 }
 
 /**
- * REQ-003-07 / REQ-003-36: saves the Config form; only the Owner's session, on this site, with the session's form
+ * REQ-003-07 / REQ-007-05: saves the Config form; only the Owner's session, on this site, with the session's form
  * token. Saved: back to the page (303); invalid: the page with the errors and the entered values (400).
  */
 async function postConfig(
@@ -227,7 +235,7 @@ async function postConfig(
     return respond(303, "", { location: "/config?saved=1" });
   }
   const view = dashboardView(d.snapshot(), settings.current, now, { repo: url.searchParams.get("repo") });
-  const page = renderConfig(view, settingsForm(d, login, session, false, result));
+  const page = renderConfig(view, settingsForm(d, login, session, false, result), aboutOf(d));
   return respond(400, page, { "content-type": "text/html; charset=utf-8" });
 }
 
@@ -308,7 +316,7 @@ const PAGES = new Map<
   (view: DashboardView, url: URL, d: DashboardDeps, now: Date, form: SettingsForm | undefined) => string
 >([
   ["/", renderDashboard],
-  ["/config", (view, _url, _d, _now, form) => renderConfig(view, form)],
+  ["/config", (view, _url, d, _now, form) => renderConfig(view, form, aboutOf(d))],
   [
     "/timings",
     (view, url, d, now) =>

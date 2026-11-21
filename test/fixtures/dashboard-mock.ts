@@ -39,14 +39,11 @@ const MOCK_CONFIG_INPUT = {
   },
 } satisfies ConfigInput;
 
-/** The effective config: `config.ts` with one setting the Owner changed on the Config page (REQ-003-36). */
-export const MOCK_CONFIG = parseConfig(MOCK_CONFIG_INPUT);
+/** The config in use, as the config file has it. A fixed `stateDir`, so nothing depends on the machine's folders. */
+export const MOCK_CONFIG = parseConfig({ ...MOCK_CONFIG_INPUT, stateDir: "/var/lib/coordinator" });
 
-/** `config.ts` alone, for the Config form's "changed" marks: `maxRunning` was 2 there. */
-export const MOCK_CONFIG_BASE = parseConfig({
-  ...MOCK_CONFIG_INPUT,
-  limits: { ...MOCK_CONFIG_INPUT.limits, maxRunning: 2 },
-});
+/** REQ-007-12: a fixed version, so a release doesn't change the screenshots. */
+export const MOCK_VERSION = "0.1.0";
 
 const at = (minutesAgo: number) => new Date(MOCK_NOW.getTime() - minutesAgo * 60_000).toISOString();
 

@@ -1,0 +1,31 @@
+name: PR title
+
+# REQ-007-14: squash-merge titles make the versions and the changelog (release.yml), so they must be Conventional
+# Commits, e.g. `feat: …`, `fix(dashboard): …`, `feat!: …` for a breaking change.
+on:
+  pull_request:
+    types: [opened, reopened, edited, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  title:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: amannn/action-semantic-pull-request@2252a14e810aa9b85c2d560bd7070c802206ecf6 # v6.1.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            perf
+            refactor
+            docs
+            test
+            ci
+            chore
+            build
+            revert

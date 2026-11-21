@@ -1,14 +1,15 @@
 /**
- * Coordinator config: a typed TS module (default export) validated at startup.
- * See docs/specs/001-issue-coordinator/plan.md ("Config sketch").
+ * Coordinator config: one JSON file (REQ-007-02), validated by the zod schema below at startup and on every change.
+ * `config.schema.json` is generated from it (REQ-007-04). See docs/specs/001-issue-coordinator/plan.md ("Config sketch").
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { isIP } from "node:net";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { z } from "zod";
 import { DEFAULT_ACCOUNT, harnessOfAccount } from "./accounts.ts";
 import { HARNESS_NAMES, HARNESSES } from "./harness/index.ts";
 import { harnessOfModel } from "./models.ts";
+import { defaultStateDir } from "./paths.ts";
 
 export const ROLES = ["planner", "implementer", "reviewer"] as const;
 export type Role = (typeof ROLES)[number];
@@ -24,7 +25,7 @@ const positiveInt = z.number().int().positive();
  */
 export const AUTO_MERGE_MODES = ["off", "evaluated", "all"] as const;
 export type AutoMergeMode = (typeof AUTO_MERGE_MODES)[number];
-/** REQ-001-65: the old name of `evaluated`, still read from `config.ts` so an update doesn't stop the service. */
+/** REQ-001-65: the old name of `evaluated`, still read from the config so an update doesn't stop the service. */
 const DEPRECATED_AUTO_MERGE: Record<string, AutoMergeMode> = { "risk-evaluated": "evaluated" };
 const autoMergeSchema = z
   .enum([...AUTO_MERGE_MODES, "risk-evaluated"])
@@ -131,6 +132,8 @@ export const isLoopback = (host: string): boolean =>
 
 const configSchema = z
   .strictObject({
+    /** REQ-007-04: the JSON Schema editors check the file against; the Coordinator ignores it. */
+    $schema: z.string().optional(),
     owner: z.strictObject({ login: z.string().min(1), id: positiveInt }),
     /** REQ-005-02: the token comes from the GitHub CLI's login (a fine-grained PAT), not from the config. */
     github: z
@@ -144,8 +147,11 @@ const configSchema = z
     pollIntervalSec: positiveInt.default(60),
     /** How long after a push a reviewed PR without check runs waits before it leaves draft, so CI can register (REQ-001-64). */
     checksGraceSeconds: z.number().int().nonnegative().default(120),
-    /** Store, session files and clones; relative paths are resolved against the working directory. */
-    stateDir: z.string().min(1).default(".coordinator"),
+    /**
+     * Store, session files, clones and Worktrees; absent: the user's data folder (REQ-007-03). A relative path is read
+     * relative to the config file.
+     */
+    stateDir: z.string().min(1).optional(),
     /** REQ-001-65: `evaluated` by default, so only PRs the Review rated `low` are merged; `off` opts out. */
     autoMerge: autoMergeSchema.default("evaluated"),
     limits: limitsSchema.prefault({}),
@@ -218,7 +224,8 @@ const configSchema = z
     });
   });
 
-export type Config = z.output<typeof configSchema>;
+/** The parsed config; `stateDir` is always an absolute path (REQ-007-03). */
+export type Config = Omit<z.output<typeof configSchema>, "stateDir"> & { stateDir: string };
 export type ConfigInput = z.input<typeof configSchema>;
 export type Limits = Config["limits"];
 /** The `limits` keys, in the order of the schema. */
@@ -235,32 +242,50 @@ export class ConfigError extends Error {
   }
 }
 
-/** Typed helper for writing `config.ts`. */
-export const defineConfig = (c: ConfigInput): ConfigInput => c;
+export interface ParseOptions {
+  /** Named in the error, e.g. the file's path. */
+  source?: string;
+  /** The config file, so a relative `stateDir` is read relative to it (REQ-007-03); absent: the working folder. */
+  configPath?: string;
+  env?: Record<string, string | undefined>;
+}
 
-export function parseConfig(raw: unknown, source?: string): Config {
+export function parseConfig(raw: unknown, opts: ParseOptions = {}): Config {
   const result = configSchema.safeParse(raw);
-  if (result.success) return result.data;
-  throw new ConfigError(
-    result.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`),
-    source,
-  );
+  if (!result.success)
+    throw new ConfigError(
+      result.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`),
+      opts.source,
+    );
+  const base = opts.configPath ? dirname(opts.configPath) : process.cwd();
+  return { ...result.data, stateDir: resolve(base, result.data.stateDir ?? defaultStateDir(opts.env)) };
 }
 
-/** The config module's default export, not yet validated, and its absolute path. */
-export async function importConfig(path: string): Promise<{ raw: unknown; source: string }> {
+/** REQ-007-04: the JSON Schema of the config file, generated from the rules above (what a file may contain). */
+export const configJsonSchema = (): object => z.toJSONSchema(configSchema, { io: "input", unrepresentable: "any" });
+
+/** REQ-007-02: the config file's JSON, not yet validated, and its absolute path. */
+export function readConfigFile(path: string): { raw: unknown; source: string } {
   const abs = resolve(path);
-  if (!existsSync(abs)) throw new Error(`config file not found: ${abs}`);
-  const mod = await import(abs);
-  return { raw: mod.default, source: abs };
+  if (/\.[cm]?[jt]s$/.test(abs))
+    throw new Error(
+      `${abs}: the config is a JSON file now (config.json); a TypeScript or JavaScript config is no longer read. Run \`coordinator init\` to write one.`,
+    );
+  if (!existsSync(abs)) throw new Error(`config file not found: ${abs} (run \`coordinator init\` to write one)`);
+  const text = readFileSync(abs, "utf8");
+  try {
+    return { raw: JSON.parse(text), source: abs };
+  } catch (e) {
+    throw new ConfigError([`(root): not JSON (${e instanceof Error ? e.message : String(e)})`], abs);
+  }
 }
 
-export async function loadConfig(path: string): Promise<Config> {
-  const { raw, source } = await importConfig(path);
-  return parseConfig(raw, source);
+export function loadConfig(path: string): Config {
+  const { raw, source } = readConfigFile(path);
+  return parseConfig(raw, { source, configPath: source });
 }
 
-/** REQ-001-65: deprecated values in `config.ts`'s default export, each with its new name, for `bun run doctor`. */
+/** REQ-001-65: deprecated values in the config file, each with its new name, for `coordinator doctor`. */
 export function deprecatedSettings(raw: unknown): string[] {
   const c = raw as { autoMerge?: unknown; repos?: { autoMerge?: unknown }[] } | undefined;
   const found: [string, unknown][] = [

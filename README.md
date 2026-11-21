@@ -25,13 +25,11 @@ A self-hosted Bun daemon that turns your GitHub issues into reviewed pull reques
 You need a Linux VM dedicated to the Coordinator with tmux, git, `gh`, [Bun](https://bun.sh) and [Claude Code](https://code.claude.com) logged in ([prerequisites](docs/setup.md#prerequisites)).
 
 ```sh
-git clone https://github.com/Flayms/Github-Issue-Coordinator.git ~/github-issue-coordinator
-cd ~/github-issue-coordinator && bun install
-gh auth login                    # with a fine-grained PAT
-cp config.example.ts config.ts   # fill in the Owner, Roles and repositories
-bun run doctor                   # checks the setup
-bun start                        # or run it as the systemd service
+bun add -g github-issue-coordinator
+coordinator init        # asks a few questions, writes the config, installs the service
 ```
+
+`init` logs in the GitHub CLI with a fine-grained PAT, picks your repositories, models and dashboard sign-in, writes `~/.config/github-issue-coordinator/config.json`, runs `coordinator doctor` and installs the systemd service. Update with `bun add -g github-issue-coordinator@latest && coordinator service restart`.
 
 The [setup guide](docs/setup.md) walks through each step: the PAT, the ruleset, the config, the dashboard and the service.
 
@@ -65,7 +63,7 @@ The details, from Split-off issues to merge conflicts, are in [docs/how-it-works
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/images/dashboard-config.png" alt="The Config page: access, the auto-merge mode and the limits as a form, a changed limit with its config.ts value"></td>
+    <td width="50%"><img src="docs/images/dashboard-config.png" alt="The Config page: access, the auto-merge mode and the limits as a form, saved into the config file"></td>
     <td width="50%"><img src="docs/images/dashboard-timings.png" alt="The Timings page: one issue's Planning, Building and Review on one time axis, each step a glass capsule of waiting, agent and checks time"></td>
   </tr>
   <tr>
@@ -207,7 +205,7 @@ stateDiagram-v2
 
 ## Configuration
 
-Copy [`config.example.ts`](config.example.ts) to `config.ts`; every option is explained there.
+`coordinator init` writes `~/.config/github-issue-coordinator/config.json` (or the file named by `--config` or `$COORDINATOR_CONFIG`) and can edit it again later. The file's `$schema` points at the package's [`config.schema.json`](config.schema.json), so an editor completes and checks every key. Saving on the dashboard's Config page writes into the same file, and a hand edit applies from the next tick on; repositories, Accounts and access need `coordinator service restart`. State (the store, sessions, clones and Worktrees) is kept in `~/.local/share/github-issue-coordinator/`.
 
 - **Owner, Roles, repositories:** your login and id, a model (and effort) per Role, and each managed repository with its `setup` command.
 - **Limits:** Slots per Role, live sessions, Worktrees and `maxFeedbackRounds`. Also editable on the dashboard's Config page.
@@ -238,6 +236,9 @@ Copy [`config.example.ts`](config.example.ts) to `config.ts`; every option is ex
 | `bun run lint`                | Biome and `tsc --noEmit` (`bun run lint:fix` autofixes)                                                                                                                                                             |
 | `bun scripts/smoke-runner.ts` | Real tmux + claude; needs a subscription, so it doesn't run in CI. `--harness codex\|antigravity\|copilot\|opencode --fake-model`: the real CLI, fake model, no login; `--harness opencode` alone runs a free model |
 | `bun run screenshots`         | The dashboard screenshots above; needs Chrome or Chromium. `bun test` fails when they are older than the dashboard                                                                                                  |
+| `bun src/cli.ts <command>`    | The `coordinator` command from a checkout, e.g. `bun src/cli.ts start --config ./config.json`                                                                                                                       |
+| `bun run schema`              | Writes `config.schema.json` from the config rules after changing them; `bun test` fails when it is out of date                                                                                                      |
 
-- CI (`.github/workflows/ci.yml`) runs `bun install --frozen-lockfile`, `bun run lint` and `bun test` on every push to `main` and every PR, drafts included, so agent PRs here are checked before their Review.
+- CI (`.github/workflows/ci.yml`) runs `bun install --frozen-lockfile`, `bun run lint` and `bun test` on every push to `main` and every PR, drafts included, so agent PRs here are checked before their Review. PR titles must be [Conventional Commits](https://www.conventionalcommits.org) (`feat: …`, `fix: …`, `feat!: …`), since they make the versions and the changelog.
+- Releases: release-please keeps a release PR open with the next version and `CHANGELOG.md`; merging it tags the release and publishes it to npm ([setup](docs/setup.md#releases-maintainers), [spec 007](docs/specs/007-install/spec.md)).
 - Conventions: [`AGENTS.md`](AGENTS.md). Design: [docs/architecture.md](docs/architecture.md), [glossary](docs/glossary.md), [specs](docs/specs/README.md).
