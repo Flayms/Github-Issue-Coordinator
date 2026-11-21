@@ -112,7 +112,7 @@ describe("config", () => {
   test("applies the defaults the Owner accepted", () => {
     const c = parseConfig(valid());
     expect(c.pollIntervalSec).toBe(60);
-    expect(c.stateDir).toBe(join(homedir(), ".local", "share", "github-issue-coordinator"));
+    expect(c.stateDir).toBe(join(homedir(), ".local", "share", "issueflow"));
     expect(c.limits).toEqual({
       maxRunning: 1,
       maxPlanners: 1,
@@ -248,11 +248,11 @@ describe("config", () => {
   test("REQ-007-02 a missing file, a TypeScript config or a file that isn't JSON say what to do", () => {
     const dir = tmp();
     expect(() => loadConfig(join(dir, "missing.json"))).toThrow(
-      /config file not found: .*missing\.json.*coordinator init/,
+      /config file not found: .*missing\.json.*issueflow init/,
     );
     for (const name of ["config.ts", "config.js"]) {
       writeFileSync(join(dir, name), "export default {}");
-      expect(() => loadConfig(join(dir, name))).toThrow(/is a JSON file now.*coordinator init/);
+      expect(() => loadConfig(join(dir, name))).toThrow(/is a JSON file now.*issueflow init/);
     }
     writeFileSync(join(dir, "config.json"), "{ not json");
     expect(() => loadConfig(join(dir, "config.json"))).toThrow(/\(root\): not JSON/);
@@ -267,11 +267,11 @@ describe("config", () => {
     expect(loadConfig(path).stateDir).toBe("/var/lib/c");
   });
 
-  test("REQ-007-03 without stateDir, state goes to $XDG_DATA_HOME/github-issue-coordinator", () => {
-    expect(parseConfig(valid(), { env: { XDG_DATA_HOME: "/data" } }).stateDir).toBe("/data/github-issue-coordinator");
+  test("REQ-007-03 without stateDir, state goes to $XDG_DATA_HOME/issueflow", () => {
+    expect(parseConfig(valid(), { env: { XDG_DATA_HOME: "/data" } }).stateDir).toBe("/data/issueflow");
     // A relative XDG value is ignored, as the XDG spec says.
     expect(parseConfig(valid(), { env: { XDG_DATA_HOME: "data" } }).stateDir).toBe(
-      join(homedir(), ".local", "share", "github-issue-coordinator"),
+      join(homedir(), ".local", "share", "issueflow"),
     );
   });
 });

@@ -1,5 +1,5 @@
 /**
- * Setup check: `coordinator doctor`. Verifies everything the Coordinator needs before its first start
+ * Setup check: `issueflow doctor`. Verifies everything the Coordinator needs before its first start
  * (docs/setup.md) and prints what is missing. Read-only: it changes nothing.
  */
 import { readFileSync } from "node:fs";
@@ -75,7 +75,7 @@ export async function doctor(configPath: string, print: (line: string) => void =
       login && secret ? "ok" : "fail",
       "dashboard GitHub sign-in",
       !login
-        ? "not set up: run `coordinator init`, or set dashboard.githubLogin (docs/setup.md step 4), or githubLogin: false"
+        ? "not set up: run `issueflow init`, or set dashboard.githubLogin (docs/setup.md step 4), or githubLogin: false"
         : secret
           ? `OAuth App ${login.clientId}`
           : `cannot read a client secret at ${login.clientSecretPath}`,

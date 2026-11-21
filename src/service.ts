@@ -1,5 +1,5 @@
 /**
- * `coordinator service` (REQ-007-11): the systemd unit, made from the machine it is installed on, and the systemctl
+ * `issueflow service` (REQ-007-11): the systemd unit, made from the machine it is installed on, and the systemctl
  * and journalctl calls around it.
  */
 import { existsSync, rmSync, writeFileSync } from "node:fs";
@@ -38,9 +38,9 @@ export function serviceUnit(u: UnitInput): string {
       ...SYSTEM_PATH,
     ]),
   ].join(":");
-  return `# Made by \`coordinator service install\` (docs/setup.md step 5); run it again after moving bun or the config.
+  return `# Made by \`issueflow service install\` (docs/setup.md step 5); run it again after moving bun or the config.
 [Unit]
-Description=GitHub Issue Coordinator (agents for GitHub issues)
+Description=Issueflow (agents for GitHub issues)
 After=network-online.target
 Wants=network-online.target
 
@@ -50,7 +50,7 @@ User=${u.user}
 WorkingDirectory=${quote(u.home)}
 # claude (~/.local/bin) and bun (~/.bun/bin) are installed per user.
 Environment=${quote(`PATH=${path}`)}
-Environment=${quote(`COORDINATOR_CONFIG=${u.configPath}`)}
+Environment=${quote(`ISSUEFLOW_CONFIG=${u.configPath}`)}
 ExecStart=${[u.bun, u.entry, "start", "--config", u.configPath].map(quote).join(" ")}
 Restart=on-failure
 RestartSec=30
@@ -90,7 +90,7 @@ export const machine = (): ServiceEnv => ({
   print: console.log,
 });
 
-/** Runs `coordinator service <command>`; returns the exit code. */
+/** Runs `issueflow service <command>`; returns the exit code. */
 export async function service(command: ServiceCommand, configPath: string, env = machine()): Promise<number> {
   /** Runs each command in turn; stops at the first that fails. */
   const steps = (...cmds: string[][]) => {
@@ -125,7 +125,7 @@ export async function service(command: ServiceCommand, configPath: string, env =
 
 function install(configPath: string, env: ServiceEnv, steps: (...cmds: string[][]) => number): number {
   if (!env.exists(configPath)) {
-    env.print(`no config at ${configPath}: run \`coordinator init\` first`);
+    env.print(`no config at ${configPath}: run \`issueflow init\` first`);
     return 1;
   }
   const bun = env.which("bun");
@@ -146,14 +146,14 @@ function install(configPath: string, env: ServiceEnv, steps: (...cmds: string[][
   } catch (e) {
     const denied = (e as NodeJS.ErrnoException).code === "EACCES";
     env.print(
-      `could not write ${UNIT_PATH}: ${e instanceof Error ? e.message : String(e)}${denied ? " (run it as root: sudo coordinator service install)" : ""}`,
+      `could not write ${UNIT_PATH}: ${e instanceof Error ? e.message : String(e)}${denied ? " (run it as root: sudo issueflow service install)" : ""}`,
     );
     return 1;
   }
   const code = steps(["systemctl", "daemon-reload"], ["systemctl", "enable", "--now", SERVICE_NAME]);
   if (!code)
     env.print(
-      `installed and started ${SERVICE_NAME} (${UNIT_PATH}); follow it with \`coordinator service logs\`, update with \`bun add -g ${APP_NAME}@latest && coordinator service restart\``,
+      `installed and started ${SERVICE_NAME} (${UNIT_PATH}); follow it with \`issueflow service logs\`, update with \`bun add -g ${APP_NAME}@latest && issueflow service restart\``,
     );
   return code;
 }

@@ -22,7 +22,7 @@ The Reviewer and the Owner trust a green suite only if it means something. So ne
 
 ## Screenshots
 
-When the repository's conventions ask for screenshots of UI changes, capture the pages your change affects, e.g. by serving them locally from fixture data and shooting them with a headless Chrome or Chromium (`google-chrome --headless --screenshot=<file> --window-size=1280,900 <url>`) or Playwright. If there is no browser, install one (e.g. `npx playwright install --with-deps chromium`). Save them as PNG or JPEG in `.coordinator/screenshots/` (git ignores it; don't commit them) and list them in `screenshots` with a caption each. The Coordinator publishes them and shows them in the PR. If you still can't capture them, say so in `prBody` and quote the error instead of failing the task or trying other ways.
+When the repository's conventions ask for screenshots of UI changes, capture the pages your change affects, e.g. by serving them locally from fixture data and shooting them with a headless Chrome or Chromium (`google-chrome --headless --screenshot=<file> --window-size=1280,900 <url>`) or Playwright. If there is no browser, install one (e.g. `npx playwright install --with-deps chromium`). Save them as PNG or JPEG in `.issueflow/screenshots/` (git ignores it; don't commit them) and list them in `screenshots` with a caption each. The Coordinator publishes them and shows them in the PR. If you still can't capture them, say so in `prBody` and quote the error instead of failing the task or trying other ways.
 
 ## Later turns
 

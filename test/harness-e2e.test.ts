@@ -16,7 +16,7 @@ const RESULT = JSON.stringify({ summary: "ok", risk: "low", riskReason: "tiny", 
 
 describe.skipIf(!hasTmux)("Harness sessions through tmux with a fake Harness CLI", () => {
   const dir = mkdtempSync(join(tmpdir(), "harness-e2e-"));
-  const tmuxSession = `coordinator-test-${process.pid}`;
+  const tmuxSession = `issueflow-test-${process.pid}`;
   const tmux = new TmuxCli(tmuxSession);
   let store: Store;
   let runner: SessionRunner;

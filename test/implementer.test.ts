@@ -683,10 +683,10 @@ describe("Screenshots", () => {
   const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0]);
   let tree: string;
   const shot = (name: string, data: Buffer = PNG) => {
-    const p = join(tree, ".coordinator", "screenshots", name);
+    const p = join(tree, ".issueflow", "screenshots", name);
     mkdirSync(join(p, ".."), { recursive: true });
     writeFileSync(p, Buffer.concat([data, Buffer.from(name)]));
-    return `.coordinator/screenshots/${name}`;
+    return `.issueflow/screenshots/${name}`;
   };
   const withShots = (screenshots: { path: string; caption: string }[], prBody = "Adds a board.") => ({
     prTitle: "Board",
@@ -742,20 +742,20 @@ describe("Screenshots", () => {
     const id = await start();
     const outside = join(dir, "secret.png");
     writeFileSync(outside, PNG);
-    mkdirSync(join(tree, ".coordinator", "screenshots"), { recursive: true });
-    symlinkSync(outside, join(tree, ".coordinator", "screenshots", "link.png"));
-    mkdirSync(join(tree, ".coordinator", "screenshots", "dir.png"));
+    mkdirSync(join(tree, ".issueflow", "screenshots"), { recursive: true });
+    symlinkSync(outside, join(tree, ".issueflow", "screenshots", "link.png"));
+    mkdirSync(join(tree, ".issueflow", "screenshots", "dir.png"));
     writeFileSync(join(tree, "src.png"), PNG);
     const big = shot("big.png", Buffer.concat([PNG, Buffer.alloc(2 * 1024 * 1024)]));
     const list = [
       { path: shot("ok.png"), caption: "Ok" },
       { path: "../secret.png", caption: "Traversal" },
       { path: "src.png", caption: "Outside the folder" },
-      { path: ".coordinator/screenshots/link.png", caption: "Symlink" },
-      { path: ".coordinator/screenshots/dir.png", caption: "Folder" },
+      { path: ".issueflow/screenshots/link.png", caption: "Symlink" },
+      { path: ".issueflow/screenshots/dir.png", caption: "Folder" },
       { path: shot("fake.png", Buffer.from("GIF89a")), caption: "GIF" },
       { path: big, caption: "Big" },
-      { path: ".coordinator/screenshots/missing.png", caption: "Missing" },
+      { path: ".issueflow/screenshots/missing.png", caption: "Missing" },
       { path: shot("also-ok.jpg", JPEG), caption: "Also ok" },
     ];
     finish(id, withShots(list));
@@ -764,10 +764,10 @@ describe("Screenshots", () => {
     expect(wt.published[0]?.[3].map((f) => f.name)).toEqual(["1-ok.png"]);
     const body = lastBody();
     expect(body).toContain("![Ok](");
-    expect(body).toContain("`../secret.png`: outside .coordinator/screenshots/");
-    expect(body).toContain("`src.png`: outside .coordinator/screenshots/");
-    expect(body).toContain("`.coordinator/screenshots/link.png`: outside .coordinator/screenshots/");
-    expect(body).toContain("`.coordinator/screenshots/dir.png`: not a regular file");
+    expect(body).toContain("`../secret.png`: outside .issueflow/screenshots/");
+    expect(body).toContain("`src.png`: outside .issueflow/screenshots/");
+    expect(body).toContain("`.issueflow/screenshots/link.png`: outside .issueflow/screenshots/");
+    expect(body).toContain("`.issueflow/screenshots/dir.png`: not a regular file");
     for (const p of [list[5], list[6], list[7], list[8]])
       expect(body).toContain(`\`${p?.path}\`: more than 5 Screenshots`);
     expect(gh.of("createPull")).toHaveLength(1);
@@ -778,16 +778,16 @@ describe("Screenshots", () => {
     const list = [
       { path: shot("fake.png", Buffer.from("GIF89a")), caption: "GIF" },
       { path: shot("big.png", Buffer.concat([PNG, Buffer.alloc(2 * 1024 * 1024)])), caption: "Big" },
-      { path: ".coordinator/screenshots/missing.png", caption: "Missing" },
+      { path: ".issueflow/screenshots/missing.png", caption: "Missing" },
       { path: shot("photo.jpeg", JPEG), caption: "Photo" },
     ];
     finish(id, withShots(list));
     await impl.sync(id);
     expect(wt.published[0]?.[3].map((f) => f.name)).toEqual(["1-photo.jpg"]);
     const body = lastBody();
-    expect(body).toContain("`.coordinator/screenshots/fake.png`: not a PNG or JPEG");
-    expect(body).toContain("`.coordinator/screenshots/big.png`: larger than 2 MB");
-    expect(body).toContain("`.coordinator/screenshots/missing.png`: not found");
+    expect(body).toContain("`.issueflow/screenshots/fake.png`: not a PNG or JPEG");
+    expect(body).toContain("`.issueflow/screenshots/big.png`: larger than 2 MB");
+    expect(body).toContain("`.issueflow/screenshots/missing.png`: not found");
   });
 
   test("REQ-001-51 when every Screenshot is skipped nothing is published, and the PR body says why", async () => {
@@ -796,7 +796,7 @@ describe("Screenshots", () => {
     await impl.sync(id);
     expect(wt.published).toEqual([]);
     expect(lastBody()).toContain("## Screenshots");
-    expect(lastBody()).toContain("`../x.png`: outside .coordinator/screenshots/");
+    expect(lastBody()).toContain("`../x.png`: outside .issueflow/screenshots/");
   });
 
   test("REQ-001-50 a failed publish still opens the PR, and the section says the Screenshots could not be published", async () => {

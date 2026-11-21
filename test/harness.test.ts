@@ -243,8 +243,8 @@ describe("Antigravity CLI launch", () => {
     // Hooks load from a workspace folder's `.agents/hooks.json`; the session folder is added as one.
     expect(args.join(" ")).toContain(`--add-dir ${sessionDir}`);
     const hooks = JSON.parse(readFileSync(join(sessionDir, ".agents", "hooks.json"), "utf8"));
-    expect(Object.keys(hooks.coordinator)).toEqual(["SessionStart", "PreInvocation", "Stop"]);
-    expect(hooks.coordinator.Stop).toEqual([{ type: "command", command: "'hook' 'Stop'" }]);
+    expect(Object.keys(hooks.issueflow)).toEqual(["SessionStart", "PreInvocation", "Stop"]);
+    expect(hooks.issueflow.Stop).toEqual([{ type: "command", command: "'hook' 'Stop'" }]);
     // REQ-005-01: no folder trust question (workspace hooks load only in trusted folders), no plan review wait.
     const settingsPath = args[args.indexOf("--settings") + 1] ?? "";
     expect(JSON.parse(readFileSync(settingsPath, "utf8"))).toMatchObject({

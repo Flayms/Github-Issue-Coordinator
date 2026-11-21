@@ -151,7 +151,7 @@ describe("prompts (REQ-002)", () => {
     expectAll(prompt("implementer"), [
       /screenshots/i,
       /conventions/i,
-      /\.coordinator\/screenshots\//,
+      /\.issueflow\/screenshots\//,
       /`screenshots`/,
       /headless/i,
       /can't capture|cannot capture/i,

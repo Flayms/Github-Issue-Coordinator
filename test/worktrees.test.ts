@@ -195,21 +195,21 @@ describe("worktrees", () => {
     expect(w.attach("octo/app", [6], "agent/5-fix-it")).rejects.toThrow("maxWorktrees");
   });
 
-  test("REQ-001-48 every Worktree's git ignores .coordinator/ locally, also a re-used or re-attached one", async () => {
+  test("REQ-001-48 every Worktree's git ignores .issueflow/ locally, also a re-used or re-attached one", async () => {
     const w = make();
     const wt = await w.create("octo/app", [5], "x");
-    mkdirSync(join(wt.path, ".coordinator", "screenshots"), { recursive: true });
-    writeFileSync(join(wt.path, ".coordinator", "screenshots", "a.png"), "png");
+    mkdirSync(join(wt.path, ".issueflow", "screenshots"), { recursive: true });
+    writeFileSync(join(wt.path, ".issueflow", "screenshots", "a.png"), "png");
     expect(git(wt.path, "status", "--porcelain")).toBe("");
     expect(git(wt.path, "ls-files")).toBe("README.md"); // not via a tracked .gitignore
     await w.create("octo/app", [5], "x");
     const lines = readFileSync(join(wt.path, ".git", "info", "exclude"), "utf8").split("\n");
-    expect(lines.filter((l) => l === ".coordinator/")).toHaveLength(1);
+    expect(lines.filter((l) => l === ".issueflow/")).toHaveLength(1);
 
     git(origin, "branch", "agent/9-y");
     const attached = await w.attach("octo/app", [9], "agent/9-y");
-    mkdirSync(join(attached.path, ".coordinator"), { recursive: true });
-    writeFileSync(join(attached.path, ".coordinator", "b.png"), "png");
+    mkdirSync(join(attached.path, ".issueflow"), { recursive: true });
+    writeFileSync(join(attached.path, ".issueflow", "b.png"), "png");
     expect(git(attached.path, "status", "--porcelain")).toBe("");
   });
 

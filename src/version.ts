@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { APP_NAME } from "./paths.ts";
 
-/** The package's root folder: the checkout, or the global install's `node_modules/github-issue-coordinator`. */
+/** The package's root folder: the checkout, or the global install's `node_modules/issueflow`. */
 export const PACKAGE_ROOT = join(import.meta.dir, "..");
 /** REQ-007-04: the JSON Schema of the config file. */
 export const CONFIG_SCHEMA_PATH = join(PACKAGE_ROOT, "config.schema.json");
@@ -42,7 +42,7 @@ export async function versionCheck(
       ? {
           status: "warn",
           check: "version",
-          detail: `${current}; ${latest} is on npm: bun add -g ${APP_NAME}@latest && coordinator service restart`,
+          detail: `${current}; ${latest} is on npm: bun add -g ${APP_NAME}@latest && issueflow service restart`,
         }
       : {
           status: "ok",

@@ -31,7 +31,7 @@ describe("doctor's version check", () => {
     expect(await versionCheck("0.1.0", npm({ version: "0.3.0" }))).toEqual({
       status: "warn",
       check: "version",
-      detail: "0.1.0; 0.3.0 is on npm: bun add -g github-issue-coordinator@latest && coordinator service restart",
+      detail: "0.1.0; 0.3.0 is on npm: bun add -g issueflow@latest && issueflow service restart",
     });
   });
 

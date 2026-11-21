@@ -1194,9 +1194,7 @@ describe("dashboard html", () => {
 
     test("on a phone one row: the wordmark and Read-only are hidden, below 380 px the countdown keeps only its ring", () => {
       const h = header(overview());
-      expect(h).toMatch(
-        /<a [^>]*aria-label="Coordinator"[^>]*>[\s\S]*?<span class="max-sm:hidden">Coordinator<\/span>/,
-      );
+      expect(h).toMatch(/<a [^>]*aria-label="Issueflow"[^>]*>[\s\S]*?<span class="max-sm:hidden">Issueflow<\/span>/);
       expect(h).toMatch(/<span class="[^"]*max-sm:hidden[^"]*">[\s\S]*?Read-only<\/span>/);
       expect(h).toMatch(/<span class="[^"]*max-\[379px\]:hidden[^"]*" data-countdown="">/);
       expect(h).not.toContain("flex-wrap");

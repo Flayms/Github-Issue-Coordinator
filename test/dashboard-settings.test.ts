@@ -333,7 +333,7 @@ describe("dashboard settings", () => {
     const { url, path, file, settings } = start({ token: TOKEN });
     const page = async () => (await fetch(`${url}/config`, { headers: { authorization: `Bearer ${TOKEN}` } })).text();
     const before = await page();
-    expect(before).toContain("Coordinator 1.2.3");
+    expect(before).toContain("Issueflow 1.2.3");
     expect(before).not.toContain("applies after a restart");
 
     writeFileSync(path, JSON.stringify({ ...file(), repos: [{ name: "octo/app" }, { name: "octo/new" }] }));
@@ -341,7 +341,7 @@ describe("dashboard settings", () => {
     const after = await page();
     expect(after).toContain("Changed in the config file, applies after a restart:");
     expect(after).toMatch(/<code[^>]*>repos<\/code>/);
-    expect(after).toContain("coordinator service restart");
+    expect(after).toContain("issueflow service restart");
     // The Coordinator still watches the repositories it started with.
     expect(after).toContain("Polling 1 repository");
   });

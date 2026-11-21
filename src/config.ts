@@ -269,9 +269,9 @@ export function readConfigFile(path: string): { raw: unknown; source: string } {
   const abs = resolve(path);
   if (/\.[cm]?[jt]s$/.test(abs))
     throw new Error(
-      `${abs}: the config is a JSON file now (config.json); a TypeScript or JavaScript config is no longer read. Run \`coordinator init\` to write one.`,
+      `${abs}: the config is a JSON file now (config.json); a TypeScript or JavaScript config is no longer read. Run \`issueflow init\` to write one.`,
     );
-  if (!existsSync(abs)) throw new Error(`config file not found: ${abs} (run \`coordinator init\` to write one)`);
+  if (!existsSync(abs)) throw new Error(`config file not found: ${abs} (run \`issueflow init\` to write one)`);
   const text = readFileSync(abs, "utf8");
   try {
     return { raw: JSON.parse(text), source: abs };
@@ -285,7 +285,7 @@ export function loadConfig(path: string): Config {
   return parseConfig(raw, { source, configPath: source });
 }
 
-/** REQ-001-65: deprecated values in the config file, each with its new name, for `coordinator doctor`. */
+/** REQ-001-65: deprecated values in the config file, each with its new name, for `issueflow doctor`. */
 export function deprecatedSettings(raw: unknown): string[] {
   const c = raw as { autoMerge?: unknown; repos?: { autoMerge?: unknown }[] } | undefined;
   const found: [string, unknown][] = [

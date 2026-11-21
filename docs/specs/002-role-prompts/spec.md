@@ -107,7 +107,7 @@ The Owner gets plans they can approve on a phone, code that matches those plans,
 
 - **Given** the default Implementer prompt and a repository whose conventions ask for screenshots of UI changes
 - **When** the Implementer changes a page
-- **Then** it captures the pages its change affects with a headless browser, saves them in `.coordinator/screenshots/` and lists them in `screenshots` with a caption each (REQ-001-48)
+- **Then** it captures the pages its change affects with a headless browser, saves them in `.issueflow/screenshots/` and lists them in `screenshots` with a caption each (REQ-001-48)
 - **And** if there is no browser, it installs one (REQ-005-01 lets it), without sandbox flags or workarounds
 - **And** if it still can't capture them, it says so in `prBody`, quotes the error, and doesn't fail the task
 

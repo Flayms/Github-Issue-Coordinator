@@ -35,7 +35,7 @@ const harness = harnessByName(opts.harness ?? "claude");
 const fake = opts["fake-model"] && harness.name !== "claude";
 if (opts["fake-model"] && !fake)
   throw new Error("--fake-model works with --harness codex, antigravity, copilot or opencode only");
-const root = mkdtempSync(join(tmpdir(), "coordinator-smoke-"));
+const root = mkdtempSync(join(tmpdir(), "issueflow-smoke-"));
 // REQ-006-05: skip a Harness that can't run here, rather than fail.
 const version = Bun.spawnSync([harness.bin, "--version"], { stdout: "pipe", stderr: "pipe" });
 if (version.exitCode !== 0) {
@@ -44,7 +44,7 @@ if (version.exitCode !== 0) {
 }
 let fakeServer: ReturnType<typeof startFakeModelServer> | undefined;
 const accounts: Account[] = [{ name: "smoke", harness: harness.name }];
-const tmux = new TmuxCli("coordinator-smoke");
+const tmux = new TmuxCli("issueflow-smoke");
 if (fake && harness.name === "antigravity") {
   // Antigravity has no folder per login (REQ-006-09): a home folder of its own whose settings send model requests to
   // the Gemini API, here the fake server. Its windows get the variables from the tmux session.
@@ -53,9 +53,9 @@ if (fake && harness.name === "antigravity") {
   mkdirSync(join(home, ".gemini", "antigravity-cli"), { recursive: true });
   writeFileSync(join(home, ".gemini", "antigravity-cli", "settings.json"), JSON.stringify({ modelProvider: "gemini" }));
   const vars = { HOME: home, GEMINI_API_KEY: "fake", GOOGLE_GEMINI_BASE_URL: fakeServer.url };
-  Bun.spawnSync(["tmux", "kill-session", "-t", "coordinator-smoke"], { stderr: "ignore" });
+  Bun.spawnSync(["tmux", "kill-session", "-t", "issueflow-smoke"], { stderr: "ignore" });
   const env = Object.entries(vars).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
-  Bun.spawnSync(["tmux", "new-session", "-d", "-s", "coordinator-smoke", "-n", "keepalive", ...env]);
+  Bun.spawnSync(["tmux", "new-session", "-d", "-s", "issueflow-smoke", "-n", "keepalive", ...env]);
 } else if (fake && harness.name === "copilot") {
   // A COPILOT_HOME of its own, and the fake server as the only model provider (`copilot help providers-env`), set on
   // the smoke run's own tmux session so its windows get it and no other session does.
@@ -69,9 +69,9 @@ if (fake && harness.name === "antigravity") {
     // No GitHub sign-in, telemetry or update check.
     COPILOT_OFFLINE: "true",
   };
-  Bun.spawnSync(["tmux", "kill-session", "-t", "coordinator-smoke"], { stderr: "ignore" });
+  Bun.spawnSync(["tmux", "kill-session", "-t", "issueflow-smoke"], { stderr: "ignore" });
   const env = Object.entries(vars).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
-  Bun.spawnSync(["tmux", "new-session", "-d", "-s", "coordinator-smoke", "-n", "keepalive", ...env]);
+  Bun.spawnSync(["tmux", "new-session", "-d", "-s", "issueflow-smoke", "-n", "keepalive", ...env]);
 } else if (fake && harness.name === "opencode") {
   // OpenCode has one Account (REQ-006-16): a data folder of its own for the smoke run's sessions, and the fake server
   // as an OpenAI-compatible provider in an inline config, set on the smoke run's own tmux session.
@@ -87,9 +87,9 @@ if (fake && harness.name === "antigravity") {
     XDG_DATA_HOME: join(root, "opencode-data"),
     XDG_STATE_HOME: join(root, "opencode-state"),
   };
-  Bun.spawnSync(["tmux", "kill-session", "-t", "coordinator-smoke"], { stderr: "ignore" });
+  Bun.spawnSync(["tmux", "kill-session", "-t", "issueflow-smoke"], { stderr: "ignore" });
   const env = Object.entries(vars).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
-  Bun.spawnSync(["tmux", "new-session", "-d", "-s", "coordinator-smoke", "-n", "keepalive", ...env]);
+  Bun.spawnSync(["tmux", "new-session", "-d", "-s", "issueflow-smoke", "-n", "keepalive", ...env]);
 } else if (fake) {
   // A CODEX_HOME of its own, whose only model provider is the fake server.
   fakeServer = startFakeModelServer();
@@ -226,9 +226,9 @@ try {
   if (!opts.keep) {
     runner.close(id);
     console.log(`Closed: state ${store.session(id)?.state}, window live: ${runner.liveSessionIds().has(id)}`);
-  } else console.log("Kept: tmux attach -t coordinator-smoke");
+  } else console.log("Kept: tmux attach -t issueflow-smoke");
 } finally {
-  if (!opts.keep) Bun.spawnSync(["tmux", "kill-session", "-t", "coordinator-smoke"]);
+  if (!opts.keep) Bun.spawnSync(["tmux", "kill-session", "-t", "issueflow-smoke"]);
   store.close();
   fakeServer?.stop();
 }

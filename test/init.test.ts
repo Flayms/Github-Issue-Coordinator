@@ -7,8 +7,8 @@ import { Cancelled, type Prompter } from "../src/init/prompter.ts";
 import { machineInitEnv } from "../src/init/run.ts";
 import { guessSetup, type InitEnv, init } from "../src/init/wizard.ts";
 
-const CONFIG = "/home/o/.config/github-issue-coordinator/config.json";
-const STATE = "/home/o/.local/share/github-issue-coordinator";
+const CONFIG = "/home/o/.config/issueflow/config.json";
+const STATE = "/home/o/.local/share/issueflow";
 const SCHEMA = "file:///pkg/config.schema.json";
 
 type Asked = { kind: string; message: string; initial?: unknown; options?: unknown[] };
@@ -124,7 +124,7 @@ const FRESH: [string, Answer][] = [
   ["Install and start", true],
 ];
 
-describe("coordinator init", () => {
+describe("issueflow init", () => {
   test("REQ-007-08 a fresh setup asks the questions with the defaults preselected and writes a valid config", async () => {
     const m = fakeEnv();
     const s = scripted(FRESH);
@@ -238,7 +238,7 @@ describe("coordinator init", () => {
     const s = scripted([["Install and start", false], ...FRESH]);
     expect(await init(CONFIG, s.p, m.env)).toBe(0);
     expect(m.calls).toEqual([`doctor ${CONFIG}`]);
-    expect(s.shown()).toContain("sudo coordinator service install");
+    expect(s.shown()).toContain("sudo issueflow service install");
   });
 
   test("REQ-007-08 setup commands are guessed from the lockfile", () => {
@@ -274,7 +274,7 @@ const EXISTING = {
   },
 };
 
-describe("coordinator init on an existing config", () => {
+describe("issueflow init on an existing config", () => {
   const existing = () =>
     fakeEnv({
       files: { [CONFIG]: JSON.stringify(EXISTING), "/secrets/client": "old\n", "/secrets/token": "tok\n" },

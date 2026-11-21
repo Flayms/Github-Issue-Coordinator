@@ -47,7 +47,7 @@ describe("OpenCode launch", () => {
     // The model without the catalogue's prefix; the runner appends the prompt after `--prompt`.
     expect(args).toEqual(["--mini", "--auto", "--model", "opencode/big-pickle", "--prompt"]);
     // OpenCode loads `plugins/*.js` of the config folder.
-    const plugin = readFileSync(join(sessionDir, "opencode", "plugins", "coordinator.js"), "utf8");
+    const plugin = readFileSync(join(sessionDir, "opencode", "plugins", "issueflow.js"), "utf8");
     for (const ev of ["SessionStart", "UserPromptSubmit", "Stop", "session.status"])
       expect(plugin).toContain(JSON.stringify(hook(ev)));
   });
@@ -179,7 +179,7 @@ describe("OpenCode plugin (generated)", () => {
     const script = join(dir, "hook.sh");
     writeFileSync(script, `cat >> '${hooksLog}'; echo >> '${hooksLog}'; cat '${dir}/answers/'"$1" 2>/dev/null; true\n`);
     mkdirSync(join(dir, "answers"));
-    const file = join(dir, "coordinator.js");
+    const file = join(dir, "issueflow.js");
     const commands = Object.fromEntries(
       ["SessionStart", "UserPromptSubmit", "Stop", "session.status"].map((ev) => [ev, `sh '${script}' '${ev}'`]),
     );

@@ -171,7 +171,7 @@ The Owner wants to see at a glance, also on a phone, what the Coordinator is doi
 ### REQ-003-19 Component build
 
 - **Given** the dashboard sources: React components and a Tailwind stylesheet
-- **When** the Coordinator starts (`coordinator start`, no build step of the Owner's own)
+- **When** the Coordinator starts (`issueflow start`, no build step of the Owner's own)
 - **Then** the pages are rendered on the server from the React components, and the stylesheet is built from its Tailwind source and served from the fixed list of files (REQ-003-09)
 - **And** every class the pages use has a rule in that stylesheet
 
@@ -263,7 +263,7 @@ The Owner wants to see at a glance, also on a phone, what the Coordinator is doi
 - **Then** it is sent to GitHub to sign in, with a random `state` kept in a short-lived cookie, and comes back to the page it asked for
 - **And** a request that isn't a page navigation (a script's fetch, an asset) gets 401 instead
 - **Given** the sign-in is on but has no client id and client secret file yet
-- **Then** the pages answer 503 and say how to set it up, the Coordinator logs it, and `coordinator doctor` reports it
+- **Then** the pages answer 503 and say how to set it up, the Coordinator logs it, and `issueflow doctor` reports it
 - **Given** a configured client secret file that can't be read or is empty
 - **When** the Coordinator starts
 - **Then** it refuses to start

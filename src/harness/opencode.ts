@@ -195,7 +195,7 @@ export const opencode: Harness = {
     mkdirSync(join(dir, "plugins"), { recursive: true });
     writeFileSync(join(dir, "opencode.json"), JSON.stringify(opencodeConfig(model), null, 2));
     const hooks = Object.fromEntries(OPENCODE_HOOK_EVENTS.map((ev) => [ev, hook(ev)]));
-    writeFileSync(join(dir, "plugins", "coordinator.js"), opencodePlugin(hooks, join(sessionDir, "hook-errors.log")));
+    writeFileSync(join(dir, "plugins", "issueflow.js"), opencodePlugin(hooks, join(sessionDir, "hook-errors.log")));
   },
 
   args({ model, resumeId }) {
