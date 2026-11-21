@@ -6,12 +6,13 @@ import { parseConfig } from "../src/config.ts";
 import { Cancelled, type Prompter } from "../src/init/prompter.ts";
 import { machineInitEnv } from "../src/init/run.ts";
 import { guessSetup, type InitEnv, init } from "../src/init/wizard.ts";
+import { HARNESS_MODELS } from "../src/models.ts";
 
 const CONFIG = "/home/o/.config/issueflow/config.json";
 const STATE = "/home/o/.local/share/issueflow";
 const SCHEMA = "file:///pkg/config.schema.json";
 
-type Asked = { kind: string; message: string; initial?: unknown; options?: unknown[] };
+type Asked = { kind: string; message: string; initial?: unknown; options?: unknown[]; hints?: unknown[] };
 /** An answer: a value, or `cancel` to press Ctrl-C there. */
 type Answer = unknown;
 
@@ -58,6 +59,7 @@ const scripted = (answers: [string, Answer][]) => {
         message: o.message,
         initial: o.initial,
         options: o.options.map((c) => c.value),
+        hints: o.options.map((c) => c.hint),
       }) as never,
     multiselect: async (o) =>
       answer({
@@ -72,7 +74,13 @@ const scripted = (answers: [string, Answer][]) => {
 
 /** A fake machine: files with their modes, a `gh` that knows one user and some repositories. */
 const fakeEnv = (
-  o: { loggedIn?: boolean; loginWorks?: (token: string) => boolean; files?: Record<string, string> } = {},
+  o: {
+    loggedIn?: boolean;
+    loginWorks?: (token: string) => boolean;
+    files?: Record<string, string>;
+    /** The CLIs on the PATH, e.g. `codex`. */
+    onPath?: string[];
+  } = {},
 ) => {
   const files = new Map<string, { text: string; mode?: number }>(
     Object.entries(o.files ?? {}).map(([k, v]) => [k, { text: v }]),
@@ -95,6 +103,7 @@ const fakeEnv = (
       files.set(path, { text, mode });
     },
     randomToken: () => "random-token",
+    onPath: (bin) => (o.onPath ?? []).includes(bin),
     doctor: async (path) => {
       calls.push(`doctor ${path}`);
       return 0;
@@ -118,7 +127,7 @@ const FRESH: [string, Answer][] = [
   ["client id", "Ov23liClient"],
   ["client secret", "s3cret"],
   ["dashboard token", true],
-  ["Add extra Claude Code Accounts", true],
+  ["Add extra Accounts", true],
   ["Name of the extra Account", ["each", "spare", ""]],
   ["What should the Coordinator merge", "all"],
   ["Install and start", true],
@@ -175,6 +184,118 @@ describe("issueflow init", () => {
     expect(m.files.get(CONFIG)?.text).toBe(`${JSON.stringify(json, null, 2)}\n`);
     // Then the setup check and the service.
     expect(m.calls).toEqual([`doctor ${CONFIG}`, `service install ${CONFIG}`]);
+  });
+
+  test("REQ-007-08 the Harnesses whose CLI is on the PATH are preselected, Claude Code when none is", async () => {
+    const none = scripted(FRESH);
+    await init(CONFIG, none.p, fakeEnv().env);
+    expect(none.find("Which Harnesses")).toMatchObject({
+      kind: "multiselect",
+      initial: ["claude"],
+      options: ["claude", "codex", "antigravity", "copilot", "opencode"],
+    });
+    const some = scripted(FRESH);
+    await init(CONFIG, some.p, fakeEnv({ onPath: ["codex", "agy", "opencode"] }).env);
+    expect(some.find("Which Harnesses")?.initial).toEqual(["codex", "antigravity", "opencode"]);
+  });
+
+  test("REQ-007-08 a Codex-only setup offers Codex's models and writes a Codex Account, with its login step", async () => {
+    const m = fakeEnv({ onPath: ["codex"] });
+    const s = scripted([...FRESH.filter(([k]) => k !== "Add extra Accounts" && k !== "Name of the extra")]);
+    expect(await init(CONFIG, s.p, m.env)).toBe(0);
+    const codexModels = HARNESS_MODELS.codex.map((x) => x.value);
+    expect(s.find("Planner: model")).toMatchObject({ options: codexModels, initial: codexModels[0] });
+    expect(s.find("Planner: model")?.hints?.every((h) => h === "Codex CLI")).toBe(true);
+    expect(s.shown()).toContain("codex login");
+    expect(s.shown()).not.toContain("CODEX_HOME=");
+    const json = m.json();
+    expect(json.roles).toEqual({
+      planner: { model: codexModels[0], effort: "high" },
+      implementer: { model: codexModels[0], effort: "medium" },
+      reviewer: { model: codexModels[0] },
+    });
+    expect(json.accounts).toEqual([{ name: "codex", harness: "codex" }]);
+    expect(() => parseConfig(json, { configPath: CONFIG })).not.toThrow();
+    expect(m.calls).toContain(`doctor ${CONFIG}`);
+  });
+
+  test("REQ-007-08 Claude Code and Copilot CLI: both catalogues, one Account each, extra Accounts per Harness", async () => {
+    const m = fakeEnv({ onPath: ["claude", "copilot"] });
+    const s = scripted([
+      ["Implementer: model", "copilot:claude-sonnet-5.5"],
+      ["Name of the extra Account", ["each", "spare", ""]],
+      ["spare: which Harness", "copilot"],
+      ...FRESH,
+    ]);
+    expect(await init(CONFIG, s.p, m.env)).toBe(0);
+    const options = s.find("Reviewer: model")?.options;
+    expect(options).toEqual([...HARNESS_MODELS.claude, ...HARNESS_MODELS.copilot].map((x) => x.value));
+    expect(s.find("Reviewer: model")?.hints).toContain("Copilot CLI");
+    expect(s.find("Reviewer: model")?.hints).toContain("Claude Code");
+    expect(s.find("Planner: model")?.initial).toBe("opus");
+    expect(s.find("spare: which Harness")).toMatchObject({ options: ["claude", "copilot"] });
+    expect(s.find("spare: its own")?.initial).toBe("/home/o/.copilot-spare");
+    expect(s.shown()).toContain("copilot login");
+    expect(s.shown()).toContain("COPILOT_HOME=/home/o/.copilot-spare copilot login");
+    const json = m.json();
+    expect(json.roles.implementer.model).toBe("copilot:claude-sonnet-5.5");
+    expect(json.accounts).toEqual([
+      { name: "main" },
+      { name: "copilot", harness: "copilot" },
+      { name: "spare", harness: "copilot", configDir: "/home/o/.copilot-spare" },
+    ]);
+    expect(() => parseConfig(json, { configPath: CONFIG })).not.toThrow();
+  });
+
+  test("REQ-007-08 a Claude-only setup without extra Accounts writes no accounts, as before", async () => {
+    const m = fakeEnv({ onPath: ["claude"] });
+    const s = scripted([["Add extra Accounts", false], ...FRESH]);
+    expect(await init(CONFIG, s.p, m.env)).toBe(0);
+    const json = m.json();
+    expect(json.accounts).toBeUndefined();
+    expect(json.roles).toEqual({
+      planner: { model: "opus", effort: "high" },
+      implementer: { model: "sonnet", effort: "medium" },
+      reviewer: { model: "opus" },
+    });
+    expect(() => parseConfig(json, { configPath: CONFIG })).not.toThrow();
+  });
+
+  test("REQ-007-08 a picked Harness no Role uses still gets its Account", async () => {
+    const m = fakeEnv();
+    const s = scripted([["Which Harnesses", ["claude", "codex"]], ["Add extra Accounts", false], ...FRESH]);
+    await init(CONFIG, s.p, m.env);
+    const json = m.json();
+    expect(json.roles.planner.model).toBe("opus");
+    expect(json.accounts).toEqual([{ name: "main" }, { name: "codex", harness: "codex" }]);
+    expect(() => parseConfig(json, { configPath: CONFIG })).not.toThrow();
+  });
+
+  test("REQ-007-08 extra Accounts only for a Harness with a per-Account folder: not Antigravity CLI or OpenCode", async () => {
+    const m = fakeEnv({ onPath: ["agy", "opencode"] });
+    const s = scripted(FRESH);
+    expect(await init(CONFIG, s.p, m.env)).toBe(0);
+    expect(s.find("Add extra Accounts")).toBeUndefined();
+    expect(s.find("Name of the extra Account")).toBeUndefined();
+    expect(s.shown()).toContain("agy    then sign in");
+    expect(s.shown()).toContain("opencode providers login");
+    const json = m.json();
+    expect(json.accounts).toEqual([
+      { name: "antigravity", harness: "antigravity" },
+      { name: "opencode", harness: "opencode" },
+    ]);
+    expect(() => parseConfig(json, { configPath: CONFIG })).not.toThrow();
+
+    // With Claude Code next to Antigravity, an extra Account is Claude's, without asking which Harness.
+    const m2 = fakeEnv({ onPath: ["claude", "agy"] });
+    const s2 = scripted(FRESH);
+    await init(CONFIG, s2.p, m2.env);
+    expect(s2.find("which Harness")).toBeUndefined();
+    expect(m2.json().accounts).toEqual([
+      { name: "main" },
+      { name: "antigravity", harness: "antigravity" },
+      { name: "spare", configDir: "/home/o/.claude-spare" },
+    ]);
   });
 
   test("REQ-007-10 the client secret and the token are files only the user can read; the config holds their paths", async () => {
@@ -338,6 +459,22 @@ describe("issueflow init on an existing config", () => {
     );
     expect(m.json().dashboard.githubLogin.clientSecretPath).toBe(`${STATE}/github-client-secret`);
     expect(m.files.get(`${STATE}/github-client-secret`)).toEqual({ text: "new-secret\n", mode: 0o600 });
+  });
+
+  test("REQ-007-09 editing preselects the Harnesses of the Accounts and Role models and keeps the Accounts", async () => {
+    const accounts = [{ name: "main" }, { name: "work", harness: "codex", configDir: "/home/o/.codex-work" }];
+    const withCodex = { ...EXISTING, accounts, roles: { ...EXISTING.roles, implementer: { model: "gpt-6.2-sol" } } };
+    const m = fakeEnv({
+      files: { [CONFIG]: JSON.stringify(withCodex), "/secrets/client": "old\n", "/secrets/token": "tok\n" },
+    });
+    const s = scripted([["exists", "edit"]]);
+    expect(await init(CONFIG, s.p, m.env)).toBe(0);
+    expect(s.find("Which Harnesses")?.initial).toEqual(["claude", "codex"]);
+    expect(s.find("Implementer: model")?.initial).toBe("gpt-6.2-sol");
+    const json = m.json();
+    expect(json.accounts).toEqual(accounts);
+    expect(json.roles).toEqual(withCodex.roles);
+    expect(() => parseConfig(json, { configPath: CONFIG })).not.toThrow();
   });
 
   test("REQ-007-09 a file that isn't JSON can only be replaced or kept", async () => {
