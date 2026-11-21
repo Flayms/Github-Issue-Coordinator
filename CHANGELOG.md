@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/Flayms/Issueflow/compare/v0.1.0...v0.1.1) (2026-11-21)
+
+
+### Bug Fixes
+
+* publish the npm package as @flayms/issueflow ([#199](https://github.com/Flayms/Issueflow/issues/199)) ([db2f388](https://github.com/Flayms/Issueflow/commit/db2f3887e140194bbecc5907a63bf882c9de8ad3))
+
 ## 0.1.0 (2026-11-21)
 
 
