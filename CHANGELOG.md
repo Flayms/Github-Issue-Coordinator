@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.0](https://github.com/Flayms/Issueflow/compare/v0.1.1...v0.2.0) (2026-11-21)
+
+
+### Features
+
+* init lets the Owner pick any Harness, not only Claude Code ([#192](https://github.com/Flayms/Issueflow/issues/192), REQ-007-08, REQ-007-09) ([#198](https://github.com/Flayms/Issueflow/issues/198)) ([d079ecc](https://github.com/Flayms/Issueflow/commit/d079ecc75ce9773afd029980374d123de4d0caec))
+
+
+### Bug Fixes
+
+* init lists the repositories without gh's --slurp, which gh 2.46 lacks ([#202](https://github.com/Flayms/Issueflow/issues/202), REQ-007-08) ([#204](https://github.com/Flayms/Issueflow/issues/204)) ([db24dc2](https://github.com/Flayms/Issueflow/commit/db24dc2a356490f440fec66f6fd242ccdf8620d6))
+
 ## [0.1.1](https://github.com/Flayms/Issueflow/compare/v0.1.0...v0.1.1) (2026-11-21)
 
 
