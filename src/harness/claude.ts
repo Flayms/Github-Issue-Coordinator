@@ -91,6 +91,7 @@ export const claude: Harness = {
   },
   accountEnv: "CLAUDE_CONFIG_DIR",
   defaultAccountFolder: ".claude",
+  loginStep: (dir) => `${dir ? `CLAUDE_CONFIG_DIR=${dir} ` : ""}claude    then /login with that subscription`,
   dialogs: [
     // Answered with Down, Enter: the second option, which is "yes" on both.
     { screen: /Yes, I trust this folder/, keys: ["Down", "Enter"] },

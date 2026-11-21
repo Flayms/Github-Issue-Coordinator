@@ -83,6 +83,7 @@ export const antigravity: Harness = {
   },
   // No accountEnv: Antigravity has no per-login folder, so it supports one Account (REQ-006-09).
   defaultAccountFolder: ".gemini",
+  loginStep: () => "agy    then sign in and finish its first-run screens",
   // The folder trust question is answered by `trustedWorkspaces` in the session's settings.
   dialogs: [],
 

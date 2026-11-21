@@ -90,6 +90,7 @@ export const codex: Harness = {
   },
   accountEnv: "CODEX_HOME",
   defaultAccountFolder: ".codex",
+  loginStep: (dir) => `${dir ? `CODEX_HOME=${dir} ` : ""}codex login`,
   dialogs: [
     // The first session in a folder asks once per `CODEX_HOME`; "1. Trust and continue" is preselected.
     { screen: /Trust this folder\?[\s\S]*1\. Trust and continue/, keys: ["Enter"] },

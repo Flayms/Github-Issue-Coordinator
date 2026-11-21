@@ -30,12 +30,13 @@ One-time steps to get the Coordinator running. Work through them in order; `issu
   ```sh
   curl -fsSL https://bun.sh/install | bash
   ```
-- [ ] [Claude Code](https://code.claude.com):
+- [ ] At least one [Harness](harnesses.md), installed and logged in. For [Claude Code](https://code.claude.com):
 
   ```sh
   curl -fsSL https://claude.ai/install.sh | bash
   ```
-- [ ] Run `claude` once and `/login` with your subscription. Remote Control needs this login, not `claude setup-token`.
+
+  Then run `claude` once and `/login` with your subscription. Remote Control needs this login, not `claude setup-token`. Codex CLI, Antigravity CLI, Copilot CLI and OpenCode work too, on their own or next to it ([Harnesses](harnesses.md)); `issueflow init` asks which ones you use.
 - [ ] The Coordinator itself, which gives you the `issueflow` command:
 
   ```sh
@@ -94,15 +95,16 @@ Good to know:
   issueflow init
   ```
 
-  | It asks for    | Then                                                                                                      |
-  | -------------- | --------------------------------------------------------------------------------------------------------- |
-  | GitHub login   | Checks `gh auth status`; without a login it shows the PAT's settings (step 1) and logs in with your token |
-  | Owner          | Your login and numeric id, read from the token's account, to confirm                                      |
-  | Repositories   | Picked from those the token can push to, each with a `setup` command guessed from its lockfile            |
-  | Roles          | A model and effort per Role, the defaults preselected                                                     |
-  | Dashboard      | Off, or on with Sign in with GitHub (step 4); optionally a token for scripts                              |
-  | Extra Accounts | Optional; prints the login command for each                                                               |
-  | Auto-merge     | `off`, `evaluated` or `all` (below)                                                                       |
+  | It asks for    | Then                                                                                                                                                                        |
+  | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | GitHub login   | Checks `gh auth status`; without a login it shows the PAT's settings (step 1) and logs in with your token                                                                   |
+  | Owner          | Your login and numeric id, read from the token's account, to confirm                                                                                                        |
+  | Repositories   | Picked from those the token can push to, each with a `setup` command guessed from its lockfile                                                                              |
+  | Harnesses      | Which agent CLIs to use; those on the PATH preselected, else Claude Code. Each gets an Account and its login step printed                                                   |
+  | Roles          | A model and effort per Role, from the picked Harnesses' models, the defaults preselected                                                                                    |
+  | Dashboard      | Off, or on with Sign in with GitHub (step 4); optionally a token for scripts                                                                                                |
+  | Extra Accounts | Optional, for Claude Code, Codex CLI or Copilot CLI (one Account only for Antigravity CLI and OpenCode); prints the login command for each, e.g. `CODEX_HOME=… codex login` |
+  | Auto-merge     | `off`, `evaluated` or `all` (below)                                                                                                                                         |
 
   It writes `~/.config/issueflow/config.json`, runs `issueflow doctor` and offers to install the service (step 5). Run it again to change the answers: it offers to edit the file with its values preselected, and keeps the keys it doesn't ask about.
 

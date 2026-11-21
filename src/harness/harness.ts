@@ -105,6 +105,11 @@ export interface Harness {
   args(o: LaunchInput): string[];
   /** Variables the CLI needs besides the Account's folder and `TMPDIR`, e.g. where its per-session config is. */
   env(o: { tmp: string; sessionDir: string }): Record<string, string>;
+  /**
+   * REQ-007-08: what the Owner runs once to log an Account in, as docs/harnesses.md says; with the Account's own folder
+   * for a Harness with `accountEnv`.
+   */
+  loginStep(configDir?: string): string;
   /** How `issueflow doctor` checks an Account's login (REQ-006-05). */
   loginCheck: LoginCheck;
   /** Copies a session's transcript to another Account's folder (feature `transcriptMove`). */

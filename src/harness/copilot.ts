@@ -83,6 +83,7 @@ export const copilot: Harness = {
   },
   accountEnv: "COPILOT_HOME",
   defaultAccountFolder: ".copilot",
+  loginStep: (dir) => `${dir ? `COPILOT_HOME=${dir} ` : ""}copilot login    and let it store the token in config.json`,
   // COPILOT_ALLOW_ALL=true trusts the folder, so no trust dialog comes up (see env).
   dialogs: [],
 

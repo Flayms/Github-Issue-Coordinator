@@ -188,6 +188,7 @@ export const opencode: Harness = {
   },
   // No accountEnv: one Account in OpenCode's default data folder (REQ-006-16).
   defaultAccountFolder: join(".local", "share", "opencode"),
+  loginStep: () => "nothing for a free Zen model; for another provider: opencode providers login",
   dialogs: [],
 
   writeSessionConfig({ sessionDir, hook, model }) {

@@ -4,8 +4,10 @@
  * question through the `Prompter`, so tests run it without a terminal, `gh` or systemd.
  */
 import { dirname, join, resolve } from "node:path";
+import { harnessOfAccount } from "../accounts.ts";
 import { type AutoMergeMode, ConfigError, EFFORTS, parseConfig, ROLES, type Role } from "../config.ts";
-import { HARNESS_MODELS, modelLabel } from "../models.ts";
+import { HARNESS_NAMES, HARNESSES, type HarnessName } from "../harness/index.ts";
+import { HARNESS_MODELS, harnessOfModel, modelLabel } from "../models.ts";
 import { Cancelled, type Choice, type Prompter } from "./prompter.ts";
 
 /** The world outside the questions. */
@@ -25,6 +27,8 @@ export interface InitEnv {
   writeFile(path: string, text: string, mode?: number): void;
   /** A new random token for the dashboard. */
   randomToken(): string;
+  /** The CLI is on the PATH, e.g. `codex`; to preselect the Harnesses installed. */
+  onPath(bin: string): boolean;
   doctor(configPath: string): Promise<number>;
   serviceInstall(configPath: string): Promise<number>;
   /** The `$schema` the config gets: the installed `config.schema.json`. */
@@ -162,9 +166,11 @@ async function ask(
   await githubLogin(p, env);
   const owner = await ownerOf(p, env, old);
   const repos = await reposOf(p, env, old);
-  const roles = await rolesOf(p, old);
+  const editing = existing !== undefined;
+  const harnesses = await harnessesOf(p, env, old, editing);
+  const roles = await rolesOf(p, old, harnesses);
   const dashboard = await dashboardOf(p, env, old, stateDir, secrets);
-  const accounts = await accountsOf(p, env, old);
+  const accounts = await accountsOf(p, env, old, harnesses, editing);
   const autoMerge = await p.select<AutoMergeMode>({
     message: "What should the Coordinator merge itself once a PR passed its Review and checks?",
     options: [
@@ -263,20 +269,58 @@ async function reposOf(p: Prompter, env: InitEnv, old: Json): Promise<Json[]> {
   return repos;
 }
 
-/** Step 4: the model and effort per Role. */
-async function rolesOf(p: Prompter, old: Json) {
+/**
+ * Step 4: the Harnesses to use. A new config preselects those whose CLI is on the PATH, else Claude Code; an existing
+ * one those of its Accounts and Role models (REQ-007-09).
+ */
+async function harnessesOf(p: Prompter, env: InitEnv, old: Json, editing: boolean): Promise<HarnessName[]> {
+  const inUse = new Set<HarnessName>();
+  if (editing) {
+    const accounts = (Array.isArray(old.accounts) ? old.accounts : []).filter(isObject);
+    // Without `accounts`, the config runs on Claude Code's default Account.
+    if (!accounts.length) inUse.add("claude");
+    for (const a of accounts) inUse.add(harnessOfAccount({ name: String(a.name), harness: a.harness as HarnessName }));
+    const repoRoles = (Array.isArray(old.repos) ? old.repos : []).map((r) => (isObject(r) ? r.roles : undefined));
+    for (const roles of [old.roles, ...repoRoles])
+      for (const r of isObject(roles) ? Object.values(roles) : [])
+        if (isObject(r) && typeof r.model === "string") inUse.add(harnessOfModel(r.model));
+  }
+  const found = editing
+    ? HARNESS_NAMES.filter((h) => inUse.has(h))
+    : HARNESS_NAMES.filter((h) => env.onPath(HARNESSES[h].bin));
+  return p.multiselect({
+    message: "Which Harnesses (agent CLIs) are installed and logged in?",
+    options: HARNESS_NAMES.map((h) => ({ value: h, label: HARNESSES[h].label, hint: `\`${HARNESSES[h].bin}\`` })),
+    initial: found.length ? found : ["claude"],
+  });
+}
+
+/** The model a new Role gets: today's Claude default, else the first model of the first Harness picked. */
+const defaultModel = (role: Role, harnesses: readonly HarnessName[]): string => {
+  const first = harnesses[0];
+  return harnesses.includes("claude") || !first
+    ? DEFAULT_ROLES[role].model
+    : (HARNESS_MODELS[first][0]?.value ?? DEFAULT_ROLES[role].model);
+};
+
+/** Step 5: the model and effort per Role, from the picked Harnesses' models. */
+async function rolesOf(p: Prompter, old: Json, harnesses: readonly HarnessName[]) {
   const oldRoles = isObject(old.roles) ? old.roles : {};
   const roles: Json = { ...oldRoles };
   for (const role of ROLES) {
     const was = isObject(oldRoles[role]) ? oldRoles[role] : {};
-    const model = typeof was.model === "string" ? was.model : DEFAULT_ROLES[role].model;
+    const oldModel = typeof was.model === "string" ? was.model : undefined;
+    const model = oldModel && harnesses.includes(harnessOfModel(oldModel)) ? oldModel : defaultModel(role, harnesses);
     const effort = isObject(oldRoles[role])
       ? typeof was.effort === "string"
         ? was.effort
         : ""
       : (DEFAULT_ROLES[role].effort ?? "");
-    const models: Choice<string>[] = HARNESS_MODELS.claude.map((m) => ({ value: m.value, label: m.label }));
-    if (!models.some((m) => m.value === model)) models.unshift({ value: model, label: modelLabel(model) });
+    const models: Choice<string>[] = harnesses.flatMap((h) =>
+      HARNESS_MODELS[h].map((m) => ({ value: m.value, label: m.label, hint: HARNESSES[h].label })),
+    );
+    if (!models.some((m) => m.value === model))
+      models.unshift({ value: model, label: modelLabel(model), hint: HARNESSES[harnessOfModel(model)].label });
     const picked = await p.select({ message: `${ROLE_LABELS[role]}: model`, options: models, initial: model });
     const pickedEffort = await p.select<string>({
       message: `${ROLE_LABELS[role]}: effort`,
@@ -292,7 +336,7 @@ async function rolesOf(p: Prompter, old: Json) {
   return roles;
 }
 
-/** Steps 5 and 6: the dashboard, its GitHub sign-in and an optional token; secrets go to `secrets`. */
+/** Steps 6 and 7: the dashboard, its GitHub sign-in and an optional token; secrets go to `secrets`. */
 async function dashboardOf(p: Prompter, env: InitEnv, old: Json, stateDir: string, secrets: Map<string, string>) {
   const was = isObject(old.dashboard) ? old.dashboard : undefined;
   const on = await p.select<"github" | "off">({
@@ -354,19 +398,42 @@ async function dashboardOf(p: Prompter, env: InitEnv, old: Json, stateDir: strin
   return dashboard;
 }
 
-/** Step 7: extra Claude Code Accounts, each with the login to run; the existing ones are kept. */
-async function accountsOf(p: Prompter, env: InitEnv, old: Json): Promise<Json[] | undefined> {
-  const accounts = (Array.isArray(old.accounts) ? old.accounts : []).filter(isObject);
-  const more = await p.confirm({
-    message: accounts.length
-      ? `Add more Accounts to the ${accounts.length} configured (another Claude subscription for when one hits its limit)?`
-      : "Add extra Claude Code Accounts (another subscription for when one hits its limit)?",
-    initial: false,
-  });
-  if (!more) return accounts.length ? accounts : undefined;
-  if (!accounts.length) accounts.push({ name: "main" });
+/** The name of a picked Harness's first Account: `main` for Claude Code, as before, else the Harness's name. */
+const firstAccountName = (h: HarnessName) => (h === "claude" ? "main" : h);
+
+/**
+ * Step 8: an Account in its default folder for each picked Harness without one, then optional extra Accounts for a
+ * Harness with a per-Account folder (REQ-006-09); each new one with its login step. The existing Accounts are kept.
+ */
+async function accountsOf(
+  p: Prompter,
+  env: InitEnv,
+  old: Json,
+  harnesses: readonly HarnessName[],
+  editing: boolean,
+): Promise<Json[] | undefined> {
+  const oldAccounts = (Array.isArray(old.accounts) ? old.accounts : []).filter(isObject);
+  const accounts = [...oldAccounts];
+  const harnessOf = (a: Json) => harnessOfAccount({ name: String(a.name), harness: a.harness as HarnessName });
+  const taken = (name: string) => accounts.some((a) => a.name === name);
   const logins: string[] = [];
-  for (;;) {
+  // Without `accounts`, an existing config runs on Claude Code's default Account, which needs no new login.
+  const implicitClaude = editing && oldAccounts.length === 0;
+  for (const h of harnesses) {
+    if (accounts.some((a) => harnessOf(a) === h)) continue;
+    let name = firstAccountName(h);
+    for (let n = 2; taken(name); n++) name = `${firstAccountName(h)}-${n}`;
+    accounts.push(h === "claude" ? { name } : { name, harness: h });
+    if (!(h === "claude" && implicitClaude)) logins.push(`${HARNESSES[h].label}: ${HARNESSES[h].loginStep()}`);
+  }
+  const withFolders = harnesses.filter((h) => HARNESSES[h].accountEnv);
+  const more =
+    withFolders.length > 0 &&
+    (await p.confirm({
+      message: `Add extra Accounts (another subscription of ${withFolders.map((h) => HARNESSES[h].label).join(" or ")} for when one hits its limit)?`,
+      initial: false,
+    }));
+  while (more) {
     const name = (
       await p.text({
         message: "Name of the extra Account (empty: done)",
@@ -375,23 +442,39 @@ async function accountsOf(p: Prompter, env: InitEnv, old: Json): Promise<Json[] 
             ? undefined
             : !ACCOUNT_NAME.test(v.trim())
               ? "letters, digits, '.', '_' or '-' only"
-              : accounts.some((a) => a.name === v.trim())
+              : taken(v.trim())
                 ? "that name is taken"
                 : undefined,
       })
     ).trim();
     if (!name) break;
+    const first = withFolders[0] as HarnessName;
+    const h =
+      withFolders.length === 1
+        ? first
+        : await p.select<HarnessName>({
+            message: `${name}: which Harness?`,
+            options: withFolders.map((x) => ({ value: x, label: HARNESSES[x].label })),
+            initial: first,
+          });
+    const harness = HARNESSES[h];
     const configDir = (
       await p.text({
-        message: `${name}: its own Claude Code config folder`,
-        initial: join(env.home, `.claude-${name}`),
+        message: `${name}: its own ${harness.label} config folder`,
+        initial: join(env.home, `${harness.defaultAccountFolder}-${name}`),
         validate: required("A folder"),
       })
     ).trim();
-    accounts.push({ name, configDir });
-    logins.push(`CLAUDE_CONFIG_DIR=${configDir} claude    then /login with that subscription`);
+    accounts.push(h === "claude" ? { name, configDir } : { name, harness: h, configDir });
+    logins.push(`${name}: ${harness.loginStep(configDir)}`);
   }
   if (logins.length) p.note(logins.join("\n"), "Log in to each new Account once");
+  // REQ-007-08: Claude Code's default Account alone is what a config without `accounts` means already.
+  const onlyDefault =
+    accounts.length === 1 &&
+    Object.keys(accounts[0] as Json).length === 1 &&
+    harnessOf(accounts[0] as Json) === "claude";
+  if (!oldAccounts.length && onlyDefault) return undefined;
   return accounts;
 }
 

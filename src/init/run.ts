@@ -66,6 +66,7 @@ export const machineInitEnv = (): InitEnv => ({
     renameSync(tmp, path);
   },
   randomToken: () => randomBytes(32).toString("base64url"),
+  onPath: (bin) => Bun.which(bin) !== null,
   doctor: async (path) => (await import("../doctor.ts")).doctor(path),
   serviceInstall: async (path) => (await import("../service.ts")).service("install", path),
   schemaUrl: pathToFileURL(CONFIG_SCHEMA_PATH).href,
