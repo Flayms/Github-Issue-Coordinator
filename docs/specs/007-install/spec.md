@@ -4,7 +4,7 @@
 
 ## Goal
 
-Installing the Coordinator meant cloning the repository, copying `config.example.ts` to `config.ts` and editing TypeScript by hand: looking up the Owner's numeric id, typing repository names, pasting the OAuth App's id and creating secret files. The systemd unit named a fixed checkout, and the state folder depended on where the command was started. Now the Owner installs a package, answers a few questions, and the service runs: `bun add -g issueflow`, then `issueflow init`. Updating is `bun add -g issueflow@latest && issueflow service restart`. The config is one JSON file the dashboard edits in place, so the Owner's hand edits and the dashboard's saves never fight. A release is merging the release PR that release-please keeps open, with no version typed by hand (#187). The product is named Issueflow, so the package, command, folders, environment variable and unit are `issueflow` (#193); the Coordinator stays the name of its daemon.
+Installing the Coordinator meant cloning the repository, copying `config.example.ts` to `config.ts` and editing TypeScript by hand: looking up the Owner's numeric id, typing repository names, pasting the OAuth App's id and creating secret files. The systemd unit named a fixed checkout, and the state folder depended on where the command was started. Now the Owner installs a package, answers a few questions, and the service runs: `bun add -g @flayms/issueflow`, then `issueflow init`. Updating is `bun add -g @flayms/issueflow@latest && issueflow service restart`. The config is one JSON file the dashboard edits in place, so the Owner's hand edits and the dashboard's saves never fight. A release is merging the release PR that release-please keeps open, with no version typed by hand (#187). The product is named Issueflow, so the command, folders, environment variable and unit are `issueflow` (#193); the Coordinator stays the name of its daemon. npm refused the unscoped name, so the package is `@flayms/issueflow`.
 
 ## Requirements
 
@@ -12,7 +12,7 @@ Deprecates REQ-003-36 (replaced by REQ-007-05 to REQ-007-07). Where other requir
 
 ### REQ-007-01 One `issueflow` command
 
-- **Given** the package installed globally (`bun add -g issueflow`), or a checkout run as `bun src/cli.ts`
+- **Given** the package installed globally (`bun add -g @flayms/issueflow`), or a checkout run as `bun src/cli.ts`
 - **When** the Owner runs `issueflow <command>`
 - **Then** `init` runs the setup wizard (REQ-007-08), `start` runs the Coordinator, `doctor` the setup check, and `service install | uninstall | status | logs | restart` manage the systemd service (REQ-007-11)
 - **And** `--config <path>`, before or after the command, names the config file; without it `$ISSUEFLOW_CONFIG`, then the default location (REQ-007-02)
@@ -126,7 +126,7 @@ Deprecates REQ-003-36 (replaced by REQ-007-05 to REQ-007-07). Where other requir
 - **And** `docs:`, `ci:`, `chore:` and `test:` PRs open no release PR
 - **When** the Owner merges the release PR
 - **Then** the `vX.Y.Z` tag and the GitHub Release are created, lint and tests run on the tag, and the version is published to npm with provenance, through npm trusted publishing (no npm token)
-- **And** the release PR's checks run, since it is opened with a token that triggers workflows
+- **And** the release PR's checks run, since it is opened with a token that triggers workflows, and can pass: lint leaves `CHANGELOG.md`, which release-please writes, as it is
 
 ### REQ-007-14 PR titles are conventional
 
@@ -141,6 +141,13 @@ Deprecates REQ-003-36 (replaced by REQ-007-05 to REQ-007-07). Where other requir
 - **When** it runs from the global install, without a checkout
 - **Then** it has the source, the Role prompts, the hook, the dashboard's assets and styles and `config.schema.json`, and no tests, docs or fixtures
 
+### REQ-007-16 The npm package is `@flayms/issueflow`
+
+- **Given** npm refuses the unscoped name `issueflow` as too similar to the existing `issue-flow`
+- **When** the package is published, installed, updated or asked for its newest version
+- **Then** its npm name is `@flayms/issueflow` everywhere: `package.json`, release-please, `doctor`'s npm lookup and every install or update command shown to the Owner (`bun add -g @flayms/issueflow`)
+- **And** the command, folders, environment variable and systemd unit stay `issueflow`
+
 ## Out of scope
 
 - Migrating `config.ts`: there is one user, who runs `issueflow init` once.
@@ -153,7 +160,7 @@ Deprecates REQ-003-36 (replaced by REQ-007-05 to REQ-007-07). Where other requir
 ## Assumptions
 
 - Bun stays a prerequisite, with tmux, git, `gh` and Claude Code; the package runs its TypeScript with Bun, without a build step.
-- The package name `issueflow` is free on npm.
+- The npm scope `@flayms` is the maintainer's npm account (REQ-007-16).
 - The machine runs systemd and `issueflow service` is run as root (or with `sudo`), like the documented setup.
 - A one-time maintainer setup: this repository's `release.yml` registered as the package's trusted publisher on npmjs.com, a small GitHub App (Contents and Pull requests write, this repository only) whose id and key are the `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` secrets, so release-please's PR triggers CI.
 - The first release is `0.1.0`.
@@ -174,6 +181,7 @@ Deprecates REQ-003-36 (replaced by REQ-007-05 to REQ-007-07). Where other requir
 | REQ-007-10 | `issueflow init > REQ-007-10 …` (2 tests: secrets as mode-600 files, paths in the config; the machine's write with mode 600 in a 700 folder); `… on an existing config > REQ-007-10 …`; `REQ-007-09 editing …` keeps the old secret file                                                                                                                                                                                                                                                                                                                                                                                                                               | pass   |
 | REQ-007-11 | `issueflow service > REQ-007-11 …` (5 tests: the unit's contents; other paths and quoting; install; no config, no root, failing systemctl; uninstall, status, logs, restart). Not run: a real `systemctl` install (no systemd in this sandbox)                                                                                                                                                                                                                                                                                                                                                                                                                         | pass   |
 | REQ-007-12 | `version > REQ-007-12 …` (2 tests); `doctor's version check > REQ-007-12 …` (2 tests); `issueflow command > REQ-007-01 / REQ-007-12 …`; `dashboard settings > REQ-007-07 / REQ-007-12 …`                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | pass   |
-| REQ-007-13 | `releases > REQ-007-13 …` (2 tests: release-please config and manifest; `release.yml` jobs, App token, OIDC publish without an npm token). Not run: release-please and `npm publish` themselves (need the one-time setup in docs/setup.md)                                                                                                                                                                                                                                                                                                                                                                                                                             | pass   |
+| REQ-007-13 | `releases > REQ-007-13 …` (4 tests: release-please config and manifest; first release `0.1.0` (`initial-version`); Biome skips a release-please `CHANGELOG.md`; `release.yml` jobs, App token, OIDC publish without an npm token). Not run: release-please and `npm publish` themselves (need the one-time setup in docs/setup.md)                                                                                                                                                                                                                                                                                                                                     | pass   |
 | REQ-007-14 | `releases > REQ-007-14 …` (the PR title check, pinned, and the prompts)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | pass   |
 | REQ-007-15 | `package > REQ-007-01 / REQ-007-15 …` (`bun pm pack` lists the source, prompts, hook, dashboard assets and styles, `config.schema.json`, and no tests, docs or scripts); manual: the dashboard rendered from the global install                                                                                                                                                                                                                                                                                                                                                                                                                                        | pass   |
+| REQ-007-16 | `package > REQ-007-16 …` (the name, the `issueflow` command, the install commands in the README and setup guide); `doctor's version check > REQ-007-16 …`; `REQ-007-12 names the version …` (the update command); manual: npm refused `issueflow` with 403 (too similar to `issue-flow`)                                                                                                                                                                                                                                                                                                                                                                               | pass   |

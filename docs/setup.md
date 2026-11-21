@@ -40,7 +40,7 @@ One-time steps to get the Coordinator running. Work through them in order; `issu
 - [ ] The Coordinator itself, which gives you the `issueflow` command:
 
   ```sh
-  bun add -g issueflow
+  bun add -g @flayms/issueflow
   ```
 
 ## 1. GitHub access: a fine-grained PAT
@@ -259,7 +259,7 @@ Send it as `Authorization: Bearer <token>`, or open the dashboard once as `…/?
 ## Later
 
 - **Add a repository:** add it to the PAT, set up step 2, then `issueflow init` → Edit it and pick it too (or add it to `repos` by hand), `issueflow doctor`, `issueflow service restart`.
-- **Update:** `bun add -g issueflow@latest && issueflow service restart`. `issueflow doctor` says when a newer version is on npm.
+- **Update:** `bun add -g @flayms/issueflow@latest && issueflow service restart`. `issueflow doctor` says when a newer version is on npm.
 - **From a checkout** (contributors): `bun install`, then `bun src/cli.ts <command>` in place of `issueflow <command>`.
 
 ## Releases (maintainers)
@@ -268,7 +268,8 @@ This repository only. [release-please](https://github.com/googleapis/release-ple
 
 One-time setup:
 
-- [ ] On npmjs.com, add this repository's `release.yml` as the trusted publisher of `issueflow` (OIDC, no npm token).
+- [ ] Publish `@flayms/issueflow` once by hand (`npm login`, then `npm publish --access public` from the release tag): npm sets a trusted publisher only on a package that exists.
+- [ ] On npmjs.com, add this repository's `release.yml` as the trusted publisher of `@flayms/issueflow` (OIDC, no npm token).
 - [ ] Create a GitHub App with Contents and Pull requests read & write, install it on this repository only, and add its id and a private key as the Actions secrets `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`. release-please opens its PR with this App's token, since a PR opened with `GITHUB_TOKEN` doesn't trigger `ci.yml`.
 - [ ] Settings → Actions → General: allow GitHub Actions to create pull requests.
 - [ ] Make the `title` check of `.github/workflows/pr-title.yml` required next to `check`.

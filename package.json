@@ -1,6 +1,6 @@
 {
-  "name": "issueflow",
-  "version": "0.0.0",
+  "name": "@flayms/issueflow",
+  "version": "0.1.0",
   "description": "Self-hosted daemon that runs Claude Code and other agent CLIs to triage, plan, implement and review GitHub issues, with human approval gates.",
   "repository": {
     "type": "git",
