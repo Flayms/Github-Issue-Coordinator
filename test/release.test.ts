@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
@@ -34,6 +35,32 @@ describe("releases", () => {
       "changelog-path": "CHANGELOG.md",
     });
     expect(json(".release-please-manifest.json")).toEqual({ ".": json("package.json").version });
+  });
+
+  test("REQ-007-13 the first release is 0.1.0, not release-please's default 1.0.0", () => {
+    expect(json("release-please-config.json").packages["."]["initial-version"]).toBe("0.1.0");
+  });
+
+  test("REQ-007-13 lint leaves release-please's CHANGELOG.md as it writes it, so the release PR's checks can pass", () => {
+    expect(json("biome.json").files.includes).toContain("!CHANGELOG.md");
+    // release-please's style: `*` bullets, which Biome would rewrite to `-`.
+    const dir = mkdtempSync(join(tmpdir(), "changelog-"));
+    try {
+      cpSync(join(ROOT, "biome.json"), join(dir, "biome.json"));
+      const changelog = "# Changelog\n\n## 0.1.0 (2026-11-21)\n\n\n### Features\n\n* a feature ([#1](https://x/1))\n";
+      writeFileSync(join(dir, "CHANGELOG.md"), changelog);
+      const biome = join(ROOT, "node_modules", ".bin", "biome");
+      const r = Bun.spawnSync(
+        [process.execPath, biome, "check", "--vcs-enabled=false", "--no-errors-on-unmatched", "CHANGELOG.md"],
+        {
+          cwd: dir,
+        },
+      );
+      expect(r.stderr.toString() + r.stdout.toString()).not.toContain("format");
+      expect(r.exitCode).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("REQ-007-13 release.yml runs release-please on main with an App token, then publishes a created release to npm through OIDC", () => {
