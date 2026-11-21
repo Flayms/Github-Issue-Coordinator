@@ -9,7 +9,10 @@ import { CONFIG_SCHEMA_PATH } from "../version.ts";
 import { clackPrompter } from "./clack.ts";
 import { type InitEnv, init } from "./wizard.ts";
 
-const gh = (args: string[], stdin?: string) => {
+/** Runs `gh` with these arguments; tests pass `machineInitEnv` another one. */
+export type GhRunner = (args: string[], stdin?: string) => { ok: boolean; out: string; err: string };
+
+const runGh: GhRunner = (args, stdin) => {
   const r = Bun.spawnSync(["gh", ...args], {
     stdin: stdin === undefined ? "ignore" : new Blob([stdin]),
     stdout: "pipe",
@@ -18,34 +21,37 @@ const gh = (args: string[], stdin?: string) => {
   return { ok: r.exitCode === 0, out: r.stdout.toString().trim(), err: r.stderr.toString().trim() };
 };
 
-const ghJson = <T>(args: string[]): T => {
+const ghApi = (gh: GhRunner, args: string[]): string => {
   const r = gh(["api", ...args]);
   if (!r.ok) throw new Error(`gh api ${args.join(" ")}: ${r.err || r.out}`);
-  return JSON.parse(r.out) as T;
+  return r.out;
 };
 
-export const machineInitEnv = (): InitEnv => ({
+const ghJson = <T>(gh: GhRunner, args: string[]): T => JSON.parse(ghApi(gh, args)) as T;
+
+export const machineInitEnv = (gh: GhRunner = runGh): InitEnv => ({
   ghLoggedIn: () => gh(["auth", "status"]).ok,
   ghLogin: (token) => {
     const r = gh(["auth", "login", "--with-token"], token);
     return { ok: r.ok, out: r.err || r.out };
   },
   ghUser: async (login) => {
-    const u = ghJson<{ login: string; id: number }>([login ? `users/${login}` : "user"]);
+    const u = ghJson<{ login: string; id: number }>(gh, [login ? `users/${login}` : "user"]);
     return { login: u.login, id: u.id };
   },
   ghRepos: async () => {
-    // `--slurp` makes the pages one JSON array of pages.
-    const pages = ghJson<{ full_name: string; permissions?: { push?: boolean } }[][]>([
+    // `--jq` prints one line per repository, across all pages, on gh 2.46 too (Ubuntu's apt gh, #202).
+    const out = ghApi(gh, [
       "--paginate",
-      "--slurp",
       "user/repos?per_page=100&sort=full_name",
+      "--jq",
+      ".[] | select(.permissions.push) | .full_name",
     ]);
-    return pages.flat().flatMap((r) => (r.permissions?.push ? [r.full_name] : []));
+    return out.split("\n").filter((line) => line !== "");
   },
   rootFiles: async (repo) => {
     try {
-      return ghJson<{ name: string }[]>([`repos/${repo}/contents/`]).map((f) => f.name);
+      return ghJson<{ name: string }[]>(gh, [`repos/${repo}/contents/`]).map((f) => f.name);
     } catch {
       return [];
     }

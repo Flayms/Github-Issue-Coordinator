@@ -320,6 +320,27 @@ describe("issueflow init", () => {
     expect(env.schemaUrl).toMatch(/^file:\/\/.*\/config\.schema\.json$/);
   });
 
+  test("REQ-007-08 #202: the repositories are listed without --slurp (gh 2.46) and only the pushable ones, across pages", async () => {
+    const calls: string[][] = [];
+    const env = machineInitEnv((args) => {
+      calls.push(args);
+      // `--paginate --jq` prints one line per repository, page after page.
+      return { ok: true, out: "o/a\no/b\nother/c", err: "" };
+    });
+    expect(await env.ghRepos()).toEqual(["o/a", "o/b", "other/c"]);
+    const args = calls[0] ?? [];
+    expect(args).not.toContain("--slurp");
+    expect(args.slice(0, 2)).toEqual(["api", "--paginate"]);
+    expect(args).toContain("user/repos?per_page=100&sort=full_name");
+    expect(args[args.indexOf("--jq") + 1]).toBe(".[] | select(.permissions.push) | .full_name");
+  });
+
+  test("REQ-007-08 #202: no pushable repository gives an empty list, and a gh failure is reported", async () => {
+    expect(await machineInitEnv(() => ({ ok: true, out: "", err: "" })).ghRepos()).toEqual([]);
+    const failing = machineInitEnv(() => ({ ok: false, out: "", err: "HTTP 401" }));
+    await expect(failing.ghRepos()).rejects.toThrow("HTTP 401");
+  });
+
   test("REQ-007-08 without a GitHub CLI login it explains the PAT and logs in with the pasted token", async () => {
     const m = fakeEnv({ loggedIn: false, loginWorks: (t) => t === "github_pat_good" });
     const s = scripted([["Paste the token", ["each", "github_pat_bad", " github_pat_good "]], ...FRESH]);
