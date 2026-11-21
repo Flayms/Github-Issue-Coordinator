@@ -29,7 +29,7 @@ describe("releases", () => {
     const config = json("release-please-config.json");
     expect(config.packages["."]).toMatchObject({
       "release-type": "node",
-      "package-name": "issueflow",
+      "package-name": "@flayms/issueflow",
       "bump-minor-pre-major": true,
       "include-component-in-tag": false,
       "changelog-path": "CHANGELOG.md",
@@ -100,6 +100,16 @@ describe("releases", () => {
 });
 
 describe("package", () => {
+  test("REQ-007-16 the npm package is @flayms/issueflow; the command stays issueflow", () => {
+    const pkg = json("package.json");
+    expect(pkg.name).toBe("@flayms/issueflow");
+    expect(pkg.bin).toEqual({ issueflow: "src/cli.ts" });
+    for (const f of ["README.md", "docs/setup.md"]) {
+      expect(read(f)).toContain("bun add -g @flayms/issueflow");
+      expect(read(f)).not.toMatch(/bun add -g issueflow/);
+    }
+  });
+
   test("REQ-007-01 / REQ-007-15 the package has the issueflow command and ships what it runs, without tests or docs", async () => {
     const pkg = json("package.json");
     expect(pkg.private).toBeUndefined();

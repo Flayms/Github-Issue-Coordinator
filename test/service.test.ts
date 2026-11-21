@@ -4,7 +4,7 @@ import { type ServiceEnv, service, serviceUnit, UNIT_PATH } from "../src/service
 const UNIT_INPUT = {
   bun: "/root/.bun/bin/bun",
   claude: "/root/.local/bin/claude",
-  entry: "/root/.bun/install/global/node_modules/issueflow/src/cli.ts",
+  entry: "/root/.bun/install/global/node_modules/@flayms/issueflow/src/cli.ts",
   configPath: "/root/.config/issueflow/config.json",
   user: "root",
   home: "/root",
